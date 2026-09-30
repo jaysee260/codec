@@ -14,6 +14,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
+import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { BODIES, DISPLAY_NAMES, NAMES, eventId, resolveRoom, uniqueName, userId } from './fixtures/seed.ts';
 import { annotate, childRoomIds, ensureUnread, noteSeedDrift, revokePendingInvite } from './fixtures/state.ts';
@@ -122,6 +123,8 @@ test.describe('demo script (QA-3 smoke)', () => {
   });
 
   test('step 2 — channel list, #random badge, Gaming unread dot, member list', async () => {
+    // The demo script is written against a fresh seed: this step shows the seeded 3 on #random.
+    await requireFreshSeed(test);
     const list = page.getByTestId('channel-list');
     expect(await itemNames(list, 'channel-item-')).toEqual([NAMES.general, NAMES.random, NAMES.dev]);
 
@@ -152,6 +155,9 @@ test.describe('demo script (QA-3 smoke)', () => {
 
   test('step 3 — scroll #general: grouping, rich bodies, pagination to the beginning', async () => {
     test.setTimeout(90_000);
+    // The step opens on the bottom of the *seeded* room: #40, #31 and #18 must be in the initial
+    // window, which only holds while nothing newer has been posted into #general.
+    await requireFreshSeed(test);
 
     // Bottom of the room: the newest seeded message is on screen and rows are grouped by sender.
     await expect(row(page, eventId('general.last'))).toBeVisible();
@@ -209,6 +215,8 @@ test.describe('demo script (QA-3 smoke)', () => {
   });
 
   test('step 5 — react 🎉 to bob\'s "Lunch today?" message, then remove it', async () => {
+    // #11 is only on screen because step 3 paged the room in; skipping step 3 leaves it unreachable.
+    await requireFreshSeed(test);
     const target = row(page, eventId('general.reacted'));
     const mine = target.getByTestId('reaction-🎉');
 
@@ -238,6 +246,8 @@ test.describe('demo script (QA-3 smoke)', () => {
   });
 
   test('step 6 — reply to carol\'s "Will there be snacks?" with "Yes"', async () => {
+    // Same as step 5: #34 is reachable in the demo session only after step 3 ran.
+    await requireFreshSeed(test);
     const actions = await hoverActions(page, snacksEventId);
     await actions.getByTestId('message-action-reply').click();
 

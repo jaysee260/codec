@@ -22,7 +22,24 @@ export interface LoginOptions {
 }
 
 /**
+ * Forgets the session this browser context is holding, so the next navigation lands on the login
+ * form instead of restoring the previous user.
+ *
+ * The app persists `matrix-poc.session` and calls `restore()` on every page load (AC-SH-4), which is
+ * correct — but it means a *second* `loginAs` inside one test (AC-B9-1 switches from alice to carol)
+ * would silently keep the first user and never render `login-form`. A no-op before the first
+ * navigation, when the context is still on `about:blank` and has no storage for the origin.
+ */
+async function dropStoredSession(page: Page): Promise<void> {
+  if (!/^https?:/i.test(page.url())) return;
+  await page
+    .evaluate((key) => window.localStorage.removeItem(key), SESSION_STORAGE_KEY)
+    .catch(() => undefined);
+}
+
+/**
  * Logs `user` in through the real login form and waits until the shell is interactive.
+ * Safe to call more than once in a test: any session already held is dropped first.
  *
  *   await loginAs(page, 'alice');
  */
@@ -40,6 +57,7 @@ export async function loginAs(page: Page, user: UserKey = 'alice', opts: LoginOp
     );
   }
 
+  await dropStoredSession(page);
   await page.goto('/');
   await expect(page.getByTestId('login-form')).toBeVisible();
   await page.getByTestId('login-username').fill(user);

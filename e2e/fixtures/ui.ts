@@ -32,6 +32,20 @@ export const memberItem = (page: Page, userId: string): Locator => page.getByTes
 export const rowByText = (page: Page, text: string): Locator =>
   messageList(page).getByTestId(/^message-[$~]/).filter({ hasText: text });
 
+/**
+ * Waits until a row carries a *server* event id and returns that id.
+ *
+ * A just-sent message first renders as a local echo (`message-~abc`); when the remote echo arrives
+ * the row is re-keyed to `message-$abc`, which unmounts the echo node. Anything that reads a row's
+ * id straight after `toBeVisible()` can therefore capture a `~` id and then work against a detached
+ * element ("Element is not attached to the DOM") or call the API with an id the server never had.
+ * Always go through this before `hoverActions`/`getEvent` on a message this run created.
+ */
+export async function settledEventId(row: Locator, timeout = 15_000): Promise<string> {
+  await expect(row).toHaveAttribute('data-testid', /^message-\$/, { timeout });
+  return (await row.getAttribute('data-testid'))!.replace('message-', '');
+}
+
 /** Named list item by the `data-name` helper attribute (docs/ACCEPTANCE.md test-id conventions 4). */
 export const byName = (scope: Locator, name: string): Locator => scope.locator(`[data-name="${name}"]`);
 

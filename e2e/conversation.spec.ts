@@ -10,6 +10,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
+import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser, type MatrixEventJson } from './fixtures/matrix-api.ts';
 import {
   BODIES,
@@ -34,6 +35,7 @@ import {
   scrollListToBottom,
   scrollListToTop,
   scrollMetrics,
+  settledEventId,
 } from './fixtures/ui.ts';
 
 const ALICE = userId('alice');
@@ -91,6 +93,9 @@ async function bodyText(page: Page, id: string): Promise<string> {
 
 test.describe('DEV-B-1 timeline rendering and grouping', () => {
   test('AC-B1-1 the newest seeded message is rendered and the list opens at the bottom', async ({ page }) => {
+    // The criterion *is* "the initial window ends at the last seeded message", so it can only be
+    // judged on a pristine seed: anything posted into #general afterwards pushes #40 out of it.
+    await requireFreshSeed(test);
     await expect(row(page, eventId('general.last'))).toBeVisible();
     expect(await atBottom(page, 40), 'the list must open scrolled to the bottom').toBe(true);
 
@@ -124,6 +129,9 @@ test.describe('DEV-B-1 timeline rendering and grouping', () => {
   });
 
   test('AC-B1-4 an edited message shows the new body plus (edited) and no fallback row', async ({ page }) => {
+    // Freshness-independent: #18 only has to be *rendered*, so page back to it when the room has
+    // grown past the initial window instead of demanding a fresh seed.
+    await withFullHistory(page);
     await expect(row(page, eventId('general.edited'))).toBeVisible();
     expect(await bodyText(page, eventId('general.edited'))).toBe(BODIES.general18);
     await expect(row(page, eventId('general.edited')).getByTestId('message-edited')).toBeVisible();
@@ -133,7 +141,7 @@ test.describe('DEV-B-1 timeline rendering and grouping', () => {
 
   test('AC-B1-5 m.reaction and m.replace events do not render as rows', async ({ page }) => {
     await withFullHistory(page);
-    const events = await bob.messages(R.general, 400);
+    const events = await bob.messagesDeep(R.general);
     const hidden = events.filter(
       (e) =>
         e.type === 'm.reaction' ||
@@ -173,6 +181,9 @@ test.describe('DEV-B-1 timeline rendering and grouping', () => {
   });
 
   test('AC-B1-8 timestamps use HH:MM for messages sent today', async ({ page }) => {
+    // Freshness-independent: the assertion is on the *format* of a seeded row's timestamp, and the
+    // same-day/other-day branch below already adapts, so paging back to #40 is enough.
+    await withFullHistory(page);
     const stamp = row(page, eventId('general.last')).getByTestId('message-timestamp').first();
     await expect(stamp).toBeVisible();
     const seeded = await bob.getEvent(R.general, eventId('general.last'));
@@ -274,6 +285,9 @@ test.describe('DEV-B-2 composer', () => {
 
 test.describe('DEV-B-3 backwards pagination', () => {
   test('AC-B3-1 the first message of the room is not in the initial window', async ({ page }) => {
+    // Needs the seeded room shape: "the window holds the newest seeded messages but not #1".
+    // On a grown room the second half passes vacuously, which would not prove anything.
+    await requireFreshSeed(test);
     await expect(row(page, eventId('general.last'))).toBeVisible();
     await expect(row(page, eventId('general.first'))).toHaveCount(0);
   });
@@ -286,14 +300,19 @@ test.describe('DEV-B-3 backwards pagination', () => {
     const topId = ids[0];
     expect(topId, 'the list must already contain rows').toBeTruthy();
     const anchor = page.getByTestId(topId);
-    const before = (await anchor.boundingBox())!;
 
     const sawLoading = page
       .getByTestId('timeline-loading')
       .waitFor({ state: 'visible', timeout: 8_000 })
       .then(() => true)
       .catch(() => false);
-    await scrollListToTop(page);
+    // Baseline is taken *after* the scroll, in the same evaluate so no commit can interleave:
+    // scrolling to the top is the action under test, not part of the jump being measured.
+    const beforeY = await messageList(page).evaluate((el, id) => {
+      el.scrollTop = 0;
+      return el.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect().top;
+    }, topId);
+    const before = { y: beforeY };
     const loadingSeen = await sawLoading;
 
     await expect
@@ -369,6 +388,9 @@ test.describe('DEV-B-4 formatted bodies and images', () => {
   });
 
   test('AC-B4-2 the code block renders as a monospace pre/code block', async ({ page }) => {
+    // Freshness-independent: page back until #31 is in the DOM (it starts inside the initial window
+    // on a fresh seed, and drops out of it as the room grows).
+    await withFullHistory(page);
     const code = row(page, eventId('general.code')).locator('pre code');
     await expect(code).toBeVisible();
     await expect(code).toContainText('npm run build && npm run deploy -- --env=prod');
@@ -460,7 +482,7 @@ test.describe('DEV-B-4 formatted bodies and images', () => {
 test.describe('DEV-B-5 reactions', () => {
   /** Removes alice's reaction with `key` from `targetId` so a re-run starts clean. */
   async function clearMyReaction(targetId: string, key: string): Promise<void> {
-    const events = await admin.messages(R.general, 400);
+    const events = await admin.messagesDeep(R.general);
     for (const e of events) {
       const rel = e.content?.['m.relates_to'] as { rel_type?: string; event_id?: string; key?: string } | undefined;
       if (
@@ -576,6 +598,8 @@ test.describe('DEV-B-6 replies', () => {
   });
 
   test('AC-B6-2/AC-B6-3 replying sets the banner and sends an m.in_reply_to relation', async ({ page }) => {
+    // Freshness-independent: #34 has to be hoverable, not necessarily in the initial window.
+    await withFullHistory(page);
     const actions = await hoverActions(page, E.general34);
     await actions.getByTestId('message-action-reply').click();
 
@@ -594,14 +618,18 @@ test.describe('DEV-B-6 replies', () => {
     await expect(sent.getByTestId('message-reply-quote')).toContainText(BODIES.general34);
     await expect(page.getByTestId('composer-reply-banner')).toHaveCount(0);
 
-    const sentId = (await sent.getAttribute('data-testid'))!.replace('message-', '');
-    await expect.poll(() => sentId.startsWith('$'), { timeout: 10_000 }).toBe(true);
+    // The row is keyed by the local echo id (`~...`) until the remote echo lands; polling a captured
+    // string could never change, so wait for the settled `$` id before asking the server for it.
+    const sentId = await settledEventId(sent);
     const event = await bob.getEvent(R.general, sentId);
     const relation = event.content['m.relates_to'] as { 'm.in_reply_to'?: { event_id?: string } } | undefined;
     expect(relation?.['m.in_reply_to']?.event_id, 'the event must relate to the quoted message').toBe(E.general34);
   });
 
   test('AC-B6-4 cancel and Escape clear reply mode, and the next send is a normal message', async ({ page }) => {
+    // Freshness-independent: page back so #34 is hoverable however far the room has grown.
+    await withFullHistory(page);
+
     // Cancel button.
     let actions = await hoverActions(page, E.general34);
     await actions.getByTestId('message-action-reply').click();
@@ -805,7 +833,8 @@ test.describe('DEV-B-9 edit and delete', () => {
     await composer(page).press('Enter');
     const sent = rowByText(page, original);
     await expect(sent).toBeVisible({ timeout: 10_000 });
-    const sentId = (await sent.getAttribute('data-testid'))!.replace('message-', '');
+    // Not `getAttribute` straight away: the row is still the local echo (`message-~...`) for a few ms.
+    const sentId = await settledEventId(sent);
 
     const actions = await hoverActions(page, sentId);
     await actions.getByTestId('message-action-edit').click();
@@ -831,7 +860,11 @@ test.describe('DEV-B-9 edit and delete', () => {
     const text = `[qa] AC-B9-3 ${Date.now()}`;
     await composer(page).fill(text);
     await composer(page).press('Enter');
-    await expect(rowByText(page, text)).toBeVisible({ timeout: 10_000 });
+    const sent = rowByText(page, text);
+    await expect(sent).toBeVisible({ timeout: 10_000 });
+    // Wait for the remote echo: a still-pending local echo is not an editable event, so pressing
+    // ArrowUp too early legitimately lands on the previous message.
+    await settledEventId(sent);
 
     await expect(composer(page)).toHaveValue('');
     await composer(page).click();
@@ -848,7 +881,8 @@ test.describe('DEV-B-9 edit and delete', () => {
     await composer(page).press('Enter');
     const sent = rowByText(page, text);
     await expect(sent).toBeVisible({ timeout: 10_000 });
-    const sentId = (await sent.getAttribute('data-testid'))!.replace('message-', '');
+    // Not `getAttribute` straight away: the row is still the local echo (`message-~...`) for a few ms.
+    const sentId = await settledEventId(sent);
 
     const actions = await hoverActions(page, sentId);
     await actions.getByTestId('message-action-delete').click();

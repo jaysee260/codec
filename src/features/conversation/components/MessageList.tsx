@@ -4,9 +4,12 @@
  * Scroll rules:
  * - on room change: jump to the bottom and re-arm pagination;
  * - new events: only follow the bottom when the user is within 40 px of it ("stick to bottom");
- * - backwards pagination: remember `scrollHeight`/`scrollTop` before the request and restore
- *   `scrollTop + (newHeight - oldHeight)` once taller content lands, so the row the user was
- *   reading stays put (`paginateBack` replaces the events array wholesale);
+ * - backwards pagination: pin the top-most row before the request and restore `scrollTop` by however
+ *   far *that row* moved once the taller content lands, so the row the user was reading stays put
+ *   (`paginateBack` replaces the events array wholesale). The row's own offset is the anchor rather
+ *   than the container's `scrollHeight` delta, because a page of history can also re-render the
+ *   pinned row itself: an older message from the same sender turns its group header off, which makes
+ *   the container grow by less than the content above the row did;
  * - a reply-quote jump scrolls to the target, paginating back until it is loaded, then flashes it.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -24,6 +27,17 @@ import styles from './MessageList.module.css';
 const NEAR_BOTTOM_PX = 40;
 const FLASH_MS = 2600;
 
+/** Scroll position pinned across a backwards pagination. */
+interface ScrollAnchor {
+  /** The row to keep still; empty when the list had no rows yet. */
+  eventId: string;
+  /** Its `offsetTop` before the request. */
+  offsetTop: number;
+  scrollTop: number;
+  /** Fallback for when the pinned row is gone from the new snapshot (timeline reset). */
+  scrollHeight: number;
+}
+
 export function MessageList({ roomId }: { roomId: string }) {
   const { items, hasMore, isPaginating, paginateBack, version } = useRoomEvents(roomId);
   const summary = useRoomSummary(roomId);
@@ -33,7 +47,7 @@ export function MessageList({ roomId }: { roomId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
-  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const anchor = useRef<ScrollAnchor | null>(null);
   const hasMoreRef = useRef(hasMore);
   hasMoreRef.current = hasMore;
   /** Nonce of the jump currently being resolved; a newer jump supersedes it. */
@@ -70,10 +84,13 @@ export function MessageList({ roomId }: { roomId: string }) {
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    if (anchor.current) {
-      const delta = el.scrollHeight - anchor.current.height;
-      if (delta > 0) {
-        el.scrollTop = anchor.current.top + delta;
+    const pin = anchor.current;
+    if (pin) {
+      const row = pin.eventId ? el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`) : null;
+      // How far the pinned row moved down; fall back to the container delta if it is gone.
+      const moved = row ? row.offsetTop - pin.offsetTop : el.scrollHeight - pin.scrollHeight;
+      if (moved > 0) {
+        el.scrollTop = pin.scrollTop + moved;
         anchor.current = null;
       } else if (!isPaginating) {
         anchor.current = null; // the request came back without new rows
@@ -94,7 +111,13 @@ export function MessageList({ roomId }: { roomId: string }) {
   const load = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    const first = el.querySelector<HTMLElement>('[data-event-id]');
+    anchor.current = {
+      eventId: first?.dataset.eventId ?? '',
+      offsetTop: first?.offsetTop ?? 0,
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+    };
     void paginateBack(30);
   }, [paginateBack]);
 

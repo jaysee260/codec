@@ -17,6 +17,7 @@
  */
 import { expect, test } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
+import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import {
   BODIES,
@@ -174,6 +175,10 @@ test.describe('DEV-A-2 channel list and header', () => {
   });
 
   test('AC-A2-3 clicking random selects it and shows its first message', async ({ page }) => {
+    // The criterion names #random's *first* seeded message, which is only on screen while the
+    // initial ~30-event window still reaches back to it; paging back would contradict its "within
+    // 1 s". So it needs a pristine seed (this one started failing once #random grew past 30 events).
+    await requireFreshSeed(test);
     await openChannel(page, R.random);
     await expect(channelItem(page, R.random)).toHaveAttribute('data-selected', 'true');
     await expect(page.getByTestId('channel-header-name')).toContainText(NAMES.random);

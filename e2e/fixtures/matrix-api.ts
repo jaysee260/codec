@@ -23,6 +23,8 @@ const V1 = `${HS_URL}/_matrix/client/v1`;
 
 const tokenCache = new Map<UserKey, { userId: string; token: string }>();
 let txnCounter = 0;
+/** Bumped on every receipt read so each /sync misses Synapse's initial-sync response cache. */
+let receiptNonce = 0;
 
 function txnId(): string {
   txnCounter += 1;
@@ -190,6 +192,11 @@ export interface ApiUser {
 
   /** Newest-first page of room events (defaults to 200, unfiltered). */
   messages(roomId: string, limit?: number): Promise<MatrixEventJson[]>;
+  /**
+   * Newest-first events across several `/messages` pages, so a seeded event still resolves after
+   * the devs (and this suite) have pushed hundreds of newer events into the room.
+   */
+  messagesDeep(roomId: string, maxPages?: number, pageSize?: number): Promise<MatrixEventJson[]>;
   /** Newest `m.room.message` whose body contains `text` (optionally from a specific sender). */
   findMessage(roomId: string, text: string, sender?: string): Promise<MatrixEventJson | undefined>;
   /** Newest `m.room.message` in the room. */
@@ -305,6 +312,13 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
     },
 
     async getReceipts(roomId) {
+      // `account_data.limit` is a per-call nonce, and it is load-bearing: Synapse caches *initial*
+      // /sync responses for ~2 minutes keyed by (user, device, since, filter, timeout), so polling
+      // this endpoint with a constant filter replays a pre-receipt snapshot and a receipt that has
+      // already landed stays invisible for the whole poll (BUG/not-a-bug: AC-B7-3, AC-B7-4, demo
+      // step 2 — verified against this homeserver). A distinct filter per call misses the cache.
+      // It cannot drop receipts: `account_data.types: []` already excludes account data entirely.
+      receiptNonce += 1;
       const filter = JSON.stringify({
         room: {
           rooms: [roomId],
@@ -312,7 +326,7 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
           ephemeral: { types: ['m.receipt'] },
         },
         presence: { types: [] },
-        account_data: { types: [] },
+        account_data: { types: [], limit: receiptNonce },
       });
       const sync = await request<SyncResponse>('GET', `${V3}/sync`, {
         token,
@@ -333,10 +347,18 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
 
     async readReceiptOf(roomId, forUserId) {
       const receipts = await api.getReceipts(roomId);
+      // A user can hold several `m.read` positions at once: matrix-js-sdk sends *threaded* receipts
+      // (`thread_id: "main"`) while `ApiUser.receipt()` posts unthreaded ones, and Synapse keeps both
+      // in the room's `m.receipt` event. Taking whichever key `Object.entries` yields first returns
+      // an arbitrary — often older — position, so pick the newest by `ts`.
+      let newest: { eventId: string; ts: number } | undefined;
       for (const [eventId, users] of Object.entries(receipts)) {
-        if (users[forUserId]) return eventId;
+        const receipt = users[forUserId];
+        if (!receipt) continue;
+        const ts = receipt.ts ?? 0;
+        if (!newest || ts > newest.ts) newest = { eventId, ts };
       }
-      return undefined;
+      return newest?.eventId;
     },
 
     getEvent(roomId, eventId) {
@@ -408,8 +430,25 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
       return res.chunk ?? [];
     },
 
+    async messagesDeep(roomId, maxPages = 10, pageSize = 200) {
+      const out: MatrixEventJson[] = [];
+      let from: string | undefined;
+      for (let page = 0; page < maxPages; page += 1) {
+        const res = await request<{ chunk?: MatrixEventJson[]; end?: string }>(
+          'GET',
+          `${V3}/rooms/${room(roomId)}/messages`,
+          { token, query: { dir: 'b', limit: pageSize, from } },
+        );
+        const chunk = res.chunk ?? [];
+        out.push(...chunk);
+        if (chunk.length === 0 || !res.end) break;
+        from = res.end;
+      }
+      return out;
+    },
+
     async findMessage(roomId, text, sender) {
-      const chunk = await api.messages(roomId);
+      const chunk = await api.messagesDeep(roomId);
       return chunk.find(
         (e) =>
           e.type === 'm.room.message' &&
