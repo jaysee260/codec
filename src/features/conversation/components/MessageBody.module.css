@@ -1,0 +1,105 @@
+/* Wrapper so `(edited)` can sit right after the text without living inside `message-body`. */
+.line {
+  color: var(--text-normal);
+  font-size: var(--font-size-message);
+  line-height: var(--line-height-message);
+  overflow-wrap: anywhere;
+}
+
+.body {
+  color: var(--text-normal);
+  font-size: var(--font-size-message);
+  line-height: var(--line-height-message);
+  overflow-wrap: anywhere;
+}
+
+/* Text bodies stay inline so the edited marker follows the last word. */
+.inlineBody {
+  display: inline;
+}
+
+/* Attachments are blocks; the marker then sits on the line below. */
+.blockBody {
+  display: block;
+}
+
+.plain {
+  white-space: pre-wrap;
+}
+
+.rich {
+  display: inline;
+}
+.rich :global(p) {
+  margin: 0;
+}
+.rich :global(p + p) {
+  margin-top: 4px;
+}
+.rich :global(a) {
+  color: var(--text-link);
+}
+.rich :global(ul),
+.rich :global(ol) {
+  margin: 4px 0;
+  padding-left: 24px;
+}
+.rich :global(pre) {
+  margin: 6px 0;
+  max-width: 100%;
+}
+.rich :global(blockquote) {
+  color: var(--text-muted);
+}
+.rich :global(img) {
+  border-radius: var(--radius-sm);
+  margin-top: 4px;
+  max-height: 300px;
+  width: auto;
+}
+.rich :global(h1),
+.rich :global(h2),
+.rich :global(h3) {
+  margin: 4px 0;
+  font-size: 1.1em;
+  color: var(--text-heading);
+}
+.rich :global(table) {
+  border-collapse: collapse;
+}
+.rich :global(th),
+.rich :global(td) {
+  border: 1px solid var(--border-strong);
+  padding: 2px 6px;
+}
+
+.jumbo {
+  font-size: 40px;
+  line-height: 1.2;
+}
+
+.redacted {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.edited {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-left: 4px;
+  user-select: none;
+}
+
+/* Mention pill (inserted into the sanitised HTML by MessageBody). */
+.mention {
+  background: var(--bg-mention);
+  color: var(--text-heading);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.mention:hover {
+  background: var(--bg-mention-hover);
+}

@@ -1,0 +1,2 @@
+matrix-poc e2e upload fixture
+Used by AC-B8-3: selecting a non-image file must render an m.file download link.

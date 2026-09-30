@@ -1,55 +1,83 @@
 .composer {
+  position: relative;
   flex-shrink: 0;
-  padding: 0 16px 20px;
+  padding: 0 16px 24px;
 }
 
 .box {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
   background: var(--bg-input);
   border-radius: var(--radius);
-  padding: 4px 8px;
+  padding: 0 12px;
+}
+.boxAttached {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
-.attach,
-.send {
-  width: 40px;
-  height: 40px;
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-sidebar);
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--bg-chat);
+}
+
+.bannerText {
+  color: var(--text-normal);
+}
+
+.bannerHint {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.bannerClose {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  color: var(--text-muted);
   border-radius: var(--radius-sm);
-  flex-shrink: 0;
+  color: var(--text-muted);
 }
-.attach:hover:not(:disabled),
-.send:hover:not(:disabled) {
+.bannerClose:hover {
   color: var(--text-heading);
-}
-
-.fileInput {
-  display: none;
+  background: var(--bg-hover);
 }
 
 .input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: 0;
   outline: none;
   resize: none;
+  overflow-y: auto;
   color: var(--text-normal);
   font-size: var(--font-size-base);
-  line-height: 1.375rem;
+  line-height: var(--line-height-message);
   padding: 11px 0;
-  max-height: 50vh;
   min-height: 44px;
+  max-height: 340px;
 }
 .input::placeholder {
   color: var(--text-muted);
 }
 
-.progress {
-  margin-top: 6px;
+.send {
+  width: 32px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+}
+.send:hover:not(:disabled) {
+  color: var(--accent);
 }

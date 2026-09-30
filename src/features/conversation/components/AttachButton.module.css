@@ -1,0 +1,18 @@
+.attach {
+  width: 24px;
+  height: 24px;
+  margin: 10px 8px 10px 0;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-muted);
+  color: var(--bg-input);
+}
+.attach:hover:not(:disabled) {
+  background: var(--text-heading);
+}
+
+.input {
+  display: none;
+}

@@ -1,28 +1,45 @@
+.wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/*
+ * Deliberately a block container, not a flex column: as a flex column the rows become flex items and
+ * get shrunk to fit the viewport, which makes their content overflow into the next row and steal
+ * pointer events from reaction pills and the hover toolbar.
+ */
 .list {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 0 16px;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Pagination trigger; the IntersectionObserver watches this. */
+.sentinel {
+  height: 1px;
+}
+
+.loadingWrap {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 50%;
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-elevation);
 }
 
-.top {
-  padding: 16px;
-}
-
-.loadMore {
-  color: var(--text-link);
-  font-size: var(--font-size-sm);
-}
-.loadMore:hover {
-  text-decoration: underline;
-}
-
-.loading {
-  margin-top: 8px;
-  width: 20px;
-  height: 20px;
+.spinner {
+  width: 22px;
+  height: 22px;
   border: 3px solid var(--bg-active);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -35,132 +52,55 @@
 }
 
 .start {
-  margin-top: 24px;
+  padding: 24px 16px 8px;
 }
-.startTitle {
+
+.startIcon {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bg-active);
   color: var(--text-heading);
   font-size: 24px;
   font-weight: 700;
-}
-.startTopic {
-  color: var(--text-muted);
-  margin-top: 4px;
+  margin-bottom: 8px;
 }
 
-.row {
-  display: flex;
-  gap: 16px;
-  padding: 4px 16px 4px 16px;
-  margin-top: 12px;
-}
-.row:hover {
-  background: var(--bg-message-hover);
-}
-.pending {
-  opacity: 0.6;
-}
-
-.avatar {
-  width: 40px;
-  height: 40px;
-  margin-top: 2px;
-}
-
-.content {
-  flex: 1;
-  min-width: 0;
-}
-
-.meta {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.author {
-  color: var(--text-heading);
-  font-weight: 500;
-  font-size: 16px;
-}
-.time {
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
-
-.body {
-  color: var(--text-normal);
-  font-size: var(--font-size-message);
-  line-height: var(--line-height-message);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.html :global(p) {
+.startTitle {
   margin: 0;
-}
-.html :global(a) {
-  color: var(--text-link);
-}
-.redacted {
-  color: var(--text-muted);
-  font-style: italic;
-}
-.edited {
-  color: var(--text-muted);
-  font-size: 10px;
-  margin-left: 4px;
-}
-
-.image {
-  border-radius: var(--radius);
-  max-width: 400px;
-  max-height: 300px;
-  object-fit: contain;
-  margin-top: 4px;
-}
-
-.replyQuote {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-  margin-bottom: 2px;
-  padding-left: 8px;
-  border-left: 2px solid var(--bg-active);
-}
-.replyAuthor {
   color: var(--text-heading);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.replyText {
-  min-width: 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
-.reactions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
+.startTopic {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-message);
 }
-.reaction {
-  display: inline-flex;
+
+.bottomSpacer {
+  height: 16px;
+}
+
+.jumpBottom {
+  position: absolute;
+  right: 20px;
+  bottom: 12px;
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 6px;
-  border-radius: var(--radius);
-  background: var(--bg-sidebar);
-  border: 1px solid transparent;
-  font-size: 14px;
-  color: var(--text-normal);
-}
-.reaction:hover {
-  border-color: var(--text-muted);
-}
-.reactionMine {
-  background: var(--bg-mention);
-  border-color: var(--accent);
-}
-.reactionCount {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 500;
+  box-shadow: var(--shadow-elevation);
+}
+.jumpBottom:hover {
+  background: var(--accent-hover);
 }

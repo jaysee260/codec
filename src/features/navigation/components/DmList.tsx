@@ -1,119 +1,130 @@
 /**
- * Placeholder DM list (Dev A replaces the internals). Shown when Home is selected.
+ * DEV-A-3 / DEV-A-5 DM list, rendered by the sidebar when Home is selected. One item per room in
+ * `m.direct` with a colour-hashed initials avatar (or the other user's avatar), the display name and
+ * a numeric unread badge. Pending invites and space-less rooms are listed underneath so nothing is
+ * unreachable.
+ *
  * testids: dm-list, dm-item-{roomId}, dm-unread-{roomId}, dm-new
  */
-import { Plus } from 'lucide-react';
-import { useRoomStore, waitForRoom } from '@/store/rooms.ts';
-import { createDm, joinRoom } from '@/lib/matrix/actions.ts';
+import { useState } from 'react';
+import { Search } from 'lucide-react';
+import { useRoomStore, waitForRoom, type RoomSummary } from '@/store/rooms.ts';
+import { joinRoom } from '@/lib/matrix/actions.ts';
 import { withToast } from '@/store/toast.ts';
 import { colorFor, initialsOf } from '@/lib/format.ts';
+import { badgeText, useUnread } from '../hooks/useUnread.ts';
+import { NewDmDialog } from './NewDmDialog.tsx';
+import { SidebarSection } from './SidebarSection.tsx';
 import styles from './DmList.module.css';
 
 export function DmList() {
   const dms = useRoomStore((s) => s.dms);
   const invites = useRoomStore((s) => s.invites);
   const orphanRooms = useRoomStore((s) => s.orphanRooms);
-  const selectedRoomId = useRoomStore((s) => s.selectedRoomId);
-  const unreadByRoom = useRoomStore((s) => s.unreadByRoom);
-  const selectRoom = useRoomStore((s) => s.selectRoom);
-
-  const onNewDm = (): void => {
-    const userId = window.prompt('User id (e.g. @dave:localhost)');
-    if (!userId?.trim()) return;
-    void withToast(async () => {
-      const roomId = await createDm(userId.trim());
-      await waitForRoom(roomId);
-      useRoomStore.getState().selectRoom(roomId);
-    }, 'Start DM failed');
-  };
-
-  const onAcceptInvite = (roomId: string): void => {
-    void withToast(async () => {
-      await joinRoom(roomId);
-      await waitForRoom(roomId);
-      useRoomStore.getState().selectRoom(roomId);
-    }, 'Join failed');
-  };
+  const [creating, setCreating] = useState(false);
 
   return (
-    <div className={styles.root}>
+    <>
       <div className={styles.header}>
-        <span className={styles.headerTitle}>Direct Messages</span>
+        <button type="button" className={styles.search} title="Find or start a conversation" onClick={() => setCreating(true)}>
+          <Search size={14} />
+          <span className="u-truncate">Find or start a conversation</span>
+        </button>
       </div>
+
       <div className={styles.list} data-testid="dm-list">
-        <div className={styles.sectionRow}>
-          <span className="u-section-title">Direct messages</span>
-          <button className={styles.sectionAdd} data-testid="dm-new" title="Start a DM" onClick={onNewDm}>
-            <Plus size={16} />
-          </button>
-        </div>
-        {dms.map((dm) => {
-          const unread = unreadByRoom[dm.roomId] ?? 0;
-          const selected = dm.roomId === selectedRoomId;
-          const seed = dm.dmUserId ?? dm.roomId;
-          return (
-            <button
-              key={dm.roomId}
-              className={`${styles.item} ${selected ? styles.itemSelected : ''} ${unread > 0 ? styles.itemUnread : ''}`}
-              data-testid={`dm-item-${dm.roomId}`}
-              data-name={dm.name}
-              data-selected={selected ? 'true' : 'false'}
-              onClick={() => selectRoom(dm.roomId)}
-            >
-              <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(seed) }}>
-                {dm.avatarUrl ? <img src={dm.avatarUrl} alt="" /> : initialsOf(dm.name)}
-              </span>
-              <span className={`${styles.itemName} u-truncate`}>{dm.name}</span>
-              {unread > 0 && (
-                <span className={styles.badge} data-testid={`dm-unread-${dm.roomId}`} data-count={unread}>
-                  {unread}
-                </span>
-              )}
-            </button>
-          );
-        })}
-        {dms.length === 0 && <div className={styles.emptyHint}>No direct messages yet</div>}
+        <SidebarSection
+          id="direct-messages"
+          label="Direct Messages"
+          addTestId="dm-new"
+          addTitle="Start a DM"
+          onAdd={() => setCreating(true)}
+        >
+          {dms.map((dm) => (
+            <DmItem key={dm.roomId} room={dm} />
+          ))}
+          {dms.length === 0 && <div className={styles.empty}>No direct messages yet</div>}
+        </SidebarSection>
 
         {invites.length > 0 && (
-          <>
-            <span className="u-section-title">Invites</span>
-            {invites.map((inv) => (
-              <button
-                key={inv.roomId}
-                className={styles.item}
-                data-testid={`invite-item-${inv.roomId}`}
-                data-name={inv.name}
-                onClick={() => onAcceptInvite(inv.roomId)}
-                title="Click to accept"
-              >
-                <span className={`${styles.itemName} u-truncate`}>{inv.name}</span>
-                <span className={styles.accept}>Accept</span>
-              </button>
+          <SidebarSection id="invites" label={`Invites - ${invites.length}`}>
+            {invites.map((invite) => (
+              <InviteItem key={invite.roomId} room={invite} />
             ))}
-          </>
+          </SidebarSection>
         )}
 
         {orphanRooms.length > 0 && (
-          <>
-            <span className="u-section-title">Other rooms</span>
-            {orphanRooms.map((room) => {
-              const selected = room.roomId === selectedRoomId;
-              return (
-                <button
-                  key={room.roomId}
-                  className={`${styles.item} ${selected ? styles.itemSelected : ''}`}
-                  data-testid={`room-item-${room.roomId}`}
-                  data-name={room.name}
-                  data-selected={selected ? 'true' : 'false'}
-                  onClick={() => selectRoom(room.roomId)}
-                >
-                  <span className={`${styles.itemName} u-truncate`}>{room.name}</span>
-                </button>
-              );
-            })}
-          </>
+          <SidebarSection id="other-rooms" label="Other Rooms">
+            {orphanRooms.map((room) => (
+              <DmItem key={room.roomId} room={room} testIdPrefix="room-item" />
+            ))}
+          </SidebarSection>
         )}
       </div>
-    </div>
+
+      {creating && <NewDmDialog onClose={() => setCreating(false)} />}
+    </>
+  );
+}
+
+function DmItem({ room, testIdPrefix = 'dm-item' }: { room: RoomSummary; testIdPrefix?: string }) {
+  const selectedRoomId = useRoomStore((s) => s.selectedRoomId);
+  const selectRoom = useRoomStore((s) => s.selectRoom);
+  const unread = useUnread(room.roomId);
+  const selected = room.roomId === selectedRoomId;
+  const bold = unread > 0 && !selected;
+  const seed = room.dmUserId ?? room.roomId;
+
+  return (
+    <button
+      type="button"
+      className={`${styles.item} ${selected ? styles.itemSelected : ''} ${bold ? styles.itemUnread : ''}`}
+      data-testid={`${testIdPrefix}-${room.roomId}`}
+      data-name={room.name}
+      data-selected={selected ? 'true' : 'false'}
+      title={room.dmUserId ?? room.name}
+      onClick={() => selectRoom(room.roomId)}
+    >
+      <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(seed) }}>
+        {room.avatarUrl ? <img src={room.avatarUrl} alt="" /> : initialsOf(room.name)}
+      </span>
+      <span className={`${styles.name} u-truncate`}>{room.name}</span>
+      {unread > 0 && (
+        <span className={styles.badge} data-testid={`dm-unread-${room.roomId}`} data-count={unread}>
+          {badgeText(unread)}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function InviteItem({ room }: { room: RoomSummary }) {
+  const [busy, setBusy] = useState(false);
+  const accept = (): void => {
+    setBusy(true);
+    void withToast(async () => {
+      await joinRoom(room.roomId);
+      await waitForRoom(room.roomId);
+      useRoomStore.getState().selectRoom(room.roomId);
+    }, 'Join failed').finally(() => setBusy(false));
+  };
+
+  return (
+    <button
+      type="button"
+      className={`${styles.item} ${styles.itemUnread}`}
+      data-testid={`invite-item-${room.roomId}`}
+      data-name={room.name}
+      title={`Accept the invite to ${room.name}`}
+      disabled={busy}
+      onClick={accept}
+    >
+      <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(room.roomId) }}>
+        {initialsOf(room.name)}
+      </span>
+      <span className={`${styles.name} u-truncate`}>{room.name}</span>
+      <span className={styles.accept}>{busy ? '...' : 'Accept'}</span>
+    </button>
   );
 }

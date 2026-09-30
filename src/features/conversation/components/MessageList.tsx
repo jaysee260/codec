@@ -1,193 +1,192 @@
 /**
- * Placeholder MessageList (Dev B replaces the internals). Renders every displayable event as a
- * simple row: avatar, author, time, body (HTML sanitised), image, reply quote, reactions, (edited).
- * testids used: message-list, timeline-start, timeline-loading, message-{eventId}, message-author,
- *   message-timestamp, message-body, message-edited, message-redacted, message-image,
- *   message-reply-quote, message-reply-quote-author, message-reactions, reaction-{key}
+ * Scrolling timeline (DEV-B-1 / B-3 / B-6 / B-7).
+ *
+ * Scroll rules:
+ * - on room change: jump to the bottom and re-arm pagination;
+ * - new events: only follow the bottom when the user is within 40 px of it ("stick to bottom");
+ * - backwards pagination: remember `scrollHeight`/`scrollTop` before the request and restore
+ *   `scrollTop + (newHeight - oldHeight)` once taller content lands, so the row the user was
+ *   reading stays put (`paginateBack` replaces the events array wholesale);
+ * - a reply-quote jump scrolls to the target, paginating back until it is loaded, then flashes it.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react';
-import { MsgType, type MatrixEvent } from 'matrix-js-sdk';
-import { useRoomTimeline, useRoomSummary } from '@/store/hooks.ts';
-import { getClientOrNull } from '@/lib/matrix/client.ts';
-import { getReactions, markRoomRead, toggleReaction } from '@/lib/matrix/actions.ts';
-import { avatarUrlOf, displayNameOf, getDisplayBody, isPendingEvent, mxcToHttp, previewText } from '@/lib/matrix/utils.ts';
-import { colorFor, formatFullTime, formatTime, initialsOf, linkify, sanitizeHtml } from '@/lib/format.ts';
-import { withToast } from '@/store/toast.ts';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowDown, Hash } from 'lucide-react';
+import { useRoomSummary } from '@/store/hooks.ts';
+import { initialsOf } from '@/lib/format.ts';
+import { useRoomEvents } from '../hooks/useRoomEvents.ts';
+import { usePagination } from '../hooks/usePagination.ts';
+import { useReadReceipt } from '../hooks/useReadReceipt.ts';
+import { useConversationUi } from '../hooks/useConversationUi.ts';
+import { DayDivider } from './DayDivider.tsx';
+import { MessageRow } from './MessageRow.tsx';
 import styles from './MessageList.module.css';
 
+const NEAR_BOTTOM_PX = 40;
+const FLASH_MS = 2600;
+
 export function MessageList({ roomId }: { roomId: string }) {
-  const { events, hasMore, isPaginating, paginateBack, version } = useRoomTimeline(roomId);
+  const { items, hasMore, isPaginating, paginateBack, version } = useRoomEvents(roomId);
   const summary = useRoomSummary(roomId);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottom = useRef(true);
+  const jump = useConversationUi((s) => s.jump);
+  const clearJump = useConversationUi((s) => s.clearJump);
 
-  // Track whether the user is near the bottom so new messages only auto-scroll then.
-  const onScroll = (): void => {
-    const el = scrollRef.current;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  /** Nonce of the jump currently being resolved; a newer jump supersedes it. */
+  const jumpRunRef = useRef(0);
+
+  const [armed, setArmed] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const [flashId, setFlashId] = useState<string | null>(null);
+
+  useReadReceipt(roomId, atBottom);
+
+  const scrollToBottom = useCallback((smooth = false): void => {
+    const el = containerRef.current;
     if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  };
+    stick.current = true;
+    if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    else el.scrollTop = el.scrollHeight;
+  }, []);
 
+  // Room change: bottom, reset every scroll flag, re-arm the pagination sentinel after first paint.
   useLayoutEffect(() => {
-    stickToBottom.current = true;
-    const el = scrollRef.current;
+    anchor.current = null;
+    stick.current = true;
+    setAtBottom(true);
+    setArmed(false);
+    setFlashId(null);
+    const el = containerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
+    const timer = setTimeout(() => setArmed(true), 200);
+    return () => clearTimeout(timer);
   }, [roomId]);
 
+  // Keep the viewport stable across every timeline commit.
   useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [version, events.length]);
+    const el = containerRef.current;
+    if (!el) return;
+    if (anchor.current) {
+      const delta = el.scrollHeight - anchor.current.height;
+      if (delta > 0) {
+        el.scrollTop = anchor.current.top + delta;
+        anchor.current = null;
+      } else if (!isPaginating) {
+        anchor.current = null; // the request came back without new rows
+      }
+      return;
+    }
+    if (stick.current) el.scrollTop = el.scrollHeight;
+  }, [items, isPaginating, version]);
 
-  // Mark the room read when opened and whenever new events arrive while it is open.
+  const onScroll = (): void => {
+    const el = containerRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    stick.current = near;
+    setAtBottom(near);
+  };
+
+  const load = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    void paginateBack(30);
+  }, [paginateBack]);
+
+  usePagination({
+    containerRef,
+    sentinelRef,
+    enabled: armed && hasMore && !isPaginating,
+    load,
+    revision: version,
+  });
+
+  // Jump to (and flash) a message, loading history until it exists.
+  const jumpNonce = jump && jump.roomId === roomId ? jump.nonce : 0;
+  const jumpEventId = jump?.eventId;
   useEffect(() => {
-    const t = setTimeout(() => void markRoomRead(roomId).catch(() => undefined), 500);
-    return () => clearTimeout(t);
-  }, [roomId, events.length]);
+    if (!jumpNonce || !jumpEventId) return;
+    // One jump per request: clearing it means re-opening the room does not replay the last one.
+    // Cancellation goes through a ref (not the effect cleanup), because clearing the store
+    // re-runs this effect immediately and would otherwise abort the run it just started.
+    const myNonce = jumpNonce;
+    jumpRunRef.current = myNonce;
+    clearJump();
+    const run = async (): Promise<void> => {
+      for (let attempt = 0; attempt < 8 && jumpRunRef.current === myNonce; attempt++) {
+        const target = containerRef.current?.querySelector<HTMLElement>(`[data-event-id="${jumpEventId}"]`);
+        if (target) {
+          stick.current = false;
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          setFlashId(jumpEventId);
+          setTimeout(() => setFlashId((current) => (current === jumpEventId ? null : current)), FLASH_MS);
+          return;
+        }
+        if (!hasMoreRef.current) return;
+        await paginateBack(50);
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }
+    };
+    void run();
+  }, [jumpNonce, jumpEventId, paginateBack, clearJump]);
 
-  const label = summary ? (summary.isDm ? summary.name : `#${summary.name}`) : 'this room';
-
-  return (
-    <div className={styles.list} data-testid="message-list" ref={scrollRef} onScroll={onScroll}>
-      <div className={styles.top}>
-        {hasMore ? (
-          <button className={styles.loadMore} onClick={() => void paginateBack()} disabled={isPaginating} data-testid="timeline-load-more">
-            {isPaginating ? 'Loading...' : 'Load older messages'}
-          </button>
-        ) : (
-          <div className={styles.start} data-testid="timeline-start">
-            <div className={styles.startTitle}>This is the beginning of {label}</div>
-            {summary?.topic && <div className={styles.startTopic}>{summary.topic}</div>}
-          </div>
-        )}
-        {isPaginating && <div className={styles.loading} data-testid="timeline-loading" />}
-      </div>
-      {events.map((event) => (
-        <MessageRow key={event.getId()} event={event} roomId={roomId} />
-      ))}
-    </div>
-  );
-}
-
-function MessageRow({ event, roomId }: { event: MatrixEvent; roomId: string }) {
-  const room = getClientOrNull()?.getRoom(roomId) ?? null;
-  const sender = event.getSender() ?? '';
-  const name = displayNameOf(room, sender);
-  const avatar = avatarUrlOf(room, sender, 40);
-  const body = getDisplayBody(event);
-  const eventId = event.getId() ?? '';
-  const reactions = getReactions(roomId, eventId);
-  const replyTarget = body.replyTo ? room?.findEventById(body.replyTo) : undefined;
-  const pending = isPendingEvent(event);
+  const isDm = summary?.isDm ?? false;
+  const label = summary ? (isDm ? summary.name : `#${summary.name}`) : 'this room';
 
   return (
-    <div
-      className={`${styles.row} ${pending ? styles.pending : ''}`}
-      data-testid={`message-${eventId}`}
-      data-sender={sender}
-      data-event-type={event.getType()}
-    >
-      <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(sender) }} data-testid="message-avatar">
-        {avatar ? <img src={avatar} alt="" /> : initialsOf(name)}
-      </span>
-      <div className={styles.content}>
-        {replyTarget && (
-          <div className={styles.replyQuote} data-testid="message-reply-quote">
-            <span className={styles.replyAuthor} data-testid="message-reply-quote-author">
-              {displayNameOf(room, replyTarget.getSender() ?? '')}
-            </span>
-            <span className={`${styles.replyText} u-truncate`}>{previewText(replyTarget)}</span>
-          </div>
-        )}
-        <div className={styles.meta}>
-          <span className={styles.author} data-testid="message-author">
-            {name}
-          </span>
-          <span className={styles.time} data-testid="message-timestamp" title={formatFullTime(event.getTs())}>
-            {formatTime(event.getTs())}
-          </span>
+    <div className={styles.wrap}>
+      {/*
+       * The spinner floats over the list instead of sitting in the scroll flow: adding a row above
+       * the viewport while a pagination is in flight would shift the content the user is reading.
+       */}
+      {isPaginating && (
+        <div className={styles.loadingWrap}>
+          <div className={styles.spinner} data-testid="timeline-loading" role="status" aria-label="Loading older messages" />
         </div>
-        <Body body={body} />
-        {reactions.length > 0 && (
-          <div className={styles.reactions} data-testid="message-reactions">
-            {reactions.map((r) => (
-              <button
-                key={r.key}
-                className={`${styles.reaction} ${r.mine ? styles.reactionMine : ''}`}
-                data-testid={`reaction-${r.key}`}
-                data-count={r.count}
-                data-mine={r.mine ? 'true' : 'false'}
-                title={r.senders.map((s) => displayNameOf(room, s)).join(', ')}
-                onClick={() => void withToast(() => toggleReaction(roomId, eventId, r.key), 'Reaction failed')}
-              >
-                <span>{r.key}</span>
-                <span className={styles.reactionCount}>{r.count}</span>
-              </button>
-            ))}
+      )}
+
+      <div className={styles.list} data-testid="message-list" ref={containerRef} onScroll={onScroll}>
+        <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
+
+        {!hasMore && (
+          <div className={styles.start}>
+            <div className={styles.startIcon} aria-hidden="true">
+              {isDm ? initialsOf(summary?.name ?? '?') : <Hash size={40} />}
+            </div>
+            <h2 className={styles.startTitle} data-testid="timeline-start">
+              {isDm ? `This is the beginning of your direct message history with ${label}` : `This is the beginning of ${label}`}
+            </h2>
+            {summary?.topic && <p className={styles.startTopic}>{summary.topic}</p>}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
 
-function Body({ body }: { body: ReturnType<typeof getDisplayBody> }) {
-  if (body.isRedacted) {
-    return (
-      <div className={`${styles.body} ${styles.redacted}`} data-testid="message-redacted">
-        Message deleted
+        {items.map((item) =>
+          item.kind === 'day' ? (
+            <DayDivider key={item.key} ts={item.ts} />
+          ) : (
+            <MessageRow
+              key={item.key}
+              roomId={roomId}
+              event={item.event}
+              groupStart={item.groupStart}
+              flash={flashId === item.event.getId()}
+            />
+          ),
+        )}
+
+        <div className={styles.bottomSpacer} />
       </div>
-    );
-  }
-  if (body.msgtype === MsgType.Image && body.url) {
-    const w = body.info?.w ?? 400;
-    const h = body.info?.h ?? 300;
-    const scale = Math.min(1, 400 / w, 300 / h);
-    return (
-      <div className={styles.body} data-testid="message-body">
-        <a href={mxcToHttp(body.url)} target="_blank" rel="noopener noreferrer">
-          <img
-            className={styles.image}
-            data-testid="message-image"
-            src={mxcToHttp(body.url, 400, 300, 'scale')}
-            alt={body.text}
-            width={Math.round(w * scale)}
-            height={Math.round(h * scale)}
-          />
-        </a>
-      </div>
-    );
-  }
-  if (body.msgtype === MsgType.File && body.url) {
-    return (
-      <div className={styles.body} data-testid="message-body">
-        <a href={mxcToHttp(body.url)} target="_blank" rel="noopener noreferrer" download={body.text}>
-          {body.text}
-        </a>
-      </div>
-    );
-  }
-  return (
-    <div className={styles.body} data-testid="message-body">
-      {body.html ? (
-        <span className={styles.html} dangerouslySetInnerHTML={{ __html: sanitizeHtml(body.html) }} />
-      ) : (
-        <span className={styles.text}>
-          {linkify(body.text).map((seg, i) =>
-            seg.kind === 'link' ? (
-              <a key={i} href={seg.href} target="_blank" rel="noopener noreferrer">
-                {seg.value}
-              </a>
-            ) : (
-              <span key={i}>{seg.value}</span>
-            ),
-          )}
-        </span>
-      )}
-      {body.isEdited && (
-        <span className={styles.edited} data-testid="message-edited">
-          (edited)
-        </span>
+
+      {!atBottom && (
+        <button type="button" className={styles.jumpBottom} data-testid="scroll-to-bottom" onClick={() => scrollToBottom(true)}>
+          <ArrowDown size={14} aria-hidden="true" />
+          Jump to present
+        </button>
       )}
     </div>
   );

@@ -1,0 +1,116 @@
+.row {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  padding: 2px 48px 2px 16px;
+  min-height: 22px;
+}
+.row:hover {
+  background: var(--bg-message-hover);
+}
+
+.groupStart {
+  margin-top: 17px;
+}
+
+.grouped {
+  margin-top: 0;
+}
+
+.pending {
+  opacity: 0.55;
+}
+.failed .content {
+  color: var(--danger);
+}
+.failedTag {
+  color: var(--danger);
+  font-size: var(--font-size-xs);
+}
+
+/* Flash after jumping to a message from a reply quote (DEV-B-6). */
+.flash {
+  animation: flash-highlight 2.6s ease-out;
+}
+@keyframes flash-highlight {
+  0%,
+  55% {
+    background: var(--bg-accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+.gutter {
+  width: 40px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.gutterTime {
+  width: 40px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: var(--line-height-message);
+  text-align: center;
+  white-space: nowrap;
+  opacity: 0;
+  user-select: none;
+}
+.row:hover .gutterTime {
+  opacity: 1;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: var(--line-height-message);
+}
+
+.author {
+  color: var(--text-heading);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+}
+.author:hover {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.time {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+/*
+ * Hover-revealed children that live in other CSS modules; hooked by their stable data-testid so the
+ * hashed class names of MessageActions/ReactionRow do not have to leak into this file.
+ */
+.row:hover [data-testid='message-actions'],
+.row[data-active='true'] [data-testid='message-actions'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.row:hover [data-testid='reaction-add'],
+.row[data-active='true'] [data-testid='reaction-add'] {
+  opacity: 1;
+}

@@ -1,0 +1,42 @@
+.actions {
+  position: absolute;
+  top: -14px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  background: var(--bg-modal);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-elevation);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s ease-out;
+  z-index: 2;
+}
+
+/* Revealed by the row's :hover rule in MessageRow.module.css (and while focused for keyboards). */
+.actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.action {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.action:hover {
+  color: var(--text-heading);
+  background: var(--bg-hover);
+}
+.action:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.action:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.danger:hover {
+  color: var(--danger);
+}

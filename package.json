@@ -15,6 +15,12 @@
     "hs:down": "node scripts/hs.mjs down",
     "hs:reset": "node scripts/hs.mjs reset",
     "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:fixtures": "node e2e/fixtures/make-test-assets.mjs",
+    "test:e2e:fresh": "npm run seed:reset && npm run test:e2e",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {

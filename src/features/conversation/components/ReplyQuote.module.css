@@ -1,0 +1,38 @@
+.quote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 2px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  text-align: left;
+  position: relative;
+}
+.quote:hover .text {
+  color: var(--text-normal);
+}
+
+/* The little Discord elbow connecting the quote to the avatar below it. */
+.spine {
+  position: absolute;
+  left: -36px;
+  bottom: 0;
+  width: 30px;
+  height: 10px;
+  border-left: 2px solid var(--bg-active);
+  border-top: 2px solid var(--bg-active);
+  border-top-left-radius: 6px;
+}
+
+.author {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.text {
+  min-width: 0;
+  color: var(--text-muted);
+}

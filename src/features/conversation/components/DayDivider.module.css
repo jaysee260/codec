@@ -1,0 +1,20 @@
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 24px 16px 8px;
+  border-top: 1px solid var(--border);
+  height: 0;
+}
+
+.label {
+  margin: 0 auto;
+  transform: translateY(-50%);
+  background: var(--bg-chat);
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}

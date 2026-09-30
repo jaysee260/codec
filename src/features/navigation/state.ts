@@ -6,10 +6,15 @@ interface NavUiState {
   membersOpen: boolean;
   toggleMembers(): void;
   setMembersOpen(open: boolean): void;
+  /** Collapsed sidebar sections, keyed by section id ("text-channels", "direct-messages", ...). */
+  collapsed: Record<string, boolean>;
+  toggleSection(id: string): void;
 }
 
 export const useNavUiStore = create<NavUiState>((set) => ({
   membersOpen: true,
   toggleMembers: () => set((s) => ({ membersOpen: !s.membersOpen })),
   setMembersOpen: (open) => set({ membersOpen: open }),
+  collapsed: {},
+  toggleSection: (id) => set((s) => ({ collapsed: { ...s.collapsed, [id]: !s.collapsed[id] } })),
 }));

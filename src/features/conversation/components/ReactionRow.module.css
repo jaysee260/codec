@@ -1,0 +1,66 @@
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  border: 1px solid transparent;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-normal);
+  transition: background 0.1s, border-color 0.1s;
+}
+.pill:hover {
+  background: var(--bg-active);
+  border-color: var(--text-muted);
+}
+
+.mine {
+  background: var(--bg-accent-soft);
+  border-color: var(--accent);
+}
+.mine .count {
+  color: var(--text-heading);
+}
+.mine:hover {
+  background: var(--bg-mention);
+  border-color: var(--accent);
+}
+
+.emoji {
+  font-size: 16px;
+}
+
+.count {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 9px;
+  text-align: center;
+}
+
+.add {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.add:hover {
+  color: var(--text-heading);
+  background: var(--bg-active);
+}

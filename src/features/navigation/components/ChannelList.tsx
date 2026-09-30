@@ -1,0 +1,66 @@
+/**
+ * DEV-A-2 / DEV-A-5 channel list. Items are sorted by `m.space.child` order then name by the store,
+ * rendered with a literal `#` prefix, a hover/selected background, a bold white name while unread and
+ * a numeric red badge.
+ *
+ * testids: channel-list, channel-item-{roomId}, channel-unread-{roomId}, channel-add
+ */
+import { useRoomStore, type RoomSummary } from '@/store/rooms.ts';
+import { badgeText, useUnread } from '../hooks/useUnread.ts';
+import { SidebarSection } from './SidebarSection.tsx';
+import styles from './ChannelList.module.css';
+
+export function ChannelList({ spaceId, onAddChannel }: { spaceId: string; onAddChannel(): void }) {
+  const channels = useRoomStore((s) => s.channelsBySpace[spaceId]) ?? [];
+
+  return (
+    <div className={styles.list} data-testid="channel-list">
+      <SidebarSection
+        id={`text-channels:${spaceId}`}
+        label="Text Channels"
+        addTestId="channel-add"
+        addTitle="Create channel"
+        onAdd={onAddChannel}
+      >
+        {channels.map((channel) => (
+          <ChannelItem key={channel.roomId} channel={channel} />
+        ))}
+        {channels.length === 0 && <div className={styles.empty}>No channels yet</div>}
+      </SidebarSection>
+    </div>
+  );
+}
+
+function ChannelItem({ channel }: { channel: RoomSummary }) {
+  const selectedRoomId = useRoomStore((s) => s.selectedRoomId);
+  const selectRoom = useRoomStore((s) => s.selectRoom);
+  const unread = useUnread(channel.roomId);
+  const selected = channel.roomId === selectedRoomId;
+  const bold = unread > 0 && !selected;
+
+  return (
+    <button
+      type="button"
+      className={`${styles.item} ${selected ? styles.itemSelected : ''} ${bold ? styles.itemUnread : ''}`}
+      data-testid={`channel-item-${channel.roomId}`}
+      data-name={channel.name}
+      data-selected={selected ? 'true' : 'false'}
+      title={channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`}
+      onClick={() => selectRoom(channel.roomId)}
+    >
+      {/* The `#` is nested inside the label span (inline-block) so innerText stays `#general`
+          on one line for QA's text assertions, while still rendering as Discord's large glyph. */}
+      <span className={`${styles.name} u-truncate`}>
+        <span className={styles.hash} aria-hidden="true">
+          #
+        </span>
+        {channel.name}
+      </span>
+      {unread > 0 && (
+        <span className={styles.badge} data-testid={`channel-unread-${channel.roomId}`} data-count={unread}>
+          {badgeText(unread)}
+        </span>
+      )}
+    </button>
+  );
+}

@@ -1,0 +1,25 @@
+.picker {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-modal);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-elevation);
+}
+
+.option {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+.option:hover {
+  background: var(--bg-hover);
+  transform: scale(1.1);
+}
