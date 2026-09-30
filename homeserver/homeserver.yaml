@@ -1,0 +1,94 @@
+# Synapse configuration for the POC - the single config used by BOTH ways of running the homeserver:
+#   1. Docker:  homeserver/docker-compose.yml mounts ./data at /data and this file at /data/homeserver.yaml
+#   2. Native (e.g. WSL1 Debian, pip install matrix-synapse): run with --config-path <repo>/homeserver/homeserver.yaml
+#      and make /data point at <repo>/homeserver/data (sudo ln -s /mnt/c/.../homeserver/data /data), or rewrite the
+#      /data/... paths below. Generate the signing key with: python -m synapse.app.homeserver -c homeserver.yaml --generate-keys
+# Equivalent to what "synapse generate" produces for SYNAPSE_SERVER_NAME=localhost / SYNAPSE_REPORT_STATS=no,
+# plus the "matrix-poc overrides" block at the bottom (open registration, no rate limits, presence, plain media).
+# localhost.signing.key is NOT committed; homeserver.db / media_store live in data/ (git-ignored).
+# Reference: https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
+server_name: "localhost"
+pid_file: /data/homeserver.pid
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
+database:
+  name: sqlite3
+  args:
+    database: /data/homeserver.db
+log_config: "/data/localhost.log.config"
+media_store_path: /data/media_store
+registration_shared_secret: "REDACTED"
+report_stats: false
+macaroon_secret_key: "REDACTED"
+form_secret: "REDACTED"
+signing_key_path: "/data/localhost.signing.key"
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+${MARKER}
+# Appended by scripts/hs.mjs when the config is generated. Everything below is POC-only:
+# open registration, no rate limits, presence on, unauthenticated media (so <img src> works).
+public_baseurl: http://localhost:8008/
+serve_server_wellknown: false
+suppress_key_server_warning: true
+enable_registration: true
+enable_registration_without_verification: true
+allow_public_rooms_without_auth: true
+enable_authenticated_media: false
+presence:
+  enabled: true
+rc_message:
+  per_second: 1000
+  burst_count: 1000
+rc_registration:
+  per_second: 1000
+  burst_count: 1000
+rc_login:
+  address:
+    per_second: 1000
+    burst_count: 1000
+  account:
+    per_second: 1000
+    burst_count: 1000
+  failed_attempts:
+    per_second: 1000
+    burst_count: 1000
+rc_joins:
+  local:
+    per_second: 1000
+    burst_count: 1000
+  remote:
+    per_second: 1000
+    burst_count: 1000
+rc_joins_per_room:
+  per_second: 1000
+  burst_count: 1000
+rc_invites:
+  per_room:
+    per_second: 1000
+    burst_count: 1000
+  per_user:
+    per_second: 1000
+    burst_count: 1000
+  per_issuer:
+    per_second: 1000
+    burst_count: 1000
+rc_presence:
+  per_user:
+    per_second: 1000
+    burst_count: 1000
+rc_media_create:
+  per_second: 1000
+  burst_count: 1000
+rc_admin_redaction:
+  per_second: 1000
+  burst_count: 1000
+experimental_features:
+  # Simplified Sliding Sync (MSC4186). On by default in current Synapse; the flag is a no-op there.
+  msc3575_enabled: true

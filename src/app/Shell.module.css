@@ -1,0 +1,60 @@
+.shell {
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--rail-w) var(--sidebar-w) minmax(0, 1fr) auto;
+  grid-template-rows: 100%;
+  background: var(--bg-chat);
+}
+
+.rail {
+  background: var(--bg-rail);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar {
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebarBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-chat);
+}
+
+.members {
+  background: var(--bg-sidebar);
+  min-height: 0;
+  display: flex;
+}
+.members:empty {
+  display: none;
+}
+
+.empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  color: var(--text-muted);
+}
+.emptyTitle {
+  color: var(--text-heading);
+  font-size: 20px;
+  font-weight: 600;
+}
+.emptyText {
+  margin-top: 4px;
+}

@@ -1,0 +1,109 @@
+.root {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  background-image: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.12), transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(0, 0, 0, 0.25), transparent 45%);
+}
+
+.card {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-chat);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-elevation);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+.logo {
+  align-self: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.title {
+  margin: 0;
+  text-align: center;
+  color: var(--text-heading);
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.label {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.input {
+  width: 100%;
+  background: var(--bg-rail);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: var(--text-normal);
+  padding: 10px;
+  outline: none;
+  margin-bottom: 20px;
+}
+.input:focus {
+  border-color: var(--accent);
+}
+
+.error {
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  margin: -8px 0 16px;
+}
+
+.submit {
+  height: 44px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: 500;
+  font-size: 16px;
+  transition: background 0.15s;
+}
+.submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.footer {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.link {
+  color: var(--text-link);
+}
+.link:hover {
+  text-decoration: underline;
+}
+
+.server {
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}

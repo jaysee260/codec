@@ -1,0 +1,341 @@
+/**
+ * Room store: React-friendly snapshot of the SDK's room list, grouped the Discord way
+ * (spaces -> channels, DMs from m.direct), plus navigation selection.
+ *
+ * `recomputeRooms()` is called by the bridge (debounced) on any Room.* / RoomState.* / receipt /
+ * account-data event; `version` bumps on every recompute so components can subscribe to it.
+ */
+import { create } from 'zustand';
+import { EventType, KnownMembership, NotificationCountType, type Room } from 'matrix-js-sdk';
+import { getClientOrNull } from '@/lib/matrix/client.ts';
+import { NAV_STORAGE_KEY } from '@/lib/matrix/config.ts';
+import { getDirectMap } from '@/lib/matrix/actions.ts';
+import { roomAvatarUrl, roomTopic } from '@/lib/matrix/utils.ts';
+
+export interface RoomSummary {
+  roomId: string;
+  /** Room name, or the other user's display name for DMs. Channels are bare words ("general"). */
+  name: string;
+  topic?: string;
+  /** http avatar (96px crop) or undefined. DMs fall back to the other member's avatar. */
+  avatarUrl?: string;
+  canonicalAlias?: string;
+  isSpace: boolean;
+  /** Space this channel belongs to (via m.space.child on the space, else m.space.parent on the room). */
+  parentSpaceId?: string;
+  /** `order` from the space's m.space.child event, used for channel sorting. */
+  order?: string;
+  isDm: boolean;
+  /** The other participant of a DM (from m.direct). */
+  dmUserId?: string;
+  joinRule: string;
+  membership: string;
+  lastActiveTs: number;
+  memberCount: number;
+  /** Unread notification count (`unread_notifications.notification_count`). */
+  unread: number;
+  highlight: number;
+}
+
+export type SpaceSelection = string | 'home';
+
+export interface RoomStoreState {
+  /** True after the first recompute following the initial sync. */
+  ready: boolean;
+  /** Joined spaces sorted by name. */
+  spaces: RoomSummary[];
+  /** Joined channels per space, sorted by m.space.child `order` then name. */
+  channelsBySpace: Record<string, RoomSummary[]>;
+  /** DM rooms (from m.direct), newest activity first. */
+  dms: RoomSummary[];
+  /** Joined non-space rooms that belong to no space and are not DMs. */
+  orphanRooms: RoomSummary[];
+  /** Rooms I am invited to (not yet joined). */
+  invites: RoomSummary[];
+  roomsById: Record<string, RoomSummary>;
+  unreadByRoom: Record<string, number>;
+  highlightByRoom: Record<string, number>;
+  selectedSpaceId: SpaceSelection;
+  selectedRoomId: string | null;
+  /** Last selected room per space ('home' for DMs), restored when switching back. */
+  lastRoomBySpace: Record<string, string>;
+  version: number;
+  /** Select a space (or 'home' for DMs). Auto-selects the last/first channel of that space. */
+  selectSpace(spaceId: SpaceSelection): void;
+  /** Select a room; switches the space rail to the room's space (or 'home' for DMs/orphans). */
+  selectRoom(roomId: string | null): void;
+}
+
+interface PersistedSelection {
+  spaceId: SpaceSelection;
+  roomId: string | null;
+  lastRoomBySpace: Record<string, string>;
+}
+
+function loadSelection(): PersistedSelection | null {
+  try {
+    const raw = localStorage.getItem(NAV_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedSelection>;
+    return {
+      spaceId: parsed.spaceId ?? 'home',
+      roomId: parsed.roomId ?? null,
+      lastRoomBySpace: parsed.lastRoomBySpace ?? {},
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistSelection(sel: PersistedSelection): void {
+  try {
+    localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(sel));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+const byName = (a: RoomSummary, b: RoomSummary): number => a.name.localeCompare(b.name);
+const byOrderThenName = (a: RoomSummary, b: RoomSummary): number => {
+  const ao = a.order ?? '￿';
+  const bo = b.order ?? '￿';
+  return ao < bo ? -1 : ao > bo ? 1 : byName(a, b);
+};
+
+function spaceOf(summary: RoomSummary | undefined, fallback: SpaceSelection): SpaceSelection {
+  if (!summary) return fallback;
+  if (summary.isSpace) return summary.roomId;
+  if (summary.isDm || !summary.parentSpaceId) return 'home';
+  return summary.parentSpaceId;
+}
+
+function loadMembersInBackground(roomId: string | null): void {
+  if (!roomId) return;
+  void getClientOrNull()?.getRoom(roomId)?.loadMembersIfNeeded();
+}
+
+const emptyState = {
+  ready: false,
+  spaces: [] as RoomSummary[],
+  channelsBySpace: {} as Record<string, RoomSummary[]>,
+  dms: [] as RoomSummary[],
+  orphanRooms: [] as RoomSummary[],
+  invites: [] as RoomSummary[],
+  roomsById: {} as Record<string, RoomSummary>,
+  unreadByRoom: {} as Record<string, number>,
+  highlightByRoom: {} as Record<string, number>,
+  selectedSpaceId: 'home' as SpaceSelection,
+  selectedRoomId: null as string | null,
+  lastRoomBySpace: {} as Record<string, string>,
+};
+
+export const useRoomStore = create<RoomStoreState>((set, get) => ({
+  ...emptyState,
+  version: 0,
+
+  selectSpace(spaceId) {
+    const st = get();
+    const remembered = st.lastRoomBySpace[spaceId];
+    const candidates = spaceId === 'home' ? st.dms : (st.channelsBySpace[spaceId] ?? []);
+    const roomId =
+      remembered && candidates.some((r) => r.roomId === remembered) ? remembered : (candidates[0]?.roomId ?? null);
+    const lastRoomBySpace = roomId ? { ...st.lastRoomBySpace, [spaceId]: roomId } : st.lastRoomBySpace;
+    set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace });
+    persistSelection({ spaceId, roomId, lastRoomBySpace });
+    loadMembersInBackground(roomId);
+  },
+
+  selectRoom(roomId) {
+    const st = get();
+    if (!roomId) {
+      set({ selectedRoomId: null });
+      persistSelection({ spaceId: st.selectedSpaceId, roomId: null, lastRoomBySpace: st.lastRoomBySpace });
+      return;
+    }
+    const summary = st.roomsById[roomId];
+    const spaceId = spaceOf(summary, st.selectedSpaceId);
+    const lastRoomBySpace = { ...st.lastRoomBySpace, [spaceId]: roomId };
+    set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace });
+    persistSelection({ spaceId, roomId, lastRoomBySpace });
+    loadMembersInBackground(roomId);
+  },
+}));
+
+function summarize(room: Room, dmUserId: string | undefined, parentSpaceId: string | undefined, order: string | undefined): RoomSummary {
+  const alias = room.getCanonicalAlias() ?? undefined;
+  return {
+    roomId: room.roomId,
+    name: room.name || alias?.replace(/^#/, '').replace(/:.*$/, '') || room.roomId,
+    topic: roomTopic(room),
+    avatarUrl: roomAvatarUrl(room, 96) || undefined,
+    canonicalAlias: alias,
+    isSpace: room.isSpaceRoom(),
+    parentSpaceId,
+    order,
+    isDm: !!dmUserId,
+    dmUserId,
+    joinRule: room.getJoinRule(),
+    membership: room.getMyMembership(),
+    lastActiveTs: room.getLastActiveTimestamp(),
+    memberCount: room.getJoinedMemberCount(),
+    unread: room.getUnreadNotificationCount(NotificationCountType.Total),
+    highlight: room.getUnreadNotificationCount(NotificationCountType.Highlight),
+  };
+}
+
+/** Rebuild the whole snapshot from the SDK. Called by the bridge (debounced). */
+export function recomputeRooms(): void {
+  const client = getClientOrNull();
+  if (!client) return;
+
+  const dmUserByRoom = new Map<string, string>();
+  for (const [userId, roomIds] of Object.entries(getDirectMap())) {
+    for (const roomId of roomIds ?? []) if (!dmUserByRoom.has(roomId)) dmUserByRoom.set(roomId, userId);
+  }
+
+  const rooms = client.getRooms();
+
+  // Space -> children as declared by the spaces I am in.
+  const childInfo = new Map<string, { spaceId: string; order?: string }>();
+  for (const space of rooms) {
+    if (!space.isSpaceRoom() || space.getMyMembership() !== KnownMembership.Join) continue;
+    for (const ev of space.currentState.getStateEvents(EventType.SpaceChild)) {
+      const content = ev.getContent<{ via?: string[]; order?: string }>();
+      const childId = ev.getStateKey();
+      if (!childId || !Array.isArray(content.via) || content.via.length === 0) continue;
+      if (!childInfo.has(childId)) {
+        childInfo.set(childId, { spaceId: space.roomId, order: typeof content.order === 'string' ? content.order : undefined });
+      }
+    }
+  }
+
+  const spaces: RoomSummary[] = [];
+  const channelsBySpace: Record<string, RoomSummary[]> = {};
+  const dms: RoomSummary[] = [];
+  const orphanRooms: RoomSummary[] = [];
+  const invites: RoomSummary[] = [];
+  const roomsById: Record<string, RoomSummary> = {};
+  const unreadByRoom: Record<string, number> = {};
+  const highlightByRoom: Record<string, number> = {};
+
+  for (const room of rooms) {
+    const membership = room.getMyMembership();
+    if (membership !== KnownMembership.Join && membership !== KnownMembership.Invite) continue;
+
+    const dmUserId =
+      dmUserByRoom.get(room.roomId) ?? (membership === KnownMembership.Invite ? room.getDMInviter() : undefined);
+    const info = childInfo.get(room.roomId);
+    let parentSpaceId = info?.spaceId;
+    if (!parentSpaceId) {
+      for (const ev of room.currentState.getStateEvents(EventType.SpaceParent)) {
+        const content = ev.getContent<{ via?: string[] }>();
+        const spaceId = ev.getStateKey();
+        if (spaceId && Array.isArray(content.via) && content.via.length > 0 && client.getRoom(spaceId)?.isSpaceRoom()) {
+          parentSpaceId = spaceId;
+          break;
+        }
+      }
+    }
+
+    const summary = summarize(room, dmUserId, parentSpaceId, info?.order);
+    roomsById[room.roomId] = summary;
+    unreadByRoom[room.roomId] = summary.unread;
+    highlightByRoom[room.roomId] = summary.highlight;
+
+    if (membership === KnownMembership.Invite) {
+      invites.push(summary);
+    } else if (summary.isSpace) {
+      spaces.push(summary);
+    } else if (summary.isDm) {
+      dms.push(summary);
+    } else if (parentSpaceId) {
+      (channelsBySpace[parentSpaceId] ??= []).push(summary);
+    } else {
+      orphanRooms.push(summary);
+    }
+  }
+
+  spaces.sort(byName);
+  for (const list of Object.values(channelsBySpace)) list.sort(byOrderThenName);
+  dms.sort((a, b) => b.lastActiveTs - a.lastActiveTs);
+  orphanRooms.sort(byName);
+
+  const prev = useRoomStore.getState();
+  let { selectedSpaceId, selectedRoomId, lastRoomBySpace } = prev;
+  const firstReady = !prev.ready;
+
+  if (firstReady) {
+    const saved = loadSelection();
+    if (saved) {
+      lastRoomBySpace = saved.lastRoomBySpace;
+      selectedSpaceId = saved.spaceId;
+      selectedRoomId = saved.roomId;
+    }
+  }
+
+  // Validate the selection against what exists now.
+  const spaceExists = selectedSpaceId === 'home' || spaces.some((s) => s.roomId === selectedSpaceId);
+  if (!spaceExists) selectedSpaceId = spaces[0]?.roomId ?? 'home';
+  if (selectedRoomId && !(selectedRoomId in roomsById && roomsById[selectedRoomId]!.membership === KnownMembership.Join)) {
+    selectedRoomId = null;
+  }
+  if (firstReady && selectedSpaceId === 'home' && !selectedRoomId && spaces.length > 0 && !loadSelection()) {
+    // First ever load: land on the first space like Discord does.
+    selectedSpaceId = spaces[0]!.roomId;
+  }
+  if (!selectedRoomId) {
+    const candidates = selectedSpaceId === 'home' ? dms : (channelsBySpace[selectedSpaceId] ?? []);
+    const remembered = lastRoomBySpace[selectedSpaceId];
+    selectedRoomId =
+      remembered && candidates.some((r) => r.roomId === remembered) ? remembered : (candidates[0]?.roomId ?? null);
+  }
+  if (selectedRoomId) lastRoomBySpace = { ...lastRoomBySpace, [selectedSpaceId]: selectedRoomId };
+
+  const selectionChanged = selectedSpaceId !== prev.selectedSpaceId || selectedRoomId !== prev.selectedRoomId;
+  if (selectionChanged || firstReady) {
+    persistSelection({ spaceId: selectedSpaceId, roomId: selectedRoomId, lastRoomBySpace });
+    loadMembersInBackground(selectedRoomId);
+  }
+
+  useRoomStore.setState({
+    ready: true,
+    spaces,
+    channelsBySpace,
+    dms,
+    orphanRooms,
+    invites,
+    roomsById,
+    unreadByRoom,
+    highlightByRoom,
+    selectedSpaceId,
+    selectedRoomId,
+    lastRoomBySpace,
+    version: prev.version + 1,
+  });
+}
+
+/** Clear everything (logout). Keeps `version` monotonic. */
+export function resetRooms(): void {
+  useRoomStore.setState((s) => ({ ...emptyState, version: s.version + 1 }));
+}
+
+/**
+ * Resolve once a room id shows up in the store (after createRoom/createDm the room only appears
+ * when the next /sync delivers it). Resolves with false on timeout.
+ */
+export function waitForRoom(roomId: string, timeoutMs = 8000): Promise<boolean> {
+  if (useRoomStore.getState().roomsById[roomId]) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      unsubscribe();
+      resolve(false);
+    }, timeoutMs);
+    const unsubscribe = useRoomStore.subscribe((s) => {
+      if (s.roomsById[roomId]) {
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(true);
+      }
+    });
+  });
+}

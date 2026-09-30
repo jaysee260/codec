@@ -1,0 +1,136 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.header {
+  position: relative;
+  height: var(--header-h);
+  flex-shrink: 0;
+  box-shadow: 0 1px 0 var(--border-strong);
+  display: flex;
+  align-items: stretch;
+}
+
+.headerButton {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  color: var(--text-heading);
+  font-weight: 600;
+  font-size: 15px;
+}
+.headerButton:hover {
+  background: var(--bg-hover);
+}
+.headerName {
+  min-width: 0;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 8px;
+  right: 8px;
+  background: var(--bg-tooltip);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  box-shadow: var(--shadow-elevation);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menuItem {
+  text-align: left;
+  padding: 8px;
+  border-radius: 2px;
+  color: var(--text-normal);
+  font-size: 14px;
+}
+.menuItem:hover {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.sectionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sectionRow > span {
+  padding-left: 8px;
+}
+.sectionAdd {
+  color: var(--text-muted);
+  margin-top: 12px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+.sectionAdd:hover {
+  color: var(--text-heading);
+}
+
+.item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+.item:hover {
+  background: var(--bg-hover);
+  color: var(--text-normal);
+}
+.itemSelected,
+.itemSelected:hover {
+  background: var(--bg-active);
+  color: var(--text-heading);
+}
+.itemUnread {
+  color: var(--text-heading);
+  font-weight: 600;
+}
+.hash {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+.itemName {
+  flex: 1;
+  text-align: left;
+}
+
+.badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.emptyHint {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  padding: 8px 16px;
+}

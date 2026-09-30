@@ -1,0 +1,28 @@
+# Local Synapse homeserver for the POC (Docker path). SQLite, no federation, no TLS.
+# Config is ../homeserver.yaml (shared with the WSL fallback in ./wsl); runtime data in ./data (git-ignored).
+#
+#   npm run hs:up     -> generates data/localhost.signing.key if missing, then starts synapse
+#   npm run hs:down   -> stops the container (data kept)
+#   npm run hs:reset  -> stops, wipes ./data, regenerates the key, starts
+#
+# The web client talks to http://localhost:8008.
+services:
+  synapse:
+    image: ghcr.io/element-hq/synapse:latest
+    container_name: matrix-poc-synapse
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: localhost
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - ./data:/data
+      - ./homeserver.yaml:/data/homeserver.yaml
+      - ./localhost.log.config:/data/localhost.log.config
+    ports:
+      - "8008:8008"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8008/health').status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
