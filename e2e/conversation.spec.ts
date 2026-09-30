@@ -921,7 +921,7 @@ test.describe('DEV-B-10 mention autocomplete', () => {
     await expect(sent).toBeVisible({ timeout: 10_000 });
     await expect(sent.getByTestId('message-mention')).toBeVisible();
 
-    const sentId = (await sent.getAttribute('data-testid'))!.replace('message-', '');
+    const sentId = await settledEventId(sent);
     const event = await bob.getEvent(R.general, sentId);
     expect(String(event.content.formatted_body ?? '')).toContain(`matrix.to/#/${CAROL}`);
     const mentions = event.content['m.mentions'] as { user_ids?: string[] } | undefined;
