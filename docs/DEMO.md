@@ -37,9 +37,10 @@ Voice/video · end-to-end encryption (all rooms are unencrypted on purpose) · p
 ## 4. Known issues
 | Issue | Impact | Status |
 |---|---|---|
-| BUG-1: when older history loads at the top of a channel, the view can jump by about one screen instead of staying on the message you were reading | Cosmetic-to-annoying during step 3; nothing is lost | Fix is written and being verified; not yet committed |
 | Timestamps on seeded history are the seeding time, not spread over days | History all reads as "today" | Synapse limitation for non-bot users; accepted for the POC |
 | The automated end-to-end suite (96 Playwright checks) has so far only been run on a used database, where 7 checks skip by design because they need untouched seed data (one more is manual-only) | Confidence, not function | Run `npm run test:e2e:fresh` (reset + seed + suite, ~5 min) for the full green run |
+
+Note: the first homeserver start after pulling this version applies a relaxed room-creation rate limit; if the homeserver was already running, restart it once (`npm run hs:down && npm run hs:up`) before step 10, otherwise creating more than 10 rooms in a row as one user is throttled to about one per minute.
 
 ## 5. If it lands well: what we would do next
 Rough effort for one experienced engineer, in order of stakeholder value.

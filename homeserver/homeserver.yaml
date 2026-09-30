@@ -89,6 +89,11 @@ rc_media_create:
 rc_admin_redaction:
   per_second: 1000
   burst_count: 1000
+# Room creation has its own limiter (default: 10 rooms, then one per minute). The E2E suite and the
+# demo create channels/spaces/DMs as alice, so it must be relaxed too or createRoom starts returning 429.
+rc_room_creation:
+  per_second: 1000
+  burst_count: 1000
 experimental_features:
   # Simplified Sliding Sync (MSC4186). On by default in current Synapse; the flag is a no-op there.
   msc3575_enabled: true

@@ -47,6 +47,10 @@ curl -X POST http://localhost:8008/_matrix/client/v3/register \
   `docker info` returns `500 Internal Server Error` and `wsl` says "virtualization is not enabled",
   enable VT-x/AMD-V in the BIOS; nothing in this repo can work around that.
 - Port 8008 must be free (`netstat -ano | findstr :8008` on Windows).
+- `rc_room_creation` must be relaxed like the other `rc_*` keys (it is in `homeserver.yaml`). Synapse's default is
+  10 rooms then one per minute per user; the E2E suite creates channels/spaces/DMs as alice on every run and
+  `createRoom` starts answering `429 M_LIMIT_EXCEEDED` (`retry_after_ms` up to ~60 s) once the burst is used up.
+  The WSL fallback's `wsl/configure.sh` must include the same key.
 - If Synapse cannot write to `data/` (Linux hosts), set `UID`/`GID` environment variables for the
   container to your user id, or `chown -R 991:991 homeserver/data`.
 - `homeserver.yaml` contains three random secrets. They only protect a throw-away local server.

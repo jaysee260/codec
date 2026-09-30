@@ -6,6 +6,7 @@
 import {
   EventType,
   KnownMembership,
+  MatrixError,
   MatrixEvent,
   MsgType,
   Preset,
@@ -22,6 +23,46 @@ const HTML_FORMAT = 'org.matrix.custom.html';
 /** Room version 11 keeps explicit creator power levels (100). v12 (Synapse >= 1.162 default) makes creators
  * "infinite" and rejects them in power_level_content_override.users; the seed pins 11 too. */
 const ROOM_VERSION = '11';
+
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
+
+/** Longest we keep a dialog "busy" waiting on 429s for one user action before giving up. */
+const RATE_LIMIT_WAIT_BUDGET_MS = 30_000;
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Thrown by `retryOnRateLimit` when the server's `retry_after_ms` exceeds the wait budget. */
+export class RateLimitedError extends Error {
+  readonly retryAfterMs: number;
+  constructor(label: string, retryAfterMs: number) {
+    super(`${label} is rate limited by the homeserver; try again in ${Math.ceil(retryAfterMs / 1000)} s`);
+    this.name = 'RateLimitedError';
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * Retry an SDK call on 429 (M_LIMIT_EXCEEDED) honouring `retry_after_ms`, up to a total budget.
+ * The SDK only retries `m.room.message` sends by itself; `createRoom`, state events, invites and
+ * joins throw straight away. Synapse's `rc_room_creation` (default 10 rooms, then one per minute)
+ * is the limiter that bites here unless the homeserver config relaxes it.
+ */
+export async function retryOnRateLimit<T>(fn: () => Promise<T>, label = 'This action'): Promise<T> {
+  let waited = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!(e instanceof MatrixError) || !e.isRateLimitError()) throw e;
+      const retryAfter = e.getRetryAfterMs() ?? 2000;
+      if (waited + retryAfter > RATE_LIMIT_WAIT_BUDGET_MS) throw new RateLimitedError(label, retryAfter);
+      await sleep(retryAfter);
+      waited += retryAfter;
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Messages
@@ -189,42 +230,53 @@ function viaFor(): string[] {
 export async function createChannel(opts: { spaceId: string; name: string; topic?: string }): Promise<string> {
   const client = getClient();
   const via = viaFor();
-  const { room_id } = await client.createRoom({
-    room_version: ROOM_VERSION,
-    name: opts.name,
-    topic: opts.topic,
-    preset: Preset.PublicChat,
-    visibility: Visibility.Private,
-    initial_state: [{ type: EventType.SpaceParent, state_key: opts.spaceId, content: { via, canonical: true } }],
-  });
+  const { room_id } = await retryOnRateLimit(
+    () =>
+      client.createRoom({
+        room_version: ROOM_VERSION,
+        name: opts.name,
+        topic: opts.topic,
+        preset: Preset.PublicChat,
+        visibility: Visibility.Private,
+        initial_state: [{ type: EventType.SpaceParent, state_key: opts.spaceId, content: { via, canonical: true } }],
+      }),
+    'Creating a channel',
+  );
   const space = client.getRoom(opts.spaceId);
   const existing = (space?.currentState.getStateEvents(EventType.SpaceChild) ?? []).filter((ev) => {
     const via = ev.getContent<{ via?: string[] }>().via;
     return Array.isArray(via) && via.length > 0;
   });
   const order = String(existing.length + 1).padStart(2, '0');
-  await client.sendStateEvent(opts.spaceId, EventType.SpaceChild, { via, order }, room_id);
+  await retryOnRateLimit(
+    () => client.sendStateEvent(opts.spaceId, EventType.SpaceChild, { via, order }, room_id),
+    'Adding the channel to the space',
+  );
   return room_id;
 }
 
 /** Create a space (public, unencrypted) with one `general` channel. Resolves with the space room id. */
 export async function createSpace(opts: { name: string; topic?: string }): Promise<string> {
   const client = getClient();
-  const { room_id } = await client.createRoom({
-    room_version: ROOM_VERSION,
-    name: opts.name,
-    topic: opts.topic,
-    creation_content: { type: 'm.space' },
-    preset: Preset.PublicChat,
-    visibility: Visibility.Private,
-  });
+  const { room_id } = await retryOnRateLimit(
+    () =>
+      client.createRoom({
+        room_version: ROOM_VERSION,
+        name: opts.name,
+        topic: opts.topic,
+        creation_content: { type: 'm.space' },
+        preset: Preset.PublicChat,
+        visibility: Visibility.Private,
+      }),
+    'Creating a space',
+  );
   await createChannel({ spaceId: room_id, name: 'general' });
   return room_id;
 }
 
 /** Invite a user to a room or space. Throws MatrixError (e.g. M_NOT_FOUND for unknown users). */
 export async function inviteUser(roomId: string, userId: string): Promise<void> {
-  await getClient().invite(roomId, userId);
+  await retryOnRateLimit(() => getClient().invite(roomId, userId), 'Inviting');
 }
 
 /** `m.direct` account data as { userId: roomId[] }. */
@@ -247,26 +299,30 @@ export function findDmRoomId(userId: string): string | undefined {
 async function addToDirectMap(userId: string, roomId: string): Promise<void> {
   const map = { ...getDirectMap() };
   map[userId] = Array.from(new Set([...(map[userId] ?? []), roomId]));
-  await getClient().setAccountData(EventType.Direct, map);
+  await retryOnRateLimit(() => getClient().setAccountData(EventType.Direct, map), 'Saving the DM');
 }
 
 /** Reuse the existing DM with `userId` or create one (is_direct + trusted_private_chat) and record it in m.direct. */
 export async function createDm(userId: string): Promise<string> {
   const existing = findDmRoomId(userId);
   if (existing) return existing;
-  const { room_id } = await getClient().createRoom({
-    room_version: ROOM_VERSION,
-    is_direct: true,
-    preset: Preset.TrustedPrivateChat,
-    invite: [userId],
-  });
+  const { room_id } = await retryOnRateLimit(
+    () =>
+      getClient().createRoom({
+        room_version: ROOM_VERSION,
+        is_direct: true,
+        preset: Preset.TrustedPrivateChat,
+        invite: [userId],
+      }),
+    'Starting a DM',
+  );
   await addToDirectMap(userId, room_id);
   return room_id;
 }
 
 /** Join a room by id or alias. Resolves with the room id. */
 export async function joinRoom(roomIdOrAlias: string): Promise<string> {
-  const room = await getClient().joinRoom(roomIdOrAlias);
+  const room = await retryOnRateLimit(() => getClient().joinRoom(roomIdOrAlias), 'Joining');
   return room.roomId;
 }
 

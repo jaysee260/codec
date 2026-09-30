@@ -15,7 +15,7 @@
  *  - Rooms this suite creates are cleaned up afterwards (child link removed, room left and
  *    forgotten) so repeat runs do not pile up channels in Gaming.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
@@ -103,6 +103,29 @@ async function expectedChannelNames(spaceId: string): Promise<string[]> {
       return byOrder !== 0 ? byOrder : (a.name ?? '').localeCompare(b.name ?? '');
     })
     .map((r) => r.name ?? r.room_id);
+}
+
+/**
+ * Waits for a newly created channel to show up in the sidebar, and on failure records what the
+ * sidebar actually held. Without this the report only says "element(s) not found", which does not
+ * distinguish "the room never arrived" from "the room arrived without its name yet" (BUG-3).
+ */
+async function expectChannelListed(page: Page, item: Locator, name: string): Promise<void> {
+  try {
+    await expect(item).toBeVisible({ timeout: 20_000 });
+  } catch (error) {
+    const shown = await page
+      .getByTestId('channel-list')
+      .locator('[data-testid^="channel-item-"]')
+      .evaluateAll((els) =>
+        els.map((el) => ({ testid: el.getAttribute('data-testid'), name: (el as HTMLElement).dataset.name })),
+      );
+    annotate(
+      'diagnostic',
+      `channel "${name}" never appeared. channel-list held ${shown.length} item(s): ${JSON.stringify(shown)}`,
+    );
+    throw error;
+  }
 }
 
 test.describe('DEV-A-1 space rail', () => {
@@ -415,7 +438,7 @@ test.describe('DEV-A-6 create channel', () => {
 
     await expect(page.getByTestId('create-channel-dialog')).toHaveCount(0, { timeout: 20_000 });
     const item = byName(page.getByTestId('channel-list'), name);
-    await expect(item).toBeVisible({ timeout: 20_000 });
+    await expectChannelListed(page, item, name);
     await expect(item).toHaveAttribute('data-selected', 'true');
     await expect(page.getByTestId('channel-header-name')).toContainText(name);
     await expect(page.getByTestId('channel-header-topic')).toContainText('Only the dankest');

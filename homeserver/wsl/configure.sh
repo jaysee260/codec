@@ -13,7 +13,7 @@ c['presence']={'enabled':True}
 c['suppress_key_server_warning']=True
 c['enable_authenticated_media']=False
 big={'per_second':1000,'burst_count':10000}
-for k in ['rc_message','rc_registration','rc_login','rc_joins','rc_invites','rc_admin_redaction','rc_3pid_validation']:
+for k in ['rc_message','rc_registration','rc_login','rc_joins','rc_invites','rc_admin_redaction','rc_3pid_validation','rc_room_creation']:
     if k=='rc_login':
         c[k]={'address':big,'account':big,'failed_attempts':big}
     elif k=='rc_joins':

@@ -59,6 +59,12 @@ export interface RoomStoreState {
   selectedRoomId: string | null;
   /** Last selected room per space ('home' for DMs), restored when switching back. */
   lastRoomBySpace: Record<string, string>;
+  /**
+   * Room / space selected via selectRoom()/selectSpace() before /sync delivered it (just created).
+   * Kept as the selection instead of being replaced by a fallback, and honoured when it arrives.
+   */
+  pendingRoomId: string | null;
+  pendingSpaceId: string | null;
   version: number;
   /** Select a space (or 'home' for DMs). Auto-selects the last/first channel of that space. */
   selectSpace(spaceId: SpaceSelection): void;
@@ -105,8 +111,12 @@ const byOrderThenName = (a: RoomSummary, b: RoomSummary): number => {
 function spaceOf(summary: RoomSummary | undefined, fallback: SpaceSelection): SpaceSelection {
   if (!summary) return fallback;
   if (summary.isSpace) return summary.roomId;
-  if (summary.isDm || !summary.parentSpaceId) return 'home';
-  return summary.parentSpaceId;
+  if (summary.isDm) return 'home';
+  // A non-DM room without a known parent is either a genuinely space-less room (selected from Home, so
+  // `fallback` is already 'home') or a just-created channel that /sync delivered in two batches
+  // (membership first, name + m.space.parent next). Either way: stay where we are; recomputeRooms()
+  // re-homes the sidebar as soon as the parent is known.
+  return summary.parentSpaceId ?? fallback;
 }
 
 function loadMembersInBackground(roomId: string | null): void {
@@ -127,6 +137,8 @@ const emptyState = {
   selectedSpaceId: 'home' as SpaceSelection,
   selectedRoomId: null as string | null,
   lastRoomBySpace: {} as Record<string, string>,
+  pendingRoomId: null as string | null,
+  pendingSpaceId: null as string | null,
 };
 
 export const useRoomStore = create<RoomStoreState>((set, get) => ({
@@ -140,7 +152,9 @@ export const useRoomStore = create<RoomStoreState>((set, get) => ({
     const roomId =
       remembered && candidates.some((r) => r.roomId === remembered) ? remembered : (candidates[0]?.roomId ?? null);
     const lastRoomBySpace = roomId ? { ...st.lastRoomBySpace, [spaceId]: roomId } : st.lastRoomBySpace;
-    set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace });
+    // A space that /sync has not delivered yet (just created) stays pending until it arrives.
+    const known = spaceId === 'home' || !!st.roomsById[spaceId];
+    set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace, pendingSpaceId: known ? null : spaceId, pendingRoomId: null });
     persistSelection({ spaceId, roomId, lastRoomBySpace });
     loadMembersInBackground(roomId);
   },
@@ -148,14 +162,16 @@ export const useRoomStore = create<RoomStoreState>((set, get) => ({
   selectRoom(roomId) {
     const st = get();
     if (!roomId) {
-      set({ selectedRoomId: null });
+      set({ selectedRoomId: null, pendingRoomId: null });
       persistSelection({ spaceId: st.selectedSpaceId, roomId: null, lastRoomBySpace: st.lastRoomBySpace });
       return;
     }
     const summary = st.roomsById[roomId];
     const spaceId = spaceOf(summary, st.selectedSpaceId);
     const lastRoomBySpace = { ...st.lastRoomBySpace, [spaceId]: roomId };
-    set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace });
+    // Unknown room (just created, /sync has not delivered it yet): keep it as the pending selection so
+    // the next recompute neither falls back to the first channel nor loses it; it is honoured on arrival.
+    set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace, pendingRoomId: summary ? null : roomId });
     persistSelection({ spaceId, roomId, lastRoomBySpace });
     loadMembersInBackground(roomId);
   },
@@ -261,8 +277,10 @@ export function recomputeRooms(): void {
   orphanRooms.sort(byName);
 
   const prev = useRoomStore.getState();
-  let { selectedSpaceId, selectedRoomId, lastRoomBySpace } = prev;
+  let { selectedSpaceId, selectedRoomId, lastRoomBySpace, pendingRoomId, pendingSpaceId } = prev;
   const firstReady = !prev.ready;
+  const isJoined = (id: string | null | undefined): boolean =>
+    !!id && roomsById[id]?.membership === KnownMembership.Join;
 
   if (firstReady) {
     const saved = loadSelection();
@@ -273,17 +291,40 @@ export function recomputeRooms(): void {
     }
   }
 
-  // Validate the selection against what exists now.
+  // Selections made before /sync delivered the room/space (createChannel/createSpace/createDm flows):
+  // honour them now that they exist.
+  if (pendingSpaceId && spaces.some((s) => s.roomId === pendingSpaceId)) {
+    selectedSpaceId = pendingSpaceId;
+    if (!isJoined(selectedRoomId) || roomsById[selectedRoomId!]!.parentSpaceId !== pendingSpaceId) selectedRoomId = null;
+    pendingSpaceId = null;
+  }
+  if (pendingRoomId && isJoined(pendingRoomId)) {
+    selectedRoomId = pendingRoomId;
+    pendingRoomId = null;
+  }
+
+  // Invariant: the sidebar shows the space that contains the selected room. Re-evaluated on every
+  // recompute because Synapse can deliver a just-created room in two /sync batches (membership first,
+  // then m.room.name / m.space.parent), so its space may only become known after it was selected.
+  const selected = selectedRoomId ? roomsById[selectedRoomId] : undefined;
+  if (selected && isJoined(selectedRoomId)) {
+    if (selected.isDm) selectedSpaceId = 'home';
+    else if (selected.parentSpaceId && spaces.some((s) => s.roomId === selected.parentSpaceId)) {
+      selectedSpaceId = selected.parentSpaceId;
+    }
+  }
+
+  // Validate the selection against what exists now (a still-pending id is left alone).
   const spaceExists = selectedSpaceId === 'home' || spaces.some((s) => s.roomId === selectedSpaceId);
-  if (!spaceExists) selectedSpaceId = spaces[0]?.roomId ?? 'home';
-  if (selectedRoomId && !(selectedRoomId in roomsById && roomsById[selectedRoomId]!.membership === KnownMembership.Join)) {
+  if (!spaceExists && selectedSpaceId !== pendingSpaceId) selectedSpaceId = spaces[0]?.roomId ?? 'home';
+  if (selectedRoomId && !isJoined(selectedRoomId) && selectedRoomId !== pendingRoomId) {
     selectedRoomId = null;
   }
   if (firstReady && selectedSpaceId === 'home' && !selectedRoomId && spaces.length > 0 && !loadSelection()) {
     // First ever load: land on the first space like Discord does.
     selectedSpaceId = spaces[0]!.roomId;
   }
-  if (!selectedRoomId) {
+  if (!selectedRoomId && selectedSpaceId !== pendingSpaceId) {
     const candidates = selectedSpaceId === 'home' ? dms : (channelsBySpace[selectedSpaceId] ?? []);
     const remembered = lastRoomBySpace[selectedSpaceId];
     selectedRoomId =
@@ -310,6 +351,8 @@ export function recomputeRooms(): void {
     selectedSpaceId,
     selectedRoomId,
     lastRoomBySpace,
+    pendingRoomId,
+    pendingSpaceId,
     version: prev.version + 1,
   });
 }

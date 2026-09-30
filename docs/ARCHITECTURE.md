@@ -18,7 +18,7 @@ This document is the contract between the Principal-owned core (`src/lib`, `src/
 | `createSpace` | `({ name })` | `({ name, topic? })`; still auto-creates `general`. | Superset. |
 | Extra actions | - | `toggleReaction`, `markRoomRead`, `joinRoom`, `leaveRoom`, `loadMembers`, `fetchEvent`, `canRedactEvent`, `canEditEvent`, `myPowerLevel`, `findDmRoomId`, `getDirectMap`. | Needed by the placeholders / dialogs; documented below. |
 | Feature components | navigation exports `SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel`; conversation exports `Conversation` | Exactly that, plus navigation exports `useNavUiStore` (member panel open/closed) which Dev A owns. `ChannelSidebar` renders `DmList` itself when `selectedSpaceId === 'home'`. | Matches TICKETS; the DM list is an internal component of Dev A's folder. |
-| Rate limits | PLAN says `per_second: 1000, burst_count: 1000` | Exactly that, for `rc_message`, `rc_registration`, `rc_login.*`, `rc_joins.*`, `rc_joins_per_room`, `rc_invites.*`, `rc_presence`, `rc_media_create`, `rc_admin_redaction`. | - |
+| Rate limits | PLAN says `per_second: 1000, burst_count: 1000` | Exactly that, for `rc_message`, `rc_registration`, `rc_login.*`, `rc_joins.*`, `rc_joins_per_room`, `rc_invites.*`, `rc_presence`, `rc_media_create`, `rc_admin_redaction` **and `rc_room_creation`** (Synapse's separate room-creation limiter: default 10 rooms then 1/min per user; without relaxing it `createRoom` returns 429 once the suite has created ~10 rooms as alice). | - |
 | Seed location | `seed/seed.ts`, output `seed/seed-output.json` | Same. The orchestrator brief said `scripts/seed.ts`; SEED_DATA.md wins. | - |
 | Room version | not specified | `createChannel` / `createSpace` / `createDm` and the seed pin `room_version: "11"`. Synapse >= 1.162 defaults to v12, where the creator has "infinite" power and must not appear in `power_level_content_override.users`; v11 keeps alice at an explicit 100 (crown icon, `myPowerLevel()`), matching SEED_DATA.md. | Contract says alice = 100. |
 | Redacted messages in the timeline | TICKETS DEV-B-1 renders them as "Message deleted" | `isDisplayableEvent()` **keeps** redacted `m.room.message` events so Dev B can render `message-redacted`. | - |
@@ -139,6 +139,8 @@ The shell mounts feature components and passes nothing but `roomId`:
 | `version` | `number` | Bumps on every recompute. Subscribe to it to re-read SDK objects (members, power levels). |
 | `selectSpace(id)` | `void` | Switches space and selects its remembered or first channel (DMs for `'home'`). Persists. Kicks off `loadMembersIfNeeded`. |
 | `selectRoom(roomId \| null)` | `void` | Selects a room and switches `selectedSpaceId` to its space (`'home'` for DMs/orphans). Persists. |
+| `pendingRoomId`, `pendingSpaceId` | `string \| null` | Set when `selectRoom`/`selectSpace` is called with an id `/sync` has not delivered yet (right after `createChannel`/`createSpace`/`createDm`). The recompute leaves such a selection alone instead of falling back to the first channel, and switches to it the moment it arrives - so calling `selectRoom(newId)` before or after `waitForRoom` both work. |
+| (invariant) | | Every recompute re-homes `selectedSpaceId` to the selected room's space (`'home'` for DMs) once that space is known, and `selectRoom()` on a room whose parent is not known yet keeps the current space. Needed because a just-created room can arrive in two `/sync` batches (see gotchas). |
 
 Helpers: `recomputeRooms()` (bridge only), `resetRooms()`, `waitForRoom(roomId, timeoutMs=8000): Promise<boolean>`
 (resolves once a freshly created room arrives via sync; use after `createChannel`/`createSpace`/`createDm` before selecting).
@@ -202,6 +204,7 @@ Helpers: `refreshTimeline(roomId)`, `refreshTimelines(ids)`, `ensureTimeline(roo
 | `canRedactEvent` | `(roomId, event) => boolean` | `room.currentState.maySendRedactionForEvent`. |
 | `canEditEvent` | `(event) => boolean` | Own, non-redacted `m.room.message`. |
 | `myPowerLevel` | `(roomId) => number` | |
+| `retryOnRateLimit` | `(fn: () => Promise<T>, label?) => Promise<T>` | Retries `fn` on 429 honouring `retry_after_ms` up to 30 s total, then throws `RateLimitedError` (`.retryAfterMs`, readable `.message`). Already applied inside `createChannel`, `createSpace`, `createDm`, `inviteUser`, `joinRoom`. |
 
 ### Read helpers (`src/lib/matrix/utils.ts`)
 
@@ -287,3 +290,16 @@ seed or tests depends on how the homeserver is hosted - only on that URL.
   (MatrixRTC) once per `startClient`; Synapse answers 404. Harmless, ignore it in QA console checks.
 - **Initial window**: `initialSyncLimit: 30` counts every event (reactions, edits, state), so #general shows ~25
   message rows before the first `paginateBack`; `general.first` is not in the DOM until you paginate (AC-B3-1).
+- **A just-created room arrives in two `/sync` batches.** Synapse persists `createRoom`'s events one by one and
+  wakes the client's in-flight long-poll on the first of them, so the first batch often carries only
+  `m.room.create` + your join; `m.room.name`, `m.room.topic` and `m.space.parent` follow in the next `/sync`
+  (the gap grows when SQLite is busy). Consequences: `waitForRoom()` resolves on the first batch, `RoomSummary.name`
+  and `parentSpaceId` can be wrong/undefined for a few hundred ms, and `useRoomStore.version` bumps again when the
+  rest lands. The store's selection logic is written for this (see the invariant above); feature code should
+  never cache a `RoomSummary` of a room it just created - re-read it from `roomsById` on each render.
+- **Room creation is rate limited separately** (`rc_room_creation`, default burst 10 then one room per ~62 s per
+  user) and the SDK does **not** retry `createRoom` on 429 (only `m.room.message` sends go through its retrying
+  scheduler). `createChannel` / `createSpace` / `createDm` / `inviteUser` / `joinRoom` therefore go through
+  `retryOnRateLimit` (waits `retry_after_ms`, up to 30 s, else `RateLimitedError`). A homeserver whose config
+  lacks the `rc_room_creation` override will still fail dialogs after ~10 room creations by the same user until the
+  bucket refills - if a create-channel/space/DM test fails with a 429 in the toast/dialog, that is the cause.
