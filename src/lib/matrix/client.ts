@@ -14,7 +14,7 @@ import {
   type MatrixClient,
 } from 'matrix-js-sdk';
 import type { ISyncStateData } from 'matrix-js-sdk/lib/sync.js';
-import { DEVICE_DISPLAY_NAME, HS_URL, SESSION_STORAGE_KEY } from './config.ts';
+import { DEVICE_DISPLAY_NAME, getHsUrl, SESSION_STORAGE_KEY } from './config.ts';
 
 export { mxcToHttp } from './mxc.ts';
 
@@ -48,7 +48,7 @@ export function loadSession(): StoredSession | null {
     if (!raw) return null;
     const s = JSON.parse(raw) as Partial<StoredSession>;
     if (!s.userId || !s.accessToken || !s.deviceId) return null;
-    return { baseUrl: s.baseUrl || HS_URL, userId: s.userId, accessToken: s.accessToken, deviceId: s.deviceId };
+    return { baseUrl: s.baseUrl || getHsUrl(), userId: s.userId, accessToken: s.accessToken, deviceId: s.deviceId };
   } catch {
     return null;
   }
@@ -68,14 +68,15 @@ export function clearSession(): void {
 
 /** Password login. Resolves with the session (already persisted). Throws MatrixError on failure. */
 export async function login(username: string, password: string): Promise<StoredSession> {
-  const tmp = createClient({ baseUrl: HS_URL });
+  const baseUrl = getHsUrl();
+  const tmp = createClient({ baseUrl });
   const res = await tmp.login('m.login.password', {
     identifier: { type: 'm.id.user', user: username.trim() },
     password,
     initial_device_display_name: DEVICE_DISPLAY_NAME,
   });
   const session: StoredSession = {
-    baseUrl: HS_URL,
+    baseUrl,
     userId: res.user_id,
     accessToken: res.access_token,
     deviceId: res.device_id,
@@ -86,7 +87,8 @@ export async function login(username: string, password: string): Promise<StoredS
 
 /** Open registration with the dummy UIA stage (homeserver has enable_registration_without_verification). */
 export async function register(username: string, password: string): Promise<StoredSession> {
-  const tmp = createClient({ baseUrl: HS_URL });
+  const baseUrl = getHsUrl();
+  const tmp = createClient({ baseUrl });
   const res = await tmp.registerRequest({
     username: username.trim(),
     password,
@@ -99,7 +101,7 @@ export async function register(username: string, password: string): Promise<Stor
     return login(username, password);
   }
   const session: StoredSession = {
-    baseUrl: HS_URL,
+    baseUrl,
     userId: res.user_id,
     accessToken: res.access_token,
     deviceId: res.device_id,

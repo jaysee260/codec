@@ -101,6 +101,21 @@ function persistSelection(sel: PersistedSelection): void {
   }
 }
 
+type RoomSelectedListener = (roomId: string) => void;
+const roomSelectedListeners = new Set<RoomSelectedListener>();
+
+/**
+ * Fires on every explicit `selectRoom(roomId)` call (a user picking a channel/DM), and NOT when the
+ * selection changes as a side effect of `selectSpace()` or of a sync-driven recompute. The layout
+ * store uses it to close the phone nav drawer (AC-M2-2 closes, AC-M2-4 space switch stays open).
+ */
+export function onRoomSelected(listener: RoomSelectedListener): () => void {
+  roomSelectedListeners.add(listener);
+  return () => {
+    roomSelectedListeners.delete(listener);
+  };
+}
+
 const byName = (a: RoomSummary, b: RoomSummary): number => a.name.localeCompare(b.name);
 const byOrderThenName = (a: RoomSummary, b: RoomSummary): number => {
   const ao = a.order ?? '￿';
@@ -174,6 +189,7 @@ export const useRoomStore = create<RoomStoreState>((set, get) => ({
     set({ selectedSpaceId: spaceId, selectedRoomId: roomId, lastRoomBySpace, pendingRoomId: summary ? null : roomId });
     persistSelection({ spaceId, roomId, lastRoomBySpace });
     loadMembersInBackground(roomId);
+    for (const listener of roomSelectedListeners) listener(roomId);
   },
 }));
 

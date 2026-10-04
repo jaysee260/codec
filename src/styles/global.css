@@ -15,6 +15,22 @@ body,
   padding: 0;
 }
 
+/* Mobile browsers: 100% / 100vh is the *large* viewport (content hides under the URL bar); 100dvh follows
+ * the visible area and the keyboard (interactive-widget=resizes-content). Older engines keep 100vh. */
+#root {
+  height: 100vh;
+  height: 100dvh;
+}
+
+html,
+body {
+  overscroll-behavior: none; /* no pull-to-refresh / rubber-banding behind the app */
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   background: var(--bg-chat);
   color: var(--text-normal);
@@ -23,6 +39,29 @@ body {
   line-height: 1.375;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+}
+
+/* Phone-only rules. `data-layout` is stamped on <html> by src/store/layout.ts (same signal as useLayoutStore.isPhone).
+ * Features should key touch-specific styling off `@media (hover: none)` (the touch signal) or this attribute. */
+:root[data-layout='phone'] {
+  -webkit-tap-highlight-color: transparent;
+}
+:root[data-layout='phone'] body {
+  touch-action: manipulation; /* no double-tap zoom delay; pinch-zoom stays off via the viewport meta */
+}
+/* iOS zooms the page when a focused field is < 16px; !important on purpose so no component style can reintroduce it. */
+:root[data-layout='phone'] input,
+:root[data-layout='phone'] textarea,
+:root[data-layout='phone'] select {
+  font-size: max(16px, 1em) !important;
+}
+/* Hide scrollbars on touch (they take 8px of a 412px screen). */
+:root[data-layout='phone'] * {
+  scrollbar-width: none;
+}
+:root[data-layout='phone'] *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 a {

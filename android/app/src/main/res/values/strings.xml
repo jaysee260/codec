@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Matrix POC</string>
+    <string name="title_activity_main">Matrix POC</string>
+    <string name="package_name">com.acme.matrixpoc</string>
+    <string name="custom_url_scheme">com.acme.matrixpoc</string>
+</resources>

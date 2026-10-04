@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -14,6 +15,16 @@
     "hs:up": "node scripts/hs.mjs up",
     "hs:down": "node scripts/hs.mjs down",
     "hs:reset": "node scripts/hs.mjs reset",
+    "hs:lan": "node scripts/lan-proxy.mjs",
+    "toolchain": "node scripts/toolchain.mjs",
+    "cap:sync": "vite build && cap sync",
+    "cap:copy:ios": "cap copy ios",
+    "cap:build:android": "node scripts/cap-build-android.mjs",
+    "cap:build:android:lan": "node scripts/cap-build-android.mjs --lan",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
+    "voice:sample": "node scripts/send-voice-sample.mjs",
+    "verify:phone": "node scripts/verify-phone-shell.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",
@@ -24,6 +35,11 @@
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/haptics": "^7.0.5",
+    "@capacitor/keyboard": "^7.0.6",
+    "@capacitor/status-bar": "^7.0.6",
     "dompurify": "^3.4.16",
     "lucide-react": "^1.49.0",
     "matrix-js-sdk": "^43.0.0",
@@ -32,6 +48,9 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/ios": "^7.6.9",
     "@playwright/test": "^1.49.0",
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.12",

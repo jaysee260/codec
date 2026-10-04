@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-09-30, end of Wave 3. Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-04 (Phase 2 planned; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -77,3 +77,65 @@ Last updated: 2026-09-30, end of Wave 3. Commits: `f5e796c` Wave 1, `b19cb62` .g
 | 4 | PM | homeserver `rc_*` overrides + `seed/seed-output.json` | done |
 | 5 | QA | Add `e2e/results/` to `.gitignore` | done (`e714746`) |
 | 6 | QA | Relax `rc_room_creation` (BUG-3) | done (working tree) |
+
+---
+
+# Phase 2 - Phone POC (Capacitor) + voice notes
+
+Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tickets: docs/PHASE2_TICKETS.md. Added 2026-10-04 by PM; all rows `todo`. P0 = phone demo script. Waves: 4 Principal core, 5 devs + QA in parallel, 6 device pass + handoff.
+
+## Wave 4 - Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PRIN-1 Capacitor 7 scaffold + Android debug APK | P0 | in-progress | Principal | `capacitor.config.ts` + `@capacitor/* ^7.6.9` in the working tree (`androidScheme: 'http'` + `cleartext` + `allowMixedContent`, Keyboard `resize: 'body'`); needs JDK 21 and cmdline SDK (only Java 8 present) |
+| PRIN-2 LAN proxy (8009) + `VITE_HS_URL` + login Homeserver override + `dev:lan` | P0 | in-progress | Principal | `getHsUrl()` override shipped in `config.ts`; proxy prototype in `docs/advisor/lan-proxy.mjs`; do not touch the running homeserver |
+| PRIN-3 Layout store + `Drawer` + phone shell | P0 | todo | Principal | Shared API table is the contract for A/B |
+| PRIN-4 Safe area, `100dvh`, viewport meta, keyboard, status bar | P0 | todo | Principal | |
+| PRIN-5 Voice core (encoder spike, helpers, `sendVoiceMessage`, `getVoiceMessage`) | P0 | todo | Principal | Spike result (mediabunny remux vs opus-recorder) to be recorded here |
+| PRIN-6 iOS project + Info.plist + Mac handoff | P1 | todo | Principal | `cap copy ios` only on Windows |
+| PRIN-7 docs/MOBILE.md + ARCHITECTURE deltas | P0 | todo | Principal | |
+
+## Wave 5 - Dev A (phone navigation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-11 Drawer content (rail + channel/DM list) | P0 | todo | Dev A | |
+| DEV-A-12 Phone channel header (`header-menu`, `member-toggle` -> drawer) | P0 | todo | Dev A | |
+| DEV-A-13 Member drawer content | P1 | todo | Dev A | |
+| DEV-A-14 Touch targets (44 px) | P0 | todo | Dev A | |
+| DEV-A-15 Dialogs as bottom sheets | P1 | todo | Dev A | |
+| DEV-A-16 Phone navigation polish | P2 | todo | Dev A | |
+
+## Wave 5 - Dev B (voice notes + phone conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-12 Mic button + recording bar (`useVoiceRecorder`) | P0 | todo | Dev B | |
+| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | todo | Dev B | |
+| DEV-B-14 Voice message bubble (play/pause, scrubber, duration, waveform) | P0 | todo | Dev B | |
+| DEV-B-15 Phone composer + message rows | P0 | todo | Dev B | |
+| DEV-B-16 Long-press message action sheet | P1 | todo | Dev B | Dev A picks this up if B slips |
+| DEV-B-17 Voice polish | P2 | todo | Dev B | |
+
+## Wave 5 - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-8 `mobile` Playwright project + fixtures | P0 | todo | QA | Pixel 7, fake mic flags, CDP long-press |
+| QA-9 Voice-note suite (API + magic-byte verification) | P0 | todo | QA | WAV fixture for bob (no ffmpeg) |
+| QA-10 Mobile navigation suite | P1 | todo | QA | |
+| QA-11 Mobile smoke = phone demo script + screenshots | P0 | todo | QA | `e2e/results/demo-mobile/` |
+| QA-12 Android build check | P0 | todo | QA | Skips with reason until JDK/SDK env is set |
+| QA-13 Bug format update (platform column, device template) | P1 | todo | QA | |
+
+## Wave 6 device pass
+| Item | Result |
+|---|---|
+| APK on the stakeholder's Android device, phone demo script 1-10 | not yet run |
+| Manual criteria (AC-C1-6, AC-M2-8, AC-M6-4/5, AC-V5-3) | not yet run |
+| Mac handoff package (iOS) | not yet prepared |
+| AC-V2-4 (Ogg/Opus in Chromium) | pending PRIN-5 spike |
+
+## Requests to Principal (Phase 2)
+| # | From | Request | Status |
+|---|---|---|---|
+| 7 | PM | Shared API per docs/PHASE2_TICKETS.md (layout store, Drawer, audio helpers, `sendVoiceMessage`, `getVoiceMessage`, CSS variables) | todo |
+| 8 | PM | Shell testids per docs/PHASE2_ACCEPTANCE.md (`data-layout`, `nav-drawer`, `member-drawer`, `drawer-backdrop`) | todo |
+| 9 | QA | `test:e2e:mobile`, `test:e2e:apk` script lines in `package.json` | todo |

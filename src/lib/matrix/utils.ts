@@ -12,6 +12,8 @@ import {
 import { getClientOrNull } from './client.ts';
 import { localpartOf } from './config.ts';
 import { mxcToHttp } from './mxc.ts';
+import { sanitizeWaveform } from '../audio/analysis.ts';
+import { isAudioMimeType } from '../audio/mime.ts';
 
 export { mxcToHttp } from './mxc.ts';
 export { formatTime, formatFullTime, formatDayDivider, isSameDay, initialsOf, colorFor } from '../format.ts';
@@ -114,9 +116,11 @@ export interface DisplayBody {
   replyTo?: string;
   /** For m.image / m.file / m.video / m.audio: the media mxc url and info block. */
   url?: string;
-  info?: { w?: number; h?: number; mimetype?: string; size?: number; thumbnail_url?: string };
+  info?: { w?: number; h?: number; mimetype?: string; size?: number; thumbnail_url?: string; duration?: number };
   /** `m.mentions.user_ids` when present. */
   mentions: string[];
+  /** Present for `m.audio` events that carry playable media (voice notes and plain audio files). */
+  voice?: VoiceMessageInfo;
 }
 
 interface MessageContent {
@@ -127,6 +131,72 @@ interface MessageContent {
   url?: string;
   info?: DisplayBody['info'];
   'm.mentions'?: { user_ids?: string[] };
+}
+
+// ---------------------------------------------------------------------------
+// Voice messages (Phase 2, PRIN-5)
+// ---------------------------------------------------------------------------
+
+export interface VoiceMessageInfo {
+  /** http(s) download URL (`mxcToHttp(mxc)`), for `<audio src>`. */
+  url: string;
+  mxc: string;
+  /** Integer ms: `org.matrix.msc1767.audio.duration`, else `info.duration`, else 0 (player reads `<audio>`). */
+  durationMs: number;
+  /** Ints 0..1024; `[]` when the sender gave none (render flat bars). */
+  waveform: number[];
+  /** `info.mimetype`, else `msc1767.file.mimetype`, else `audio/ogg`; may carry codec parameters. */
+  mimetype: string;
+  size?: number;
+  /** True when `org.matrix.msc3245.voice` is present (a voice note, not just an audio file). */
+  isVoice: boolean;
+  /** `msc1767.file.name`, else `body`. */
+  name: string;
+}
+
+interface VoiceContent extends MessageContent {
+  'org.matrix.msc3245.voice'?: Record<string, never>;
+  'org.matrix.msc1767.audio'?: { duration?: number; waveform?: unknown };
+  'org.matrix.msc1767.file'?: { url?: string; name?: string; mimetype?: string; size?: number };
+}
+
+function asInt(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined;
+}
+
+/**
+ * Parse an `m.audio` event (voice note or plain audio file) for playback. Returns null for anything else,
+ * for redacted events and when there is no mxc url. Tolerates other clients' variants: the msc3245 key
+ * alone, or an audio mimetype, is enough; missing waveform -> `[]`, missing duration -> 0.
+ */
+export function getVoiceMessage(event: MatrixEvent): VoiceMessageInfo | null {
+  if (event.getType() !== EventType.RoomMessage || event.isRedacted()) return null;
+  const c = event.getContent<VoiceContent>();
+  const file = c['org.matrix.msc1767.file'];
+  const audio = c['org.matrix.msc1767.audio'];
+  const isVoice = Object.prototype.hasOwnProperty.call(c, 'org.matrix.msc3245.voice');
+  const mimetype = c.info?.mimetype ?? file?.mimetype;
+  if (c.msgtype !== MsgType.Audio && !isVoice && !isAudioMimeType(mimetype)) return null;
+  const mxc = (typeof c.url === 'string' && c.url) || (typeof file?.url === 'string' ? file.url : '');
+  if (!mxc.startsWith('mxc://')) return null;
+  return {
+    url: mxcToHttp(mxc),
+    mxc,
+    durationMs: asInt(audio?.duration) ?? asInt(c.info?.duration) ?? 0,
+    waveform: sanitizeWaveform(audio?.waveform),
+    mimetype: mimetype || 'audio/ogg',
+    size: asInt(c.info?.size) ?? asInt(file?.size),
+    isVoice,
+    name: file?.name || c.body || 'Voice message',
+  };
+}
+
+/** `m:ss` for a duration in ms (3120 -> "0:03"); rounds to the nearest second like the playback bubble. */
+export function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 /**
@@ -144,8 +214,9 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
   if (!isRedacted && content.format === 'org.matrix.custom.html' && typeof content.formatted_body === 'string') {
     html = replyTo ? stripHtmlReplyFallback(content.formatted_body) : content.formatted_body;
   }
+  const voice = !isRedacted && msgtype === MsgType.Audio ? (getVoiceMessage(event) ?? undefined) : undefined;
   return {
-    text,
+    text: voice?.isVoice && !text ? 'Voice message' : text,
     html,
     msgtype,
     isEdited: !isRedacted && !!event.replacingEvent(),
@@ -154,6 +225,7 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
     url: isRedacted ? undefined : content.url,
     info: isRedacted ? undefined : content.info,
     mentions: content['m.mentions']?.user_ids ?? [],
+    voice,
   };
 }
 
@@ -163,6 +235,10 @@ export function previewText(event: MatrixEvent, max = 120): string {
   if (body.isRedacted) return 'Message deleted';
   if (body.msgtype === MsgType.Image) return `[image] ${body.text}`;
   if (body.msgtype === MsgType.File) return `[file] ${body.text}`;
+  if (body.msgtype === MsgType.Audio) {
+    if (body.voice?.isVoice) return '[voice message]';
+    return `[audio] ${body.text}`;
+  }
   const text = body.text.replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 }

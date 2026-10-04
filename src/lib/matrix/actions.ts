@@ -18,6 +18,8 @@ import {
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events.js';
 import { getClient, getClientOrNull } from './client.ts';
 import { serverNameOf } from './config.ts';
+import { sanitizeWaveform } from '../audio/analysis.ts';
+import { containerMimeType, voiceFileName } from '../audio/mime.ts';
 
 const HTML_FORMAT = 'org.matrix.custom.html';
 /** Room version 11 keeps explicit creator power levels (100). v12 (Synapse >= 1.162 default) makes creators
@@ -185,6 +187,54 @@ export async function sendFile(roomId: string, file: File): Promise<string> {
   }
   const content = { msgtype: isImage ? MsgType.Image : MsgType.File, body: up.name, url: up.mxc, info };
   const res = await getClient().sendMessage(roomId, content as unknown as RoomMessageEventContent);
+  return res.event_id;
+}
+
+// ---------------------------------------------------------------------------
+// Voice messages (Phase 2, PRIN-5)
+// ---------------------------------------------------------------------------
+
+export interface VoiceMessageOptions {
+  /** Integer milliseconds (from `analyzeAudio`, else the recorder's wall-clock timing). */
+  durationMs: number;
+  /** About 100 ints in 0..1024 (`analyzeAudio().waveform`). Sanitised here; `[]` is allowed. */
+  waveform: number[];
+  /** The blob's real mimetype (codec parameters are stripped for the event). */
+  mimetype: string;
+}
+
+/**
+ * Upload a recorded blob and send it as a Matrix voice message. The content is exactly the contract in
+ * docs/PHASE2_ACCEPTANCE.md ("Voice message event"), i.e. Element's `createVoiceMessageContent` shape:
+ *
+ *   msgtype m.audio, body "Voice message", url, info { duration, mimetype, size },
+ *   org.matrix.msc1767.text "Voice message", org.matrix.msc1767.file { url, name, mimetype, size },
+ *   org.matrix.msc1767.audio { duration, waveform }, org.matrix.msc3245.voice {}
+ *
+ * Resolves with the event id. Throws on upload/send failure (Dev B shows `recording-error`, AC-V5-2).
+ */
+export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMessageOptions): Promise<string> {
+  const client = getClient();
+  const mimetype = containerMimeType(opts.mimetype || blob.type) || 'audio/webm';
+  const name = voiceFileName(mimetype);
+  const duration = Math.max(0, Math.round(opts.durationMs || 0));
+  const waveform = sanitizeWaveform(opts.waveform);
+  const size = blob.size;
+
+  const upload = await client.uploadContent(blob, { name, type: mimetype, includeFilename: true });
+  const url = upload.content_uri;
+
+  const content = {
+    msgtype: MsgType.Audio,
+    body: 'Voice message',
+    url,
+    info: { duration, mimetype, size },
+    'org.matrix.msc1767.text': 'Voice message',
+    'org.matrix.msc1767.file': { url, name, mimetype, size },
+    'org.matrix.msc1767.audio': { duration, waveform },
+    'org.matrix.msc3245.voice': {},
+  };
+  const res = await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
   return res.event_id;
 }
 

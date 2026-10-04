@@ -1,4 +1,4 @@
-import { HS_URL } from './config.ts';
+import { getHsUrl } from './config.ts';
 
 export type ThumbnailMethod = 'scale' | 'crop';
 
@@ -23,7 +23,8 @@ export function mxcToHttp(
   if (slash <= 0) return '';
   const server = encodeURIComponent(rest.slice(0, slash));
   const mediaId = encodeURIComponent(rest.slice(slash + 1));
-  const base = `${HS_URL}/_matrix/media/v3`;
+  // Resolved per call: the runtime homeserver override (phones on the LAN proxy) must apply to media too.
+  const base = `${getHsUrl()}/_matrix/media/v3`;
   if (width && height) {
     return `${base}/thumbnail/${server}/${mediaId}?width=${Math.round(width)}&height=${Math.round(height)}&method=${method}`;
   }

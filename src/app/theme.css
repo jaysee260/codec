@@ -55,6 +55,21 @@
   --header-h: 48px;
   --footer-h: 52px;
 
+  /* mobile (Phase 2). Safe areas need viewport-fit=cover (index.html); they are 0 on desktop and inside the
+   * Capacitor app with overlaysWebView: false (status bar outside the WebView), non-zero for the iPhone home
+   * indicator and in phone browsers with notches. --keyboard-height is set by src/lib/native.ts in the app. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --tap-target: 44px;
+  --keyboard-height: 0px;
+  --drawer-w: 85%;
+  --phone-header-h: 56px;
+  /* Visual viewport height in px, kept current by src/store/layout.ts (shrinks with the soft keyboard in
+   * browsers that do not resize the layout viewport). Default: the layout viewport. */
+  --vvh: 100vh;
+
   /* type */
   --font-sans: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-mono: Consolas, 'Andale Mono WT', 'Andale Mono', 'Lucida Console', 'Lucida Sans Typewriter',

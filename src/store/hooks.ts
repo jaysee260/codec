@@ -116,3 +116,6 @@ export function useSelectedRoom(): RoomSummary | undefined {
 export function useMyUserId(): string | null {
   return useSessionStore((s) => s.userId);
 }
+
+// Phase 2 (docs/PHASE2_TICKETS.md Shared API): layout hooks live in ./layout.ts and are re-exported here.
+export { useIsPhone, useViewport, type Viewport } from './layout.ts';

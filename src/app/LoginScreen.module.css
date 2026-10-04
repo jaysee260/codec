@@ -106,4 +106,57 @@
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Advanced (homeserver URL) */
+.advanced {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.advancedToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.advancedToggle:hover {
+  color: var(--text-normal);
+}
+.advancedToggleActive {
+  color: var(--text-link);
+}
+.chevron {
+  width: 10px;
+  display: inline-block;
+}
+.advancedBody {
+  margin-top: 8px;
+}
+.inputCompact {
+  margin-bottom: 8px;
+}
+.hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+.hint code {
+  font-size: 0.95em;
+}
+
+/* Phone: edge-to-edge card, safe-area aware (login is the first screen the stakeholder sees). */
+:root[data-layout='phone'] .root {
+  place-items: start center;
+  padding: calc(16px + var(--safe-top)) 0 calc(16px + var(--safe-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+:root[data-layout='phone'] .card {
+  width: calc(100vw - 24px);
+  max-width: 420px;
+  padding: 24px 20px;
 }

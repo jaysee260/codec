@@ -14,3 +14,15 @@ export {
   type Presence,
 } from './hooks.ts';
 export { useToastStore, showToast, withToast, type Toast, type ToastKind } from './toast.ts';
+export {
+  useLayoutStore,
+  useIsPhone,
+  useViewport,
+  detectIsPhone,
+  PHONE_MEDIA_QUERY,
+  COARSE_PHONE_MEDIA_QUERY,
+  type LayoutState,
+  type Layout,
+  type Viewport,
+} from './layout.ts';
+export { onRoomSelected, waitForRoom } from './rooms.ts';

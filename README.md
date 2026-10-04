@@ -1,6 +1,7 @@
 # Matrix POC - a Discord-like chat client on Synapse
 
-Vite + React 18 + TypeScript + matrix-js-sdk + zustand. Local Synapse (Docker, or WSL1 where Docker cannot run). No E2EE, no voice.
+Vite + React 18 + TypeScript + matrix-js-sdk + zustand. Local Synapse (Docker, or WSL1 where Docker cannot run). No E2EE, no calls.
+Phase 2 adds a phone layout, voice notes (MSC3245) and Capacitor 7 wrappers for Android and iOS.
 
 ## Quickstart (5 commands)
 
@@ -16,6 +17,20 @@ Other scripts: `npm run typecheck`, `npm run build`, `npm run hs:down`, `npm run
 `npm run seed:reset` (wipe + reseed), `node scripts/hs.mjs logs`.
 
 Seed users: `alice`, `bob`, `carol`, `dave`, all with password `password123` (see `docs/SEED_DATA.md`).
+
+## On a phone (Phase 2) - full guide in `docs/MOBILE.md`
+
+```bash
+npm run hs:lan                      # LAN proxy 0.0.0.0:8009 -> Synapse; prints http://<PC-IP>:8009 and the app URL
+npm run dev:lan                     # Vite on 0.0.0.0:5173 -> open http://<PC-IP>:5173 on the phone, Advanced > Homeserver URL = http://<PC-IP>:8009
+npm run toolchain                   # checks JDK 21 + Android SDK (portable installs under ~/jdk21 and ~/android-sdk)
+npm run cap:build:android:lan       # Android debug APK with the LAN homeserver baked in -> android/app/build/outputs/apk/debug/app-debug.apk
+npm run voice:sample                # bob posts a voice note to #dev through the API (demo / QA fixture)
+```
+
+Accept the Windows Firewall prompt (Private networks) the first time node binds `0.0.0.0`. The phone browser path
+shows the layout and plays voice notes; recording needs the APK (secure context). iOS: project generated under
+`ios/`, built on a Mac (`docs/MOBILE.md` section 4). Capacitor 7 (`capacitor.config.ts`), JDK 21, Android SDK 35.
 
 ## Homeserver: two ways to run it
 
@@ -35,10 +50,11 @@ Both listen on http://localhost:8008 with server name `localhost`; the client, s
 |---|---|---|
 | `homeserver/` | Principal | `homeserver.yaml` (single Synapse config), `docker-compose.yml`, `wsl/` fallback scripts, `data/` runtime (ignored) |
 | `seed/` | Principal | `seed.ts` fixture script, `seed-output.json` (generated, ids for QA) |
-| `scripts/` | Principal | `hs.mjs` homeserver wrapper (docker or wsl backend), `verify-scaffold.mjs` smoke script |
-| `src/lib/` | Principal | Matrix client lifecycle, actions, read helpers, formatting |
-| `src/store/` | Principal | zustand stores + SDK event bridge + hooks |
-| `src/app/` | Principal | session gate, login, shell layout, theme tokens |
+| `scripts/` | Principal | `hs.mjs` homeserver wrapper (docker or wsl backend), `lan-proxy.mjs`, `toolchain.mjs`, `cap-build-android.mjs`, `send-voice-sample.mjs`, `verify-phone-shell.mjs`, `verify-scaffold.mjs` |
+| `src/lib/` | Principal | Matrix client lifecycle, actions (incl. `sendVoiceMessage`), read helpers (incl. `getVoiceMessage`), formatting, `audio/` voice primitives, `native.ts` Capacitor glue |
+| `src/store/` | Principal | zustand stores (session, rooms, timeline, layout) + SDK event bridge + hooks |
+| `src/app/` | Principal | session gate, login (+ homeserver override), desktop/phone shell, drawers, theme tokens |
+| `capacitor.config.ts`, `android/`, `ios/` | Principal | Capacitor 7 config and generated native projects (build outputs ignored) |
 | `src/features/navigation/` | Dev A | space rail, channel sidebar, DM list, header, member panel |
 | `src/features/conversation/` | Dev B | message list, composer, reactions, replies, uploads |
 | `e2e/`, `playwright.config.ts` | QA | Playwright suite |

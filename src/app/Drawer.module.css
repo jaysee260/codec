@@ -1,0 +1,45 @@
+/* Off-canvas drawer container. Width 85 % of the shell (AC-M2-6: 75-90 % of the viewport). */
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--drawer-w);
+  z-index: 30;
+  display: flex;
+  min-height: 0;
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-elevation);
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  visibility: hidden;
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s linear 0.25s;
+  will-change: transform;
+  overscroll-behavior: contain;
+}
+
+.left {
+  left: 0;
+  transform: translateX(-100%);
+  padding-left: var(--safe-left);
+}
+
+.right {
+  right: 0;
+  transform: translateX(100%);
+  padding-right: var(--safe-right);
+}
+
+.open {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer,
+  .open {
+    transition: none;
+  }
+}

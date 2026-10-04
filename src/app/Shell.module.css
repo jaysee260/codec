@@ -1,3 +1,6 @@
+/* ---------------------------------------------------------------------------
+ * Desktop: three-column grid (Phase 1, unchanged)
+ * ------------------------------------------------------------------------- */
 .shell {
   height: 100%;
   display: grid;
@@ -10,6 +13,8 @@
   background: var(--bg-rail);
   overflow-y: auto;
   overflow-x: hidden;
+  /* flex props only matter inside the phone drawer (a flex row); the desktop grid ignores them */
+  flex: 0 0 var(--rail-w);
 }
 
 .sidebar {
@@ -17,6 +22,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .sidebarBody {
@@ -49,6 +56,7 @@
   place-content: center;
   text-align: center;
   color: var(--text-muted);
+  padding: 16px;
 }
 .emptyTitle {
   color: var(--text-heading);
@@ -57,4 +65,55 @@
 }
 .emptyText {
   margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Phone: full-screen conversation + two off-canvas drawers (PRIN-3 / PRIN-4)
+ * ------------------------------------------------------------------------- */
+.phoneShell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-chat);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* Status bar / notch. 0 in the Capacitor app (overlaysWebView: false) and in phone browsers; the
+   * composer (Dev B) handles --safe-bottom so its bottom edge stays the shell's bottom edge (AC-V6-1). */
+  padding-top: var(--safe-top);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.phoneMain {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--bg-overlay);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.25s,
+    visibility 0s linear 0.25s;
+}
+.backdropOpen {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .backdropOpen {
+    transition: none;
+  }
 }

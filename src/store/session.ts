@@ -20,7 +20,7 @@ import {
   waitForPrepared,
   type StoredSession,
 } from '@/lib/matrix/client.ts';
-import { HS_URL } from '@/lib/matrix/config.ts';
+import { getHsUrl } from '@/lib/matrix/config.ts';
 import { bindClient, unbindClient } from './bridge.ts';
 import { resetRooms } from './rooms.ts';
 import { resetTimelines } from './timeline.ts';
@@ -62,9 +62,9 @@ export function describeError(e: unknown): string {
         return (e.data as { error?: string } | undefined)?.error ?? e.message;
     }
   }
-  if (e instanceof ConnectionError) return `Cannot reach the homeserver at ${HS_URL}`;
+  if (e instanceof ConnectionError) return `Cannot reach the homeserver at ${getHsUrl()}`;
   if (e instanceof Error) {
-    if (/fetch|network/i.test(e.message)) return `Cannot reach the homeserver at ${HS_URL}`;
+    if (/fetch|network/i.test(e.message)) return `Cannot reach the homeserver at ${getHsUrl()}`;
     return e.message;
   }
   return String(e);
