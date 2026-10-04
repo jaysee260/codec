@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-04 (Phase 2 planned; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-04, Phase 2 Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -82,7 +82,7 @@ Last updated: 2026-10-04 (Phase 2 planned; Phase 1 block below is as of 2026-09-
 
 # Phase 2 - Phone POC (Capacitor) + voice notes
 
-Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tickets: docs/PHASE2_TICKETS.md. Added 2026-10-04 by PM; all rows `todo`. P0 = phone demo script. Waves: 4 Principal core, 5 devs + QA in parallel, 6 device pass + handoff.
+Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tickets: docs/PHASE2_TICKETS.md. Planned 2026-10-04 by PM; Wave 1 `0913d00`, Wave 2 `5814c90`, dry run below. P0 = phone demo script. Stakeholder handoff: docs/PHASE2_DEMO.md. Waves: 4 Principal core, 5 devs + QA in parallel, 6 device pass + handoff.
 
 ## Wave 4 - Principal
 | Ticket | P | Status | Owner | Notes |
@@ -98,44 +98,57 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 ## Wave 5 - Dev A (phone navigation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-A-11 Drawer content (rail + channel/DM list) | P0 | in-progress | Dev A | Wave 2 launched 2026-10-04 |
-| DEV-A-12 Phone channel header (`header-menu`, `member-toggle` -> drawer) | P0 | in-progress | Dev A | |
-| DEV-A-13 Member drawer content | P1 | in-progress | Dev A | |
-| DEV-A-14 Touch targets (44 px) | P0 | in-progress | Dev A | |
-| DEV-A-15 Dialogs as bottom sheets | P1 | in-progress | Dev A | |
-| DEV-A-16 Phone navigation polish | P2 | in-progress | Dev A | |
+| DEV-A-11 Drawer content (rail + channel/DM list) | P0 | done | Dev A | `5814c90`. Marked done on QA evidence (AC-M2 all green in `e2e/mobile-nav.spec.ts`); Dev A's own report still pending |
+| DEV-A-12 Phone channel header (`header-menu`, `member-toggle` -> drawer) | P0 | done | Dev A | AC-M3 green |
+| DEV-A-13 Member drawer content | P1 | done | Dev A | AC-M4 green |
+| DEV-A-14 Touch targets (44 px) | P0 | done | Dev A | AC-M5-1 green |
+| DEV-A-15 Dialogs as bottom sheets | P1 | done | Dev A | AC-M5-2..4 green |
+| DEV-A-16 Phone navigation polish | P2 | partial | Dev A | `header-menu-unread` shipped; rest not scheduled before the demo |
 
 ## Wave 5 - Dev B (voice notes + phone conversation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-B-12 Mic button + recording bar (`useVoiceRecorder`) | P0 | in-progress | Dev B | Wave 2 launched 2026-10-04 |
-| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | in-progress | Dev B | `encodeToOggOpus` is currently an identity seam (see AC-V2-4 waiver) |
-| DEV-B-14 Voice message bubble (play/pause, scrubber, duration, waveform) | P0 | in-progress | Dev B | |
-| DEV-B-15 Phone composer + message rows | P0 | in-progress | Dev B | |
-| DEV-B-16 Long-press message action sheet | P1 | in-progress | Dev B | Dev A picks this up if B slips |
-| DEV-B-17 Voice polish | P2 | in-progress | Dev B | |
+| DEV-B-12 Mic button + recording bar (`useVoiceRecorder`) | P0 | done | Dev B | `5814c90`. AC-V1 green |
+| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | done | Dev B | AC-V2/V5 green; native container, `encodeToOggOpus` identity seam (AC-V2-4 waiver) |
+| DEV-B-14 Voice message bubble (play/pause, scrubber, duration, waveform) | P0 | done | Dev B | AC-V3/V4 green |
+| DEV-B-15 Phone composer + message rows | P0 | done | Dev B | AC-V6-1/2/5/6/7 green |
+| DEV-B-16 Long-press message action sheet | P1 | done | Dev B | AC-V6-3/4 green |
+| DEV-B-17 Voice polish | P2 | partial | Dev B | Speed control and preview-before-send not done; not scheduled before the demo |
 
 ## Wave 5 - QA
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| QA-8 `mobile` Playwright project + fixtures | P0 | in-progress | QA | Wave 2 launched 2026-10-04. Pixel 7, fake mic flags, CDP long-press |
-| QA-9 Voice-note suite (API + magic-byte verification) | P0 | in-progress | QA | WAV fixture for bob (no ffmpeg); AC-V2-4 waived, expect the native container's magic bytes |
-| QA-10 Mobile navigation suite | P1 | in-progress | QA | |
-| QA-11 Mobile smoke = phone demo script + screenshots | P0 | in-progress | QA | `e2e/results/demo-mobile/` |
-| QA-12 Android build check | P0 | in-progress | QA | JDK 21 at `~/jdk21`, SDK at `~/android-sdk` (set `JAVA_HOME`/`ANDROID_HOME` for the run) |
-| QA-13 Bug format update (platform column, device template) | P1 | in-progress | QA | |
+| QA-8 `mobile` Playwright project + fixtures | P0 | done | QA | `5814c90`. Projects `desktop` / `mobile` (Pixel 7, fake mic flags, CDP long-press) |
+| QA-9 Voice-note suite (API + magic-byte verification) | P0 | done | QA | `e2e/voice.spec.ts`; WAV fixture for bob; native-container magic bytes per the AC-V2-4 waiver |
+| QA-10 Mobile navigation suite | P1 | done | QA | `e2e/mobile-nav.spec.ts` |
+| QA-11 Mobile smoke = phone demo script + screenshots | P0 | done | QA | `e2e/mobile-smoke.spec.ts`; screenshots in `e2e/demo-mobile/` (01-login-general .. 10-member-drawer) |
+| QA-12 Android build check | P0 | done | QA | `npm run test:android-build` 20/20 |
+| QA-13 Bug format update (platform column, device template) | P1 | done | QA | docs/BUGS.md "Phase 2" section; BUG-4 logged |
+
+## Phase 2 dry run (2026-10-04, HEAD `5814c90`, dirty homeserver)
+| Item | Result |
+|---|---|
+| `mobile` project (`npm run test:e2e:mobile`) | **58 pass / 0 fail** (52 AC ids), including the phone smoke and the voice suite with API + magic-byte checks |
+| `desktop` project (`npm run test:e2e:desktop`, ~14 min) | **88 pass / 0 fail / 8 skip** (fresh-seed skips as in Phase 1: AC-B1-1, AC-B3-1, AC-A2-3, AC-B8-4, demo steps 2/3/5/6) |
+| Android build check (`npm run test:android-build`) | **20/20**; APK at `android/app/build/outputs/apk/debug/app-debug.apk` (a rebuild with the LAN URL baked is in progress) |
+| Flake pass | 3 full runs clean |
+| Fixes landed this wave | Principal: SDK double-encoded upload filename fixed via `uploadMedia` (`actions.ts`); Synapse ignoring `Range` on media downloads documented in docs/ARCHITECTURE.md (the player streams the whole file; fine for voice notes) |
+| Open bugs | **BUG-4** (S3, environment): desktop login exceeded the 10 s budget (10.6 s) only at the tail of a 14-minute suite run; passes alone (phone smoke logs in at 1.8 s). Demo-day rule: do not run the suites right before the demo, or `seed:reset` first. No code change proposed. |
+| Waived | AC-V2-4, see below |
+
+**Before the stakeholder demo** (carried over from Phase 1, still pending): restart the homeserver once (`npm run hs:down && npm run hs:up`) so the relaxed `rc_room_creation` limit applies; `npm run seed:reset` for the seeded badges; then follow docs/PHASE2_DEMO.md.
 
 ## Wave 6 device pass
 | Item | Result |
 |---|---|
-| APK on the stakeholder's Android device, phone demo script 1-10 | not yet run |
+| APK on the stakeholder's Android device, phone demo script 1-10 | not yet run (docs/PHASE2_DEMO.md) |
 | Manual criteria (AC-C1-6, AC-M2-8, AC-M6-4/5, AC-V5-3) | not yet run |
-| Mac handoff package (iOS) | not yet prepared |
+| Mac handoff package (iOS) | prepared: `ios/` in the repo, steps in docs/MOBILE.md section 4 |
 | AC-V2-4 (Ogg/Opus in Chromium) | **Waived** (PM, 2026-10-04, after the PRIN-5 spike): the POC ships the native `MediaRecorder` container with no transcoding (`audio/webm` on Chromium/Android, `audio/mp4` on iOS), with the real mimetype in the event; `encodeToOggOpus` is an identity seam. Transcoding to Ogg/Opus is **P1** via `opus-recorder` or a WebM -> Ogg remux. AC-V2-2/V2-3 still apply with the native magic bytes. |
 
 ## Requests to Principal (Phase 2)
 | # | From | Request | Status |
 |---|---|---|---|
-| 7 | PM | Shared API per docs/PHASE2_TICKETS.md (layout store, Drawer, audio helpers, `sendVoiceMessage`, `getVoiceMessage`, CSS variables) | todo |
-| 8 | PM | Shell testids per docs/PHASE2_ACCEPTANCE.md (`data-layout`, `nav-drawer`, `member-drawer`, `drawer-backdrop`) | todo |
-| 9 | QA | `test:e2e:mobile`, `test:e2e:apk` script lines in `package.json` | todo |
+| 7 | PM | Shared API per docs/PHASE2_TICKETS.md (layout store, Drawer, audio helpers, `sendVoiceMessage`, `getVoiceMessage`, CSS variables) | done (`0913d00`) |
+| 8 | PM | Shell testids per docs/PHASE2_ACCEPTANCE.md (`data-layout`, `nav-drawer`, `member-drawer`, `drawer-backdrop`) | done (`0913d00`) |
+| 9 | QA | `test:e2e:mobile`, `test:e2e:apk` script lines in `package.json` | done as `test:e2e:mobile`, `test:e2e:desktop`, `test:android-build` (`5814c90`) |
