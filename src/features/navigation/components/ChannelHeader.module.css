@@ -64,3 +64,91 @@
 .toggleActive {
   color: var(--text-heading);
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone (DEV-A-12 / DEV-A-14). `:root[data-layout='phone']` is the same signal as
+ * `useLayoutStore.isPhone` (src/store/layout.ts stamps it on <html>), so the DOM branch above and
+ * these rules can never disagree. Nothing here applies on desktop.
+ * ------------------------------------------------------------------------- */
+:root[data-layout='phone'] .header {
+  /* AC-M3-1: <= 56 px. The shell owns --safe-top/left/right, so no extra padding here. */
+  height: var(--phone-header-h);
+  gap: 4px;
+  padding: 0 4px;
+  /*
+   * `.header` is a flex item of the shell's phone column, and a flex item with a z-index other than
+   * `auto` creates a stacking context even while `position: static` (CSS Flexbox 4.3). The Phase 1
+   * `z-index: 1` therefore traps everything inside the header at level 1 - below the shell's
+   * `drawer-backdrop` (20) - so no z-index on a button could ever lift it over the scrim.
+   * `position: relative` + `z-index: auto` keeps the header (and its bottom shadow) painting above
+   * the conversation underneath, without creating a stacking context, so `.menu` / `.toggle` below
+   * can reach the root stacking context. The bar itself stays under the scrim; only the two buttons
+   * poke through, which is what makes AC-M4-2 tappable.
+   */
+  position: relative;
+  z-index: auto;
+}
+
+/*
+ * 44 px round tap targets at both ends (AC-M3-1, AC-M5-1).
+ *
+ * z-index 25 puts just these two buttons between the shell's `drawer-backdrop` (z-index 20) and
+ * `Drawer` (30). Without it the backdrop spans `inset: 0` and swallows every tap on the header, so
+ * AC-M4-2 ("tap `header-menu` while the member drawer is open -> members close, nav opens") is
+ * impossible with a real tap - Playwright reports "drawer-backdrop intercepts pointer events".
+ * Only the controls are raised, not the bar: the title stays under the scrim, and the drawer still
+ * covers whichever button it overlaps. See "Requests to Principal" in the Dev A report.
+ */
+:root[data-layout='phone'] .menu,
+:root[data-layout='phone'] .toggle {
+  position: relative;
+  z-index: 25;
+  flex-shrink: 0;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-normal);
+}
+:root[data-layout='phone'] .menu:active,
+:root[data-layout='phone'] .toggle:active {
+  background: var(--bg-active);
+}
+
+/* Unread dot on the menu button (DEV-A-16). */
+.menuDot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--bg-chat);
+  box-sizing: content-box;
+  pointer-events: none;
+}
+
+:root[data-layout='phone'] .sigil {
+  font-size: 20px;
+}
+:root[data-layout='phone'] .name {
+  /* No topic on phone, so the name may use the whole middle. */
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-message);
+}
+:root[data-layout='phone'] .spacer {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* Touch devices get no hover reveal (and no sticky hover after a tap). */
+@media (hover: none) {
+  .toggle:hover {
+    color: inherit;
+    background: none;
+  }
+}

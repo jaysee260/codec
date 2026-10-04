@@ -70,14 +70,80 @@
   color: var(--text-muted);
 }
 
+/*
+ * Trailing button slot (DEV-B-12). `composer-mic` and `composer-send` are stacked on top of each
+ * other and both stay mounted: the hidden one keeps a full-size box (phone bounding-box checks) but
+ * `visibility: hidden` makes it invisible, unfocusable and untappable.
+ */
+.slot {
+  position: relative;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  flex-shrink: 0;
+}
+
+.mic,
 .send {
-  width: 32px;
-  height: 44px;
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  flex-shrink: 0;
+  border-radius: 50%;
   color: var(--text-muted);
 }
-.send:hover:not(:disabled) {
+.slot[data-mode='mic'] .send,
+.slot[data-mode='send'] .mic {
+  visibility: hidden;
+}
+.send:hover:not(:disabled),
+.mic:hover:not(:disabled) {
   color: var(--accent);
+  background: var(--bg-hover);
+}
+.mic[data-state='requesting'] {
+  color: var(--accent);
+}
+.mic[data-state='denied'] {
+  color: var(--danger);
+}
+.mic:disabled {
+  /* The slot's own hiding rule handles the invisible one; this is the unsupported-context case. */
+  opacity: 0.5;
+}
+
+/* --- phone (DEV-B-15) ----------------------------------------------------- */
+/* Pinned to the bottom of the shell: the shell adds no bottom padding, so the composer owns the
+ * safe area (AC-V6-1). `--vvh` + Keyboard `resize: native` already move the whole shell when the
+ * keyboard opens, so there is deliberately no keyboard offset here. */
+@media (hover: none) {
+  .composer {
+    padding: 0 8px calc(var(--safe-bottom) + 8px);
+  }
+  .input {
+    font-size: max(16px, var(--font-size-base));
+    padding: 12px 0;
+  }
+  .box {
+    padding: 0 8px;
+    border-radius: var(--radius);
+  }
+  .bannerClose {
+    width: 32px;
+    height: 32px;
+  }
+}
+:global(:root[data-layout='phone']) .composer {
+  padding: 0 8px calc(var(--safe-bottom) + 8px);
+}
+:global(:root[data-layout='phone']) .input {
+  font-size: max(16px, var(--font-size-base));
+  max-height: 160px;
+  padding: 12px 0;
+}
+:global(:root[data-layout='phone']) .box {
+  padding: 0 8px;
+}
+:global(:root[data-layout='phone']) .bannerClose {
+  width: 32px;
+  height: 32px;
 }

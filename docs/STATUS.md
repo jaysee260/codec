@@ -87,43 +87,43 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 ## Wave 4 - Principal
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| PRIN-1 Capacitor 7 scaffold + Android debug APK | P0 | in-progress | Principal | `capacitor.config.ts` + `@capacitor/* ^7.6.9` in the working tree (`androidScheme: 'http'` + `cleartext` + `allowMixedContent`, Keyboard `resize: 'body'`); needs JDK 21 and cmdline SDK (only Java 8 present) |
-| PRIN-2 LAN proxy (8009) + `VITE_HS_URL` + login Homeserver override + `dev:lan` | P0 | in-progress | Principal | `getHsUrl()` override shipped in `config.ts`; proxy prototype in `docs/advisor/lan-proxy.mjs`; do not touch the running homeserver |
-| PRIN-3 Layout store + `Drawer` + phone shell | P0 | todo | Principal | Shared API table is the contract for A/B |
-| PRIN-4 Safe area, `100dvh`, viewport meta, keyboard, status bar | P0 | todo | Principal | |
-| PRIN-5 Voice core (encoder spike, helpers, `sendVoiceMessage`, `getVoiceMessage`) | P0 | todo | Principal | Spike result (mediabunny remux vs opus-recorder) to be recorded here |
-| PRIN-6 iOS project + Info.plist + Mac handoff | P1 | todo | Principal | `cap copy ios` only on Windows |
-| PRIN-7 docs/MOBILE.md + ARCHITECTURE deltas | P0 | todo | Principal | |
+| PRIN-1 Capacitor 7 scaffold + Android debug APK | P0 | done | Principal | `0913d00`. `@capacitor/* ^7.6.9`, `androidScheme: 'http'` + `cleartext` + `allowMixedContent`. APK builds on this machine: `android/app/build/outputs/apk/debug/app-debug.apk`; JDK 21 at `~/jdk21`, SDK at `~/android-sdk` |
+| PRIN-2 LAN proxy (8009) + `VITE_HS_URL` + login Homeserver override + `dev:lan` | P0 | done | Principal | `0913d00`. `scripts/lan-proxy.mjs` on 0.0.0.0:8009 -> 127.0.0.1:8008; `getHsUrl()` override on the login screen; homeserver untouched |
+| PRIN-3 Layout store + `Drawer` + phone shell | P0 | done | Principal | `0913d00`. Shared API table is the contract for A/B; `npm run verify:phone` 40/40 |
+| PRIN-4 Safe area, `100dvh`, viewport meta, keyboard, status bar | P0 | done | Principal | `0913d00`. Keyboard `resize: 'native'` shipped (tickets updated) |
+| PRIN-5 Voice core (encoder spike, helpers, `sendVoiceMessage`, `getVoiceMessage`) | P0 | done | Principal | `0913d00`. Spike outcome: the POC ships the native `MediaRecorder` container with no transcoding; `encodeToOggOpus` is an identity seam. See the AC-V2-4 waiver below |
+| PRIN-6 iOS project + Info.plist + Mac handoff | P1 | done | Principal | `0913d00`. Done to the extent possible on Windows (`cap copy ios`); build and device run happen on a Mac per docs/PHASE2_PLAN.md |
+| PRIN-7 docs/MOBILE.md + ARCHITECTURE deltas | P0 | done | Principal | `0913d00` |
 
 ## Wave 5 - Dev A (phone navigation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-A-11 Drawer content (rail + channel/DM list) | P0 | todo | Dev A | |
-| DEV-A-12 Phone channel header (`header-menu`, `member-toggle` -> drawer) | P0 | todo | Dev A | |
-| DEV-A-13 Member drawer content | P1 | todo | Dev A | |
-| DEV-A-14 Touch targets (44 px) | P0 | todo | Dev A | |
-| DEV-A-15 Dialogs as bottom sheets | P1 | todo | Dev A | |
-| DEV-A-16 Phone navigation polish | P2 | todo | Dev A | |
+| DEV-A-11 Drawer content (rail + channel/DM list) | P0 | in-progress | Dev A | Wave 2 launched 2026-10-04 |
+| DEV-A-12 Phone channel header (`header-menu`, `member-toggle` -> drawer) | P0 | in-progress | Dev A | |
+| DEV-A-13 Member drawer content | P1 | in-progress | Dev A | |
+| DEV-A-14 Touch targets (44 px) | P0 | in-progress | Dev A | |
+| DEV-A-15 Dialogs as bottom sheets | P1 | in-progress | Dev A | |
+| DEV-A-16 Phone navigation polish | P2 | in-progress | Dev A | |
 
 ## Wave 5 - Dev B (voice notes + phone conversation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-B-12 Mic button + recording bar (`useVoiceRecorder`) | P0 | todo | Dev B | |
-| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | todo | Dev B | |
-| DEV-B-14 Voice message bubble (play/pause, scrubber, duration, waveform) | P0 | todo | Dev B | |
-| DEV-B-15 Phone composer + message rows | P0 | todo | Dev B | |
-| DEV-B-16 Long-press message action sheet | P1 | todo | Dev B | Dev A picks this up if B slips |
-| DEV-B-17 Voice polish | P2 | todo | Dev B | |
+| DEV-B-12 Mic button + recording bar (`useVoiceRecorder`) | P0 | in-progress | Dev B | Wave 2 launched 2026-10-04 |
+| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | in-progress | Dev B | `encodeToOggOpus` is currently an identity seam (see AC-V2-4 waiver) |
+| DEV-B-14 Voice message bubble (play/pause, scrubber, duration, waveform) | P0 | in-progress | Dev B | |
+| DEV-B-15 Phone composer + message rows | P0 | in-progress | Dev B | |
+| DEV-B-16 Long-press message action sheet | P1 | in-progress | Dev B | Dev A picks this up if B slips |
+| DEV-B-17 Voice polish | P2 | in-progress | Dev B | |
 
 ## Wave 5 - QA
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| QA-8 `mobile` Playwright project + fixtures | P0 | todo | QA | Pixel 7, fake mic flags, CDP long-press |
-| QA-9 Voice-note suite (API + magic-byte verification) | P0 | todo | QA | WAV fixture for bob (no ffmpeg) |
-| QA-10 Mobile navigation suite | P1 | todo | QA | |
-| QA-11 Mobile smoke = phone demo script + screenshots | P0 | todo | QA | `e2e/results/demo-mobile/` |
-| QA-12 Android build check | P0 | todo | QA | Skips with reason until JDK/SDK env is set |
-| QA-13 Bug format update (platform column, device template) | P1 | todo | QA | |
+| QA-8 `mobile` Playwright project + fixtures | P0 | in-progress | QA | Wave 2 launched 2026-10-04. Pixel 7, fake mic flags, CDP long-press |
+| QA-9 Voice-note suite (API + magic-byte verification) | P0 | in-progress | QA | WAV fixture for bob (no ffmpeg); AC-V2-4 waived, expect the native container's magic bytes |
+| QA-10 Mobile navigation suite | P1 | in-progress | QA | |
+| QA-11 Mobile smoke = phone demo script + screenshots | P0 | in-progress | QA | `e2e/results/demo-mobile/` |
+| QA-12 Android build check | P0 | in-progress | QA | JDK 21 at `~/jdk21`, SDK at `~/android-sdk` (set `JAVA_HOME`/`ANDROID_HOME` for the run) |
+| QA-13 Bug format update (platform column, device template) | P1 | in-progress | QA | |
 
 ## Wave 6 device pass
 | Item | Result |
@@ -131,7 +131,7 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | APK on the stakeholder's Android device, phone demo script 1-10 | not yet run |
 | Manual criteria (AC-C1-6, AC-M2-8, AC-M6-4/5, AC-V5-3) | not yet run |
 | Mac handoff package (iOS) | not yet prepared |
-| AC-V2-4 (Ogg/Opus in Chromium) | pending PRIN-5 spike |
+| AC-V2-4 (Ogg/Opus in Chromium) | **Waived** (PM, 2026-10-04, after the PRIN-5 spike): the POC ships the native `MediaRecorder` container with no transcoding (`audio/webm` on Chromium/Android, `audio/mp4` on iOS), with the real mimetype in the event; `encodeToOggOpus` is an identity seam. Transcoding to Ogg/Opus is **P1** via `opus-recorder` or a WebM -> Ogg remux. AC-V2-2/V2-3 still apply with the native magic bytes. |
 
 ## Requests to Principal (Phase 2)
 | # | From | Request | Status |

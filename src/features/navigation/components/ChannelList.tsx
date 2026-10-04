@@ -6,6 +6,7 @@
  * testids: channel-list, channel-item-{roomId}, channel-unread-{roomId}, channel-add
  */
 import { useRoomStore, type RoomSummary } from '@/store/rooms.ts';
+import { hapticTap } from '@/lib/native.ts';
 import { badgeText, useUnread } from '../hooks/useUnread.ts';
 import { SidebarSection } from './SidebarSection.tsx';
 import styles from './ChannelList.module.css';
@@ -46,7 +47,12 @@ function ChannelItem({ channel }: { channel: RoomSummary }) {
       data-name={channel.name}
       data-selected={selected ? 'true' : 'false'}
       title={channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`}
-      onClick={() => selectRoom(channel.roomId)}
+      // `selectRoom` only: the layout store closes the nav drawer on phone via `onRoomSelected`
+      // (docs/ARCHITECTURE.md). Never close it here - a space tap must leave it open (AC-M2-4).
+      onClick={() => {
+        hapticTap(); // DEV-A-16; no-op in a browser
+        selectRoom(channel.roomId);
+      }}
     >
       {/* The `#` is nested inside the label span (inline-block) so innerText stays `#general`
           on one line for QA's text assertions, while still rendering as Discord's large glyph. */}

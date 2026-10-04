@@ -114,3 +114,62 @@
 .row[data-active='true'] [data-testid='reaction-add'] {
   opacity: 1;
 }
+
+/*
+ * Phone (DEV-B-15). No hover: the gutter clock and the 48 px toolbar gutter are dead weight, the row
+ * takes the full width, and the long-press needs `pan-y` so a vertical swipe still scrolls the list.
+ * `MessageActions` is not even rendered on phone (MessageRow branches on `useIsPhone()`); the
+ * hover-reveal rules above stay for desktop.
+ */
+@media (hover: none) {
+  .row {
+    gap: 10px;
+    padding: 2px 12px;
+    touch-action: pan-y;
+  }
+  .gutterTime {
+    display: none;
+  }
+  .gutter {
+    width: 40px;
+  }
+  .grouped .gutter {
+    width: 0;
+  }
+  .row:hover {
+    background: transparent;
+  }
+  /* Reaction pills stay tappable without hover (AC-V6-2). */
+  .row [data-testid='reaction-add'] {
+    opacity: 1;
+  }
+  .pressing {
+    background: var(--bg-message-hover);
+  }
+  /* The long press must not also select the message text. */
+  .pressing .content {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+:global(:root[data-layout='phone']) .row {
+  gap: 10px;
+  padding: 2px 12px;
+  touch-action: pan-y;
+}
+:global(:root[data-layout='phone']) .gutterTime {
+  display: none;
+}
+:global(:root[data-layout='phone']) .grouped .gutter {
+  width: 0;
+}
+:global(:root[data-layout='phone']) .row [data-testid='reaction-add'] {
+  opacity: 1;
+}
+:global(:root[data-layout='phone']) .pressing {
+  background: var(--bg-message-hover);
+}
+:global(:root[data-layout='phone']) .pressing .content {
+  user-select: none;
+  -webkit-user-select: none;
+}

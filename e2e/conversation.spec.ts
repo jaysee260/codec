@@ -80,9 +80,18 @@ test.beforeEach(async ({ page }) => {
 
 /** Pages #general all the way back so the oldest seeded messages are in the DOM. */
 async function withFullHistory(page: Page): Promise<void> {
+  // The round budget has to track how far #general has grown: the client pages ~30 events at a time,
+  // and this homeserver's #general passed 400 events during Phase 2 (QA/dev traffic), which the old
+  // 12-round default could no longer reach — the failure read "could not page back to its first
+  // message", which looks like a product bug and is not one. 40 rounds covers ~1200 events; the loop
+  // exits the moment `timeline-start` appears, so a fresh seed still costs the same two rounds.
+  test.setTimeout(150_000);
   const start = page.getByTestId('timeline-start');
-  const reached = await paginateToTop(page, async () => (await start.count()) > 0);
-  expect(reached, 'could not page #general back to its first message').toBe(true);
+  const reached = await paginateToTop(page, async () => (await start.count()) > 0, 40);
+  expect(
+    reached,
+    'could not page #general back to its first message (raise the round budget here if the room has grown again, or run npm run test:e2e:fresh)',
+  ).toBe(true);
   await expect(row(page, eventId('general.first'))).toBeVisible();
 }
 

@@ -168,12 +168,44 @@ async function imageDimensions(file: File): Promise<{ w: number; h: number } | u
   }
 }
 
+/**
+ * Raw media upload: `POST /_matrix/media/v3/upload?filename=<name>`. Used instead of `client.uploadContent()`
+ * because the SDK's browser (XMLHttpRequest) branch encodes the filename twice (`encodeURIComponent` and then
+ * `URLSearchParams.set`), so Synapse stores `Voice%20message.webm` in Content-Disposition for any name with a
+ * space (matrix-js-sdk v43, `http-api/index.js`; the Node/fetch branch encodes once, which is why scripts never
+ * showed it). Rate limits are retried; errors are `MatrixError` like the SDK's. Resolves with the mxc URL.
+ */
+export async function uploadMedia(blob: Blob, opts: { name?: string; type?: string } = {}): Promise<string> {
+  const client = getClient();
+  const base = client.baseUrl.replace(/\/+$/, '');
+  const url = `${base}/_matrix/media/v3/upload${opts.name ? `?filename=${encodeURIComponent(opts.name)}` : ''}`;
+  return retryOnRateLimit(async () => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${client.getAccessToken() ?? ''}`,
+        'Content-Type': opts.type || blob.type || 'application/octet-stream',
+      },
+      body: blob,
+    });
+    const text = await res.text();
+    let json: { content_uri?: string; errcode?: string; error?: string } = {};
+    try {
+      json = text ? (JSON.parse(text) as typeof json) : {};
+    } catch {
+      json = { error: text };
+    }
+    if (!res.ok || !json.content_uri) throw new MatrixError(json, res.status, url);
+    return json.content_uri;
+  }, 'Uploading');
+}
+
 /** Upload a file to the media repo. Returns the mxc URL plus metadata for the `info` block. */
 export async function uploadFile(file: File): Promise<UploadResult> {
   const mimetype = file.type || 'application/octet-stream';
   const dims = mimetype.startsWith('image/') ? await imageDimensions(file) : undefined;
-  const res = await getClient().uploadContent(file, { name: file.name, type: mimetype, includeFilename: true });
-  return { mxc: res.content_uri, mimetype, size: file.size, name: file.name, ...(dims ?? {}) };
+  const mxc = await uploadMedia(file, { name: file.name, type: mimetype });
+  return { mxc, mimetype, size: file.size, name: file.name, ...(dims ?? {}) };
 }
 
 /** Upload then send: `m.image` for image/*, `m.file` otherwise. Resolves with the event id. */
@@ -221,8 +253,7 @@ export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMe
   const waveform = sanitizeWaveform(opts.waveform);
   const size = blob.size;
 
-  const upload = await client.uploadContent(blob, { name, type: mimetype, includeFilename: true });
-  const url = upload.content_uri;
+  const url = await uploadMedia(blob, { name, type: mimetype });
 
   const content = {
     msgtype: MsgType.Audio,

@@ -37,6 +37,20 @@ export function useHomeUnread(): number {
   });
 }
 
+/**
+ * DEV-A-16: does any room *other than* the one on screen have unread messages? Drives
+ * `header-menu-unread` on the phone header, where the sidebar badges are behind a closed drawer.
+ * Returns a boolean (not a count) so the header re-renders only when the dot appears or disappears.
+ */
+export function useOtherRoomsUnread(): boolean {
+  return useRoomStore((s) => {
+    for (const [roomId, count] of Object.entries(s.unreadByRoom)) {
+      if (count > 0 && roomId !== s.selectedRoomId) return true;
+    }
+    return false;
+  });
+}
+
 /** Badge text: the raw count up to 99, then "99+" like Discord. */
 export function badgeText(count: number): string {
   return count > 99 ? '99+' : String(count);

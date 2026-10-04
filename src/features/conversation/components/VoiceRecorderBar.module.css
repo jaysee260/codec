@@ -1,0 +1,146 @@
+/* Recording bar (DEV-B-12). Sits in the composer where the input box normally is. */
+.bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  min-height: 56px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+}
+.bar[data-state='error'] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.cancel,
+.send {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+.cancel:hover {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+.send {
+  color: var(--text-on-accent);
+  background: var(--accent);
+}
+.send:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.spin {
+  animation: voice-spin 0.9s linear infinite;
+}
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.dotLive {
+  background: var(--danger);
+  animation: voice-pulse 1.1s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+.timer {
+  flex-shrink: 0;
+  min-width: 36px;
+  color: var(--text-heading);
+  font-size: var(--font-size-base);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Live input level: a scrolling bar chart of the last ~2 s of microphone level. */
+.level {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.meterBar {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: height 0.08s linear;
+}
+
+.levelHint {
+  padding: 0 4px;
+  color: var(--text-heading);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Inline failure text inside the bar (upload failed). Absolute so it never changes the bar's height. */
+.error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 6px);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  line-height: 1.3;
+}
+
+/* Permission notice above the input (the bar is not open in that case). */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-sidebar);
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  line-height: 1.3;
+}
+
+@media (hover: none) {
+  .bar {
+    min-height: calc(var(--tap-target) + 8px);
+  }
+}

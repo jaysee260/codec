@@ -1,0 +1,94 @@
+/* Bottom sheet for the message actions on phone (DEV-B-16). */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: var(--bg-overlay);
+  animation: sheet-fade 0.15s ease-out;
+}
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet {
+  position: fixed;
+  z-index: 56;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px calc(var(--safe-bottom) + 8px);
+  background: var(--bg-modal);
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: var(--shadow-elevation);
+  animation: sheet-up 0.18s ease-out;
+  max-height: 80%;
+  overflow-y: auto;
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.handle {
+  width: 40px;
+  height: 4px;
+  margin: 4px auto 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-active);
+}
+
+.reactions {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 4px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.quick {
+  flex: 1;
+  min-width: 0;
+  height: var(--tap-target);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  font-size: 22px;
+  line-height: 1;
+}
+.quickMine {
+  background: var(--bg-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-normal);
+  font-size: var(--font-size-base);
+  text-align: left;
+}
+.action:active {
+  background: var(--bg-hover);
+}
+
+.danger {
+  color: var(--danger);
+}

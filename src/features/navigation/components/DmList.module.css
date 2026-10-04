@@ -104,3 +104,74 @@
   font-size: var(--font-size-sm);
   padding: 6px 8px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone drawer (DEV-A-11 / DEV-A-14). Same treatment as the channel list; the search pill at the
+ * top is a tap target too even though AC-M5-1 only measures inside `dm-list`.
+ * ------------------------------------------------------------------------- */
+:root[data-layout='phone'] .header {
+  height: var(--phone-header-h);
+  padding: 0 8px;
+}
+
+:root[data-layout='phone'] .search {
+  height: 40px;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: var(--font-size-message);
+}
+:root[data-layout='phone'] .search:active {
+  background: var(--bg-active);
+  color: var(--text-heading);
+}
+
+:root[data-layout='phone'] .list {
+  padding: 0 8px 32px;
+}
+
+:root[data-layout='phone'] .item {
+  height: var(--tap-target); /* AC-M2-6, AC-M5-1 */
+  padding: 0 10px;
+  font-size: var(--font-size-base);
+}
+:root[data-layout='phone'] .item:active {
+  background: var(--bg-active);
+  color: var(--text-heading);
+}
+
+:root[data-layout='phone'] .avatar {
+  width: 30px;
+  height: 30px;
+}
+
+:root[data-layout='phone'] .badge {
+  min-width: 20px;
+  height: 20px;
+  font-size: var(--font-size-sm);
+}
+
+:root[data-layout='phone'] .accept {
+  font-size: var(--font-size-sm);
+}
+
+:root[data-layout='phone'] .empty {
+  padding: 10px;
+  font-size: var(--font-size-message);
+}
+
+@media (hover: none) {
+  .item:hover {
+    background: none;
+    color: var(--text-muted);
+  }
+  .itemSelected:hover {
+    background: var(--bg-active);
+    color: var(--text-heading);
+  }
+  .itemUnread:hover {
+    color: var(--text-heading);
+  }
+  .search:hover {
+    color: var(--text-muted);
+  }
+}

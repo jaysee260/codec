@@ -70,3 +70,55 @@
   font-size: var(--font-size-sm);
   padding: 6px 8px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone drawer (DEV-A-11 / DEV-A-14). The list is ~278 px wide inside the 85 % drawer
+ * (350 px - the 72 px rail), so the only changes needed are thumb-sized rows and touch feedback.
+ * ------------------------------------------------------------------------- */
+:root[data-layout='phone'] .list {
+  padding: 0 8px 32px; /* room to scroll the last item clear of the user footer */
+}
+
+:root[data-layout='phone'] .item {
+  height: var(--tap-target); /* AC-M2-6, AC-M5-1 */
+  gap: 8px;
+  padding: 0 10px;
+  font-size: var(--font-size-base);
+}
+/* Pressed feedback instead of hover (DEV-A-16). */
+:root[data-layout='phone'] .item:active {
+  background: var(--bg-active);
+  color: var(--text-heading);
+}
+
+:root[data-layout='phone'] .hash {
+  width: 22px;
+  font-size: 22px;
+  vertical-align: -4px;
+}
+
+:root[data-layout='phone'] .badge {
+  min-width: 20px;
+  height: 20px;
+  font-size: var(--font-size-sm);
+}
+
+:root[data-layout='phone'] .empty {
+  padding: 10px;
+  font-size: var(--font-size-message);
+}
+
+/* No sticky :hover after a tap on touch devices. */
+@media (hover: none) {
+  .item:hover {
+    background: none;
+    color: var(--text-muted);
+  }
+  .itemSelected:hover {
+    background: var(--bg-active);
+    color: var(--text-heading);
+  }
+  .itemUnread:hover {
+    color: var(--text-heading);
+  }
+}

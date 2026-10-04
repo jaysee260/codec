@@ -76,3 +76,34 @@
   color: var(--text-muted);
   flex-shrink: 0;
 }
+
+/*
+ * Phone (DEV-B-15 / DEV-B-16, AC-V6-5): the thumbnail and the file card are capped by the row width,
+ * never by the 400/420 px desktop maximum, so nothing can scroll the page sideways.
+ */
+@media (hover: none) {
+  .imageLink {
+    max-width: 100%;
+  }
+  .image {
+    max-width: 100%;
+    max-height: 340px;
+  }
+  .file {
+    max-width: 100%;
+    width: 100%;
+    min-height: var(--tap-target);
+  }
+}
+:global(:root[data-layout='phone']) .imageLink {
+  max-width: 100%;
+}
+:global(:root[data-layout='phone']) .image {
+  max-width: 100%;
+  max-height: 340px;
+}
+:global(:root[data-layout='phone']) .file {
+  max-width: 100%;
+  width: 100%;
+  min-height: var(--tap-target);
+}

@@ -39,6 +39,7 @@ import {
   openChannel,
   openHome,
   openSpace,
+  paginateToTop,
   railOrder,
   spaceItem,
 } from './fixtures/ui.ts';
@@ -176,11 +177,15 @@ test.describe('DEV-A-2 channel list and header', () => {
   test('AC-A2-1 Acme channels are general, random, dev in m.space.child order, each prefixed with #', async ({
     page,
   }) => {
-    expect(await itemNames(page.getByTestId('channel-list'), 'channel-item-')).toEqual([
-      NAMES.general,
-      NAMES.random,
-      NAMES.dev,
-    ]);
+    // The criterion is about the *order* of the seeded channels, which is `m.space.child` order.
+    // Channels created by the create-channel criteria (AC-A6-2, AC-M5-2) stay in Acme HQ on this
+    // homeserver, so the assertion is an ordered subsequence, never an exact list (dirty-seed rule).
+    const names = await itemNames(page.getByTestId('channel-list'), 'channel-item-');
+    const seeded: string[] = [NAMES.general, NAMES.random, NAMES.dev];
+    expect(
+      names.filter((n): n is string => !!n && seeded.includes(n)),
+      `seeded channels in m.space.child order (full list: ${names.join(', ')})`,
+    ).toEqual(seeded);
     for (const [roomId, name] of [
       [R.general, NAMES.general],
       [R.random, NAMES.random],
@@ -251,7 +256,15 @@ test.describe('DEV-A-3 DM list', () => {
     await openHome(page);
     await dmItem(page, R.dmBob).click();
     await expect(page.getByTestId('channel-header-name')).toContainText(DISPLAY_NAMES.bob);
-    await expect(messageList(page).getByText(BODIES.dmBob1)).toBeVisible({ timeout: 5_000 });
+
+    // The DM's first seeded message is in the opening window on a fresh seed; once the DM has grown
+    // past ~30 events it has to be paged back to. The criterion is that the message *renders*, not
+    // that the window happens to still start there (same treatment as AC-B1-4 / AC-B4-2).
+    const first = messageList(page).getByText(BODIES.dmBob1);
+    if ((await first.count()) === 0) {
+      await paginateToTop(page, async () => (await first.count()) > 0, 20);
+    }
+    await expect(first).toBeVisible({ timeout: 5_000 });
   });
 
   test('AC-A3-3 a DM hides the member list or shows only its two participants', async ({ page }) => {

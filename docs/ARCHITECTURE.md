@@ -532,3 +532,16 @@ npm run dev -- --port 5183 && npm run verify:phone     # Pixel 7 Playwright chec
 - **Edge-to-edge (Android 15, targetSdk 35)**: Capacitor 7 handles system-bar insets natively (`SystemBars`);
   `env(safe-area-inset-*)` is 0 inside the WebView with `overlaysWebView: false`, so the CSS fallbacks must look
   right - they do (the status bar is painted by the OS in `#1e1f22`).
+- **Synapse media download ignores `Range`** (no `Accept-Ranges`; a ranged GET answers 200 with the full body), so
+  an `<audio src=".../_matrix/media/v3/download/...">` is **unseekable**: `seekable` is `[0, 0]` and every
+  `currentTime` assignment snaps back to 0. The conversation feature therefore `fetch()`es the media once and
+  plays `URL.createObjectURL(blob)` (revoke it on unmount); any other media player (video, audio files) must do
+  the same. Verified against this homeserver with `scripts`-style raw requests.
+- **Upload filenames**: `client.uploadContent()` double-encodes `?filename=` in the browser (XHR branch:
+  `encodeURIComponent` + `URLSearchParams`), so Synapse stored `Voice%20message.webm` / `my%20photo.png` in
+  `Content-Disposition`. `uploadFile` and `sendVoiceMessage` now go through `uploadMedia(blob, { name, type })`
+  (plain `fetch`, encoded once, `MatrixError` on failure, rate-limit retry). Do not call `uploadContent` directly.
+- **Expected console 404 on every start** (also in the phone build and in the `mobile` Playwright project): the
+  SDK probes `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports` once per `startClient`; Synapse answers
+  404 and Chromium logs "Failed to load resource: ... 404". QA's no-console-errors assertions must allow that
+  one URL (`scripts/verify-phone-shell.mjs` shows how: record 404 responses and whitelist `msc4143`).

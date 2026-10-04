@@ -1,0 +1,178 @@
+/*
+ * Voice-note bubble (DEV-B-14). The waveform and the (invisible) range input are stacked so the
+ * whole bar is draggable: the range is on top at full size with a transparent track, the bars are the
+ * visual. `max-width` keeps the bubble inside the row on phone (AC-V3-1).
+ */
+.bubble {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 8px 12px 8px 8px;
+  width: 340px;
+  max-width: 100%;
+  background: var(--bg-code);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.bubble[data-state='error'] {
+  border-color: var(--danger);
+}
+
+.play {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.play:hover {
+  background: var(--accent-hover);
+}
+
+.track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+}
+
+.waveform {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  min-height: 3px;
+  border-radius: 1px;
+  background: var(--bg-active);
+  transition: background 0.1s linear;
+}
+.barPlayed {
+  background: var(--accent);
+}
+
+/* Full-size transparent range on top of the bars: the scrubber IS the waveform. */
+.progress {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.progress::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+.progress::-moz-range-track {
+  height: 100%;
+  background: transparent;
+}
+/*
+ * The playhead only exists once the note has been started: a white bar parked at 0 on every idle
+ * bubble reads as a rendering glitch, not as a scrubber.
+ */
+.progress::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 8px;
+  height: 100%;
+  border: 0;
+  border-radius: 2px;
+  background: var(--text-heading);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.progress::-moz-range-thumb {
+  width: 8px;
+  height: 100%;
+  border: 0;
+  border-radius: 2px;
+  background: var(--text-heading);
+  opacity: 0;
+}
+.bubble[data-state='playing'] .progress::-webkit-slider-thumb,
+.bubble[data-state='paused'] .progress::-webkit-slider-thumb,
+.bubble:hover .progress::-webkit-slider-thumb,
+.progress:focus-visible::-webkit-slider-thumb {
+  opacity: 0.9;
+}
+.bubble[data-state='playing'] .progress::-moz-range-thumb,
+.bubble[data-state='paused'] .progress::-moz-range-thumb,
+.bubble:hover .progress::-moz-range-thumb {
+  opacity: 0.9;
+}
+
+.duration {
+  flex-shrink: 0;
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.error {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: calc(100% + 4px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--danger);
+  font-size: var(--font-size-xs);
+}
+
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-link);
+  font-weight: 600;
+}
+
+/* --- phone (DEV-B-14 / DEV-B-15): 44 px play button, full row width -------- */
+@media (hover: none) {
+  .bubble {
+    width: 100%;
+    gap: 8px;
+    padding: 8px 10px 8px 8px;
+  }
+  .play {
+    width: var(--tap-target);
+    height: var(--tap-target);
+  }
+  .track {
+    height: 36px;
+  }
+}
+:global(:root[data-layout='phone']) .bubble {
+  width: 100%;
+  gap: 8px;
+  padding: 8px 10px 8px 8px;
+}
+:global(:root[data-layout='phone']) .play {
+  width: var(--tap-target);
+  height: var(--tap-target);
+}
+:global(:root[data-layout='phone']) .track {
+  height: 36px;
+}

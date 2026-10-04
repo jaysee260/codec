@@ -61,3 +61,49 @@
   gap: 2px;
   margin-top: 2px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone drawer (DEV-A-14). Both controls in the section head are real tap targets: the collapse
+ * button and the "+" (`channel-add` / `dm-new`), which AC-M5-1 measures inside channel-list/dm-list.
+ * `.head` must grow with them, so its fixed 24 px height becomes a min-height.
+ * ------------------------------------------------------------------------- */
+:root[data-layout='phone'] .head {
+  height: auto;
+  min-height: var(--tap-target);
+  margin-top: 8px;
+  padding-right: 0;
+}
+
+:root[data-layout='phone'] .headButton {
+  height: var(--tap-target);
+  gap: 4px;
+  padding: 0 8px;
+}
+:root[data-layout='phone'] .headButton:active {
+  color: var(--text-heading);
+}
+
+:root[data-layout='phone'] .label {
+  font-size: var(--font-size-sm);
+}
+
+:root[data-layout='phone'] .add {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border-radius: var(--radius-sm);
+}
+:root[data-layout='phone'] .add:active {
+  color: var(--text-heading);
+  background: var(--bg-active);
+}
+
+:root[data-layout='phone'] .items {
+  gap: 4px;
+}
+
+@media (hover: none) {
+  .headButton:hover,
+  .add:hover {
+    color: var(--text-muted);
+  }
+}

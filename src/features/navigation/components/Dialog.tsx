@@ -7,10 +7,18 @@
  *  - Click on the backdrop closes.
  *  - The first input/textarea is focused on open.
  *  - `dialog-close` is the shared cancel testid; each dialog passes its own `testId` + `submitTestId`.
+ *
+ * DEV-A-15: on phone the same dialog renders as a bottom sheet - `data-variant="sheet"` (vs `"modal"`
+ * on desktop, AC-M5-4), full viewport width, bottom edge flush with the viewport bottom plus
+ * `--safe-bottom`, a grab handle, and a slide-up transition. Escape and the backdrop still close it.
+ * The backdrop deliberately closes on `mousedown`/`click` rather than `pointerdown`: pointerdown fires
+ * at touch-start, so the sheet would already be gone when the tap's synthesized click lands - on
+ * whatever is underneath (the open nav drawer's channel items), i.e. a ghost room switch.
  */
 import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useIsPhone } from '@/store/hooks.ts';
 import styles from './Dialog.module.css';
 
 export interface DialogProps {
@@ -46,6 +54,7 @@ export function Dialog({
 }: DialogProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
+  const isPhone = useIsPhone();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
@@ -73,15 +82,21 @@ export function Dialog({
   );
 
   return createPortal(
-    <div className={styles.backdrop} onMouseDown={onBackdropMouseDown}>
+    <div
+      className={`${styles.backdrop} ${isPhone ? styles.backdropSheet : ''}`}
+      onMouseDown={onBackdropMouseDown}
+      onClick={onBackdropMouseDown}
+    >
       <div
-        className={styles.card}
+        className={`${styles.card} ${isPhone ? styles.cardSheet : ''}`}
         data-testid={testId}
+        data-variant={isPhone ? 'sheet' : 'modal'}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         ref={cardRef}
       >
+        {isPhone && <span className={styles.handle} aria-hidden="true" />}
         <form
           className={styles.form}
           onSubmit={(e) => {

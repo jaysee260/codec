@@ -1,6 +1,12 @@
 /**
- * One timeline row (DEV-B-1). Avatar + author + timestamp on group starts, hover timestamp in the
- * gutter otherwise; reply quote, body, reaction pills, hover toolbar, per-row picker and delete dialog.
+ * One timeline row (DEV-B-1 / DEV-B-15 / DEV-B-16). Avatar + author + timestamp on group starts,
+ * hover timestamp in the gutter otherwise; reply quote, body, reaction pills, per-row picker and
+ * delete dialog.
+ *
+ * Desktop keeps the hover toolbar (`MessageActions`). Phone has no hover, so the row gets a 500 ms
+ * long-press that opens the same actions as a bottom sheet (`MessageActionSheet`). Exactly one of the
+ * two is mounted - they share the `message-action-*` testids, and two of each inside one row would be
+ * ambiguous for a test.
  *
  * Rows are deliberately NOT memoised: the SDK mutates events in place for edits, redactions and
  * reaction aggregation, so the whole list re-renders on the store's `version` bump.
@@ -11,9 +17,12 @@ import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { canEditEvent, canRedactEvent, getReactions, sendReaction } from '@/lib/matrix/actions.ts';
 import { avatarUrlOf, displayNameOf, getDisplayBody, isPendingEvent } from '@/lib/matrix/utils.ts';
 import { colorFor, formatFullTime, formatTime, initialsOf } from '@/lib/format.ts';
+import { useIsPhone } from '@/store/hooks.ts';
 import { withToast } from '@/store/toast.ts';
 import { useConversationUi } from '../hooks/useConversationUi.ts';
+import { useLongPress } from '../hooks/useLongPress.ts';
 import { MessageActions } from './MessageActions.tsx';
+import { MessageActionSheet } from './MessageActionSheet.tsx';
 import { MessageBody } from './MessageBody.tsx';
 import { ReactionPicker } from './ReactionPicker.tsx';
 import { ReactionRow } from './ReactionRow.tsx';
@@ -32,6 +41,8 @@ export interface MessageRowProps {
 export function MessageRow({ roomId, event, groupStart, flash }: MessageRowProps) {
   const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const isPhone = useIsPhone();
   const startReply = useConversationUi((s) => s.startReply);
   const startEdit = useConversationUi((s) => s.startEdit);
 
@@ -51,9 +62,16 @@ export function MessageRow({ roomId, event, groupStart, flash }: MessageRowProps
   // which keeps "pick 🎉 -> count 1, mine" true however many times the flow runs on one seed.
   const pick = (key: string): void => {
     setPickerAnchor(null);
+    setSheetOpen(false);
     if (reactions.some((reaction) => reaction.key === key && reaction.mine)) return;
     void withToast(() => sendReaction(roomId, eventId, key), 'Could not add the reaction');
   };
+
+  // Long-press opens the action sheet on phone; the desktop toolbar is hover-driven (AC-V6-3/4).
+  const longPress = useLongPress({
+    enabled: isPhone && !pending,
+    onLongPress: () => setSheetOpen(true),
+  });
 
   const classes = [
     styles.row,
@@ -61,6 +79,7 @@ export function MessageRow({ roomId, event, groupStart, flash }: MessageRowProps
     pending ? styles.pending : '',
     failed ? styles.failed : '',
     flash ? styles.flash : '',
+    longPress.pressing ? styles.pressing : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -72,8 +91,9 @@ export function MessageRow({ roomId, event, groupStart, flash }: MessageRowProps
       data-sender={sender}
       data-event-id={eventId}
       data-group-start={groupStart ? 'true' : 'false'}
-      data-active={pickerAnchor || confirmDelete ? 'true' : undefined}
+      data-active={pickerAnchor || confirmDelete || sheetOpen ? 'true' : undefined}
       data-flash={flash ? 'true' : undefined}
+      {...longPress.handlers}
     >
       <div className={styles.gutter}>
         {groupStart ? (
@@ -109,7 +129,7 @@ export function MessageRow({ roomId, event, groupStart, flash }: MessageRowProps
         <ReactionRow roomId={roomId} eventId={eventId} reactions={reactions} onAdd={setPickerAnchor} />
       </div>
 
-      {!pending && (
+      {!pending && !isPhone && (
         <MessageActions
           canEdit={canEdit}
           canDelete={canDelete}
@@ -117,6 +137,29 @@ export function MessageRow({ roomId, event, groupStart, flash }: MessageRowProps
           onReply={() => startReply(roomId, eventId)}
           onEdit={() => startEdit(roomId, eventId)}
           onDelete={() => setConfirmDelete(true)}
+        />
+      )}
+
+      {sheetOpen && isPhone && (
+        <MessageActionSheet
+          canEdit={canEdit}
+          canDelete={canDelete}
+          myReactions={reactions.filter((r) => r.mine).map((r) => r.key)}
+          onClose={() => setSheetOpen(false)}
+          onReact={pick}
+          onMoreReactions={setPickerAnchor}
+          onReply={() => {
+            setSheetOpen(false);
+            startReply(roomId, eventId);
+          }}
+          onEdit={() => {
+            setSheetOpen(false);
+            startEdit(roomId, eventId);
+          }}
+          onDelete={() => {
+            setSheetOpen(false);
+            setConfirmDelete(true);
+          }}
         />
       )}
 

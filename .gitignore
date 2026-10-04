@@ -30,3 +30,4 @@ e2e/results/
 e2e/tmp/
 playwright-report/
 src/features/**/__dev__/
+e2e/demo-mobile/

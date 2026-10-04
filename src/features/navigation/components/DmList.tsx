@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { useRoomStore, waitForRoom, type RoomSummary } from '@/store/rooms.ts';
 import { joinRoom } from '@/lib/matrix/actions.ts';
+import { hapticTap } from '@/lib/native.ts';
 import { withToast } from '@/store/toast.ts';
 import { colorFor, initialsOf } from '@/lib/format.ts';
 import { badgeText, useUnread } from '../hooks/useUnread.ts';
@@ -84,7 +85,11 @@ function DmItem({ room, testIdPrefix = 'dm-item' }: { room: RoomSummary; testIdP
       data-name={room.name}
       data-selected={selected ? 'true' : 'false'}
       title={room.dmUserId ?? room.name}
-      onClick={() => selectRoom(room.roomId)}
+      // selectRoom only: the layout store closes the nav drawer on phone (docs/ARCHITECTURE.md).
+      onClick={() => {
+        hapticTap(); // DEV-A-16; no-op in a browser
+        selectRoom(room.roomId);
+      }}
     >
       <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(seed) }}>
         {room.avatarUrl ? <img src={room.avatarUrl} alt="" /> : initialsOf(room.name)}

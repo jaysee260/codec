@@ -1,13 +1,19 @@
 /**
- * Composer (DEV-B-2 / B-6 / B-8 / B-9 / B-10).
+ * Composer (DEV-B-2 / B-6 / B-8 / B-9 / B-10 / B-12 / B-15).
  *
  * Enter sends, Shift+Enter inserts a newline, the textarea auto-grows, typing notifications are
  * throttled to one every 4 s, attachments come from the paperclip or a clipboard paste, and the
  * reply / edit banners are driven by the shared conversation UI store. ArrowUp on an empty composer
  * opens edit mode on my last message; Escape cancels reply/edit.
+ *
+ * Phase 2: the trailing button is a *slot* holding both `composer-mic` and `composer-send`, stacked
+ * on each other with only one visible at a time (AC-V1-1 "send takes its place"). Both stay mounted
+ * with a full-size box so AC-B2-4 (`composer-send` disabled while the input is blank) and AC-V6-1
+ * (all three composer buttons >= 44 px on phone) hold at the same time. While a voice note is being
+ * recorded / uploaded, `composer-recording` replaces the whole input box.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
-import { SendHorizontal, X } from 'lucide-react';
+import { Mic, SendHorizontal, X } from 'lucide-react';
 import { canEditEvent, editText, sendFile, sendText } from '@/lib/matrix/actions.ts';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { displayNameOf, getDisplayBody, isPendingEvent } from '@/lib/matrix/utils.ts';
@@ -16,9 +22,11 @@ import { withToast } from '@/store/toast.ts';
 import { useConversationUi, useEditingId, useReplyTargetId } from '../hooks/useConversationUi.ts';
 import { useMentions, type MentionOption } from '../hooks/useMentions.ts';
 import { useTypingNotifier } from '../hooks/useTypingNotifier.ts';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder.ts';
 import { AttachButton } from './AttachButton.tsx';
 import { MentionAutocomplete } from './MentionAutocomplete.tsx';
 import { UploadProgress } from './UploadProgress.tsx';
+import { VoiceErrorBanner, VoiceRecorderBar } from './VoiceRecorderBar.tsx';
 import styles from './Composer.module.css';
 
 const MAX_HEIGHT = 340;
@@ -43,6 +51,7 @@ export function Composer({ roomId }: { roomId: string }) {
 
   const typing = useTypingNotifier(roomId);
   const mentions = useMentions(roomId);
+  const recorder = useVoiceRecorder(roomId);
   const room = getClientOrNull()?.getRoom(roomId) ?? null;
 
   // --- room change -----------------------------------------------------------
@@ -76,12 +85,21 @@ export function Composer({ roomId }: { roomId: string }) {
   }, [editingId]);
 
   // --- auto-grow -------------------------------------------------------------
+  // `recorder.barOpen` is a dependency because the textarea is unmounted while the recording bar is
+  // up: without it the remounted textarea would keep whatever height the last run computed.
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, MAX_HEIGHT)}px`;
-  }, [text]);
+  }, [text, recorder.barOpen]);
+
+  // --- recording bar closed: give the input the focus back (AC-V1-3) ---------
+  const barWasOpen = useRef(false);
+  useEffect(() => {
+    if (barWasOpen.current && !recorder.barOpen) inputRef.current?.focus();
+    barWasOpen.current = recorder.barOpen;
+  }, [recorder.barOpen]);
 
   const lastOwnEditableId = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
@@ -203,6 +221,12 @@ export function Composer({ roomId }: { roomId: string }) {
   const replyName = replyToId ? displayNameOf(room, room?.findEventById(replyToId)?.getSender() ?? '') : '';
   const placeholder = summary ? (summary.isDm ? `Message @${summary.name}` : `Message #${summary.name}`) : 'Message';
   const canSend = text.trim().length > 0;
+  const attached = !!(editingId || replyToId || uploads.length || (!recorder.barOpen && recorder.error));
+  /** `composer-mic` only ever reports idle | requesting | denied (test-id registry). */
+  const micState = recorder.state === 'requesting' || recorder.state === 'denied' ? recorder.state : 'idle';
+  const micTitle = recorder.supported
+    ? 'Record a voice message'
+    : 'Voice messages need the app or an https page (no microphone on this page)';
 
   return (
     <div className={styles.composer} data-testid="composer">
@@ -250,37 +274,69 @@ export function Composer({ roomId }: { roomId: string }) {
         </div>
       )}
 
-      <div className={`${styles.box} ${editingId || replyToId || uploads.length ? styles.boxAttached : ''}`}>
-        <AttachButton onFiles={uploadFiles} />
-        <textarea
-          ref={inputRef}
-          className={styles.input}
-          data-testid="composer-input"
-          placeholder={placeholder}
-          rows={1}
-          value={text}
-          aria-label={placeholder}
-          onChange={(e) => {
-            setText(e.target.value);
-            mentions.sync(e.target.value, e.target.selectionStart ?? e.target.value.length);
-            if (e.target.value.trim()) typing.onInput();
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          onBlur={typing.stop}
-        />
-        <button
-          type="button"
-          className={styles.send}
-          data-testid="composer-send"
-          title={editingId ? 'Save changes' : 'Send message'}
-          aria-label={editingId ? 'Save changes' : 'Send message'}
-          disabled={!canSend}
-          onClick={submit}
-        >
-          <SendHorizontal size={20} />
-        </button>
-      </div>
+      {!recorder.barOpen && recorder.error && <VoiceErrorBanner message={recorder.error} />}
+
+      {recorder.barOpen ? (
+        <VoiceRecorderBar recorder={recorder} />
+      ) : (
+        <div className={`${styles.box} ${attached ? styles.boxAttached : ''}`}>
+          <AttachButton onFiles={uploadFiles} />
+          <textarea
+            ref={inputRef}
+            className={styles.input}
+            data-testid="composer-input"
+            placeholder={placeholder}
+            rows={1}
+            value={text}
+            aria-label={placeholder}
+            onChange={(e) => {
+              setText(e.target.value);
+              mentions.sync(e.target.value, e.target.selectionStart ?? e.target.value.length);
+              if (e.target.value.trim()) typing.onInput();
+            }}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            onBlur={typing.stop}
+          />
+          {/*
+           * One slot, two stacked buttons: whichever is hidden keeps its box (so a bounding-box check
+           * finds 44 px for both on phone) but is invisible and unreachable.
+           */}
+          <div className={styles.slot} data-mode={canSend ? 'send' : 'mic'}>
+            <button
+              type="button"
+              className={styles.mic}
+              data-testid="composer-mic"
+              data-state={micState}
+              data-supported={recorder.supported ? 'true' : 'false'}
+              title={micTitle}
+              aria-label={micTitle}
+              aria-hidden={canSend ? true : undefined}
+              tabIndex={canSend ? -1 : undefined}
+              disabled={canSend || !recorder.supported || recorder.state === 'requesting'}
+              onClick={() => {
+                typing.stop();
+                recorder.start();
+              }}
+            >
+              <Mic size={20} />
+            </button>
+            <button
+              type="button"
+              className={styles.send}
+              data-testid="composer-send"
+              title={editingId ? 'Save changes' : 'Send message'}
+              aria-label={editingId ? 'Save changes' : 'Send message'}
+              aria-hidden={canSend ? undefined : true}
+              tabIndex={canSend ? undefined : -1}
+              disabled={!canSend}
+              onClick={submit}
+            >
+              <SendHorizontal size={20} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

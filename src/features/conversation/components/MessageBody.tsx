@@ -16,6 +16,7 @@ import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { displayNameOf, type DisplayBody } from '@/lib/matrix/utils.ts';
 import { linkify, sanitizeHtml } from '@/lib/format.ts';
 import { ImageAttachment, FileAttachment } from './ImageAttachment.tsx';
+import { VoiceMessage } from './VoiceMessage.tsx';
 import styles from './MessageBody.module.css';
 
 const MATRIX_TO_USER = /^https?:\/\/matrix\.to\/#\/(@[^/?#]+)/;
@@ -63,6 +64,10 @@ export function MessageBody({ roomId, body }: { roomId: string; body: DisplayBod
     );
   }
 
+  // Any playable m.audio becomes a voice bubble (DEV-B-14): `body.voice` is `getVoiceMessage(event)`,
+  // non-null for voice notes *and* plain audio files. An m.audio without media falls through to the
+  // file row.
+  const voice = body.voice;
   const isImage = body.msgtype === MsgType.Image || body.msgtype === 'm.sticker';
   const isFile = body.msgtype === MsgType.File || body.msgtype === MsgType.Video || body.msgtype === MsgType.Audio;
   const emojiOnly =
@@ -74,7 +79,9 @@ export function MessageBody({ roomId, body }: { roomId: string; body: DisplayBod
         className={`${styles.body} ${isImage || isFile ? styles.blockBody : styles.inlineBody} ${emojiOnly ? styles.jumbo : ''}`}
         data-testid="message-body"
       >
-        {isImage ? (
+        {voice ? (
+          <VoiceMessage voice={voice} />
+        ) : isImage ? (
           <ImageAttachment body={body} />
         ) : isFile ? (
           <FileAttachment body={body} />

@@ -119,3 +119,57 @@
   box-sizing: content-box;
   pointer-events: none;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone drawer (DEV-A-11 / DEV-A-14). The rail keeps its 72 px width (AC-M2-6) and its 48 px round
+ * buttons, which AC-M5-1 explicitly allows ("rail items may be 48 px round"). What changes: a touch
+ * pressed state instead of hover, and the selection pill no longer keyed to hover.
+ * ------------------------------------------------------------------------- */
+:root[data-layout='phone'] .rail {
+  padding: 8px 0 24px;
+  gap: 10px;
+}
+
+:root[data-layout='phone'] .button:active {
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+/* The rail badge keeps its desktop size: at 2.6x DPR 18 px is already legible, and growing it makes
+ * it cover more of the space initials than Discord does. The in-row channel/DM badges do grow. */
+
+/*
+ * Touch: Chromium keeps :hover on the last-tapped element, which would leave a stray pill and a
+ * squared-off icon behind in the drawer. Pin the hover-only rules back to their resting values and
+ * let .pillUnread / .pillSelected / .selected (state, not pointer) do the talking.
+ */
+@media (hover: none) {
+  .item:hover .pill {
+    height: 0;
+  }
+  .item:hover .pillUnread {
+    height: 8px;
+  }
+  .item:hover .pillSelected {
+    height: 36px;
+  }
+  .button:hover {
+    border-radius: 24px;
+  }
+  .button:hover.selected {
+    border-radius: 16px;
+  }
+  .home:hover {
+    background: var(--bg-sidebar);
+    color: var(--text-heading);
+  }
+  .home:hover.selected {
+    background: var(--accent);
+    color: var(--text-on-accent);
+  }
+  .add:hover {
+    background: var(--bg-sidebar);
+    color: var(--success);
+  }
+}

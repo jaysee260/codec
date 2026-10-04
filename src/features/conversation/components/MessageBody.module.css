@@ -44,9 +44,19 @@
   margin: 4px 0;
   padding-left: 24px;
 }
+/*
+ * Code blocks scroll inside themselves instead of widening the row (AC-V6-5). `overflow-x: auto` is
+ * also set globally on `pre`; repeated here so the computed value cannot be lost to specificity.
+ */
 .rich :global(pre) {
   margin: 6px 0;
   max-width: 100%;
+  overflow-x: auto;
+}
+.rich :global(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .rich :global(blockquote) {
   color: var(--text-muted);
@@ -102,4 +112,27 @@
 }
 .mention:hover {
   background: var(--bg-mention-hover);
+}
+
+/* Phone (DEV-B-15): nothing in a body may be wider than the row. */
+@media (hover: none) {
+  .body,
+  .line {
+    max-width: 100%;
+  }
+  .rich :global(img) {
+    max-width: 100%;
+    height: auto;
+  }
+  .jumbo {
+    font-size: 34px;
+  }
+}
+:global(:root[data-layout='phone']) .body,
+:global(:root[data-layout='phone']) .line {
+  max-width: 100%;
+}
+:global(:root[data-layout='phone']) .rich :global(img) {
+  max-width: 100%;
+  height: auto;
 }

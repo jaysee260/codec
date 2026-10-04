@@ -64,3 +64,33 @@
   color: var(--text-heading);
   background: var(--bg-active);
 }
+
+/* Phone (DEV-B-15 / AC-V6-2): pills are >= 32 px tall and `reaction-add` is always visible. */
+@media (hover: none) {
+  .reactions {
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .pill,
+  .add {
+    height: 32px;
+    min-height: 32px;
+    padding: 0 10px;
+  }
+  .add {
+    opacity: 1;
+  }
+}
+:global(:root[data-layout='phone']) .reactions {
+  gap: 6px;
+  margin-top: 6px;
+}
+:global(:root[data-layout='phone']) .pill,
+:global(:root[data-layout='phone']) .add {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+}
+:global(:root[data-layout='phone']) .add {
+  opacity: 1;
+}

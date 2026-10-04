@@ -66,10 +66,25 @@ export async function loginAs(page: Page, user: UserKey = 'alice', opts: LoginOp
 
   if (opts.expectFailure) return;
 
-  await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: SHELL_TIMEOUT });
+  const shell = page.getByTestId('app-shell');
+  await expect(shell).toBeVisible({ timeout: SHELL_TIMEOUT });
+
+  // Who actually logged in — checked on both layouts. `toContainText` reads `textContent`, so it does
+  // not need the element to be visible, which matters on phone: `current-user` is rendered inside the
+  // *closed* `nav-drawer` (`visibility: hidden`).
   await expect(page.getByTestId('current-user')).toContainText(DISPLAY_NAMES[user], {
     timeout: SHELL_TIMEOUT,
   });
+
+  // Phase 2: on phone the rail and the channel sidebar are inside that hidden drawer too, so waiting
+  // for them to be *visible* would hang every mobile test. The phone shell's own "ready" signal is the
+  // conversation column.
+  if ((await shell.getAttribute('data-layout')) === 'phone') {
+    await expect(page.getByTestId('channel-header')).toBeVisible({ timeout: SHELL_TIMEOUT });
+    await expect(page.getByTestId('message-list')).toBeVisible({ timeout: SHELL_TIMEOUT });
+    return;
+  }
+
   // The rail is the last thing to paint once the room store has done its first recompute.
   await expect(page.getByTestId('space-rail')).toBeVisible();
 }

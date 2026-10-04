@@ -148,3 +148,89 @@
   color: var(--text-heading);
   background: var(--bg-hover);
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone: bottom sheet (DEV-A-15). Same DOM, different geometry. Driven by a class derived from the
+ * same `useIsPhone()` value that stamps `data-variant="sheet"`, so the attribute QA asserts and the
+ * layout can never disagree (AC-M5-2/4).
+ * ------------------------------------------------------------------------- */
+.backdropSheet {
+  place-items: end stretch;
+  padding: 0;
+}
+
+.cardSheet {
+  max-width: none;
+  width: 100%;
+  /* Flush with the bottom of the viewport (AC-M5-2) plus the home-indicator inset. */
+  max-height: 92%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding-bottom: var(--safe-bottom);
+  animation: slide-up 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cardSheet {
+    animation: none;
+  }
+}
+
+/* Grab handle. Purely decorative - dragging the sheet is out of scope; the backdrop and
+ * `dialog-close` close it. */
+.handle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-active);
+  pointer-events: none;
+}
+
+/* Long content scrolls inside the sheet instead of pushing it off-screen. */
+.cardSheet .form {
+  flex: 1;
+  min-height: 0;
+}
+.cardSheet .body {
+  overflow-y: auto;
+}
+.cardSheet .footer {
+  border-radius: 0;
+  padding: 12px 16px;
+}
+
+/* 44 px tap targets for every control in the sheet (DEV-A-14). `.u-btn` is a global utility owned by
+ * the Principal, so the height is raised here rather than there. */
+.cardSheet .footer button {
+  min-height: var(--tap-target);
+  min-width: 96px;
+  flex: 1;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-message);
+}
+
+.cardSheet .x {
+  top: 14px;
+  right: 8px;
+  width: var(--tap-target);
+  height: var(--tap-target);
+}
+
+:root[data-layout='phone'] .title {
+  font-size: 20px;
+}

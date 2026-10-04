@@ -77,3 +77,46 @@
   background: var(--accent);
   color: var(--text-on-accent);
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone drawer (DEV-A-11 / DEV-A-14). The space header is already 48 px tall; on phone it matches
+ * the conversation header (56 px) so the drawer lines up with the bar behind it, and the dropdown
+ * items become 44 px tall.
+ * ------------------------------------------------------------------------- */
+:root[data-layout='phone'] .header {
+  height: var(--phone-header-h);
+}
+
+:root[data-layout='phone'] .headerButton {
+  gap: 8px;
+  padding: 0 12px;
+  font-size: var(--font-size-base);
+}
+:root[data-layout='phone'] .headerButton:active {
+  background: var(--bg-active);
+}
+
+:root[data-layout='phone'] .menu {
+  padding: 8px;
+  gap: 4px;
+}
+
+:root[data-layout='phone'] .menuItem {
+  min-height: var(--tap-target);
+  padding: 0 12px;
+  font-size: var(--font-size-message);
+}
+:root[data-layout='phone'] .menuItem:active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+@media (hover: none) {
+  .headerButton:hover {
+    background: none;
+  }
+  .menuItem:hover {
+    background: none;
+    color: var(--text-muted);
+  }
+}

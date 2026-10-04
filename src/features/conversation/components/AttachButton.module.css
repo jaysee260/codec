@@ -16,3 +16,32 @@
 .input {
   display: none;
 }
+
+/*
+ * Phone (DEV-B-15 / AC-V6-1): the tap target is the whole 44 px square, so the grey disc shrinks to a
+ * plain glyph instead of becoming a 44 px blob.
+ */
+@media (hover: none) {
+  .attach {
+    width: var(--tap-target);
+    height: var(--tap-target);
+    margin: 0 2px 0 -4px;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .attach svg {
+    width: 26px;
+    height: 26px;
+  }
+}
+:global(:root[data-layout='phone']) .attach {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  margin: 0 2px 0 -4px;
+  background: transparent;
+  color: var(--text-muted);
+}
+:global(:root[data-layout='phone']) .attach svg {
+  width: 26px;
+  height: 26px;
+}
