@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-04, Phase 2 Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-07 (Phase 3 planned, every ticket `todo`; see the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -152,3 +152,59 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | 7 | PM | Shared API per docs/PHASE2_TICKETS.md (layout store, Drawer, audio helpers, `sendVoiceMessage`, `getVoiceMessage`, CSS variables) | done (`0913d00`) |
 | 8 | PM | Shell testids per docs/PHASE2_ACCEPTANCE.md (`data-layout`, `nav-drawer`, `member-drawer`, `drawer-backdrop`) | done (`0913d00`) |
 | 9 | QA | `test:e2e:mobile`, `test:e2e:apk` script lines in `package.json` | done as `test:e2e:mobile`, `test:e2e:desktop`, `test:android-build` (`5814c90`) |
+
+---
+
+# Phase 3 - Threads
+
+Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tickets: docs/PHASE3_TICKETS.md. Planned 2026-10-07 by PM (advisor consults 1-2 recorded in the plan). P0 = the desktop and phone demo scripts. Waves: 7 Principal core (PRIN-8 first, QA gate right after), 8 devs + QA in parallel, 9 dry run + interop check.
+
+## Wave 7 - Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PRIN-8 `threadSupport: true`, bridge thread events, badge rule (`unreadByRoom` main-only), reply/display hygiene | P0 | todo | Principal | Lands first; QA-17 gate runs on it |
+| PRIN-9 Timeline source, `threadRoot` sends, thread pagination, `useThreadSummary`, `useRoomThreads`, `useThreadStore` | P0 | todo | Principal | Names subject to ARCHITECTURE "Phase 3 deltas" |
+| PRIN-10 Thread panel container (desktop column swap, phone full-screen, Android back) | P0 | todo | Principal | |
+| PRIN-11 `scripts/send-thread-sample.mjs` (`npm run thread:sample`) + ARCHITECTURE deltas | P0 | todo | Principal | Demo steps 4-5 use it |
+| PRIN-12 Seed threads in `#dev` | P1 | todo | Principal | Applies on the next `seed:reset`; nobody resets now |
+
+## Wave 8 - Dev A (navigation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-17 `header-threads` + unread dot + Threads list (popover / sheet) | P0 | todo | Dev A | |
+| DEV-A-18 Phone header while a thread is open (`header-back`, `Thread` title) | P0 | todo | Dev A | |
+| DEV-A-19 Threads list polish | P2 | todo | Dev A | Not scheduled before the demo |
+
+## Wave 8 - Dev B (conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-18 `ThreadSummary` row under thread roots | P0 | todo | Dev B | |
+| DEV-B-19 "Reply in thread" action (toolbar + long-press sheet) | P0 | todo | Dev B | |
+| DEV-B-20 `ThreadView` (root, divider, list, composer, typing, receipts) | P0 | todo | Dev B | |
+| DEV-B-21 Main-timeline and panel hygiene | P0 | todo | Dev B | |
+| DEV-B-22 In-thread edits, reactions, delete, voice notes, uploads | P1 | todo | Dev B | |
+
+## Wave 8 - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-14 API helpers (`sendThreadReply`, `getThreads`, `getRelations`, threaded receipts) + fixtures + config | P0 | todo | QA | Main-only receipt selection in `readReceiptOf`/`unreadFor` lands before the QA-17 gate |
+| QA-15 `e2e/threads.spec.ts` (desktop) | P0 | todo | QA | |
+| QA-16 `e2e/mobile-threads.spec.ts` (phone) | P0 | todo | QA | |
+| QA-17 Regression gate after PRIN-8 + demo step 11 in both smoke specs | P0 | todo | QA | Needs PRIN-8 and the QA-14 fixture half; gate result goes here before Wave 8 UI is accepted |
+| QA-18 docs/BUGS.md Phase 3 section | P1 | todo | QA | |
+
+## Wave 9 dry run
+| Item | Result |
+|---|---|
+| Regression gate after PRIN-8 (`desktop` + `mobile` projects) | not yet run |
+| `desktop` project incl. `threads.spec.ts` and smoke step 11 | not yet run |
+| `mobile` project incl. `mobile-threads.spec.ts` and phone smoke step 11 | not yet run |
+| Element Web interop (thread from alice visible as a thread for bob) | not yet checked (manual) |
+| Open bugs | - |
+
+## Requests to Principal (Phase 3)
+| # | From | Request | Status |
+|---|---|---|---|
+| 10 | PM | Shared API per docs/PHASE3_TICKETS.md (`TimelineSource`, `useTimeline`, `threadRoot` sends, `useThreadSummary`, `useRoomThreads`, `useThreadStore`, `threadUnreadByRoom`, thread-aware relations) | todo |
+| 11 | PM | Shell `data-thread-open` + `ThreadView` mounting per docs/PHASE3_ACCEPTANCE.md | todo |
+| 12 | PM | `thread:sample` script line in `package.json` | todo |
