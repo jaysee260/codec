@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-08 (Phase 3 Waves 7-8 done except DEV-A-17/18 in progress; dry run and rulings in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-08 (Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -171,9 +171,9 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 ## Wave 8 - Dev A (navigation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-A-17 `header-threads` + unread dot + Threads list (popover / sheet) | P0 | in-progress | Dev A | Replacement engineer wiring the header now; the original wrote `ThreadList.tsx` but never mounted it. AC-T7 not built in the QA pass |
-| DEV-A-18 Phone header while a thread is open (`header-back`, `Thread` title) | P0 | in-progress | Dev A | Same engineer; AC-T8 not built in the QA pass |
-| DEV-A-19 Threads list polish | P2 | todo | Dev A | Not scheduled before the demo |
+| DEV-A-17 `header-threads` + unread dot + Threads list (popover / sheet) | P0 | done | Dev A | Replacement engineer (the original wrote `ThreadList.tsx` unmounted). AC-T7 7/7 desktop, 8/8 mobile with AC-T8; D-2 closed (`relativeTime.ts` deleted, `formatRelative` used) |
+| DEV-A-18 Phone header while a thread is open (`header-back`, `Thread` title) | P0 | done | Dev A | AC-T7/T8 8/8 mobile |
+| DEV-A-19 Threads list polish | P2 | partial | Dev A | Keyboard navigation in the list not done; not scheduled before the demo |
 
 ## Wave 8 - Dev B (conversation)
 | Ticket | P | Status | Owner | Notes |
@@ -199,7 +199,9 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 | QA-17 regression gate after PRIN-8 (`threadSupport: true`) | `desktop` **87 pass / 1 fail / 8 skip**, `mobile` **58 / 0 / 0**: the flip did not regress Phase 1/2 (the one fail is the BUG-4 login-time tail, environment). |
 | Final `desktop` project (Phase 1 + `threads.spec.ts` + smoke step 11) | **114 pass / 3 fail / 13 skip / 11 did-not-run**. The did-not-run block is the serial smoke cascade after BUG-4 (login over 10 s under suite load); passes alone. |
 | Final `mobile` project (Phase 2 + `mobile-threads.spec.ts` + phone smoke step 11) | **65 pass / 2 fail / 7 skip**; both fails were flakes, hardened and re-verified (`voice.spec.ts` 18/18, `mobile-threads.spec.ts` 8 pass / 6 not-built). |
-| Thread criteria | **33 pass**; AC-T7 / AC-T8 not built yet (Dev A). **BUG-6** re-filed as a test defect (spec fixed, AC-T6-4 passes; a latent `usePagination` pin bug fixed alongside). **BUG-7** fixed (tombstone; AC-T9-3 passes). **BUG-5** fixed (`ThreadReplyConflictError`; AC-T2-3 passes). |
+| **Final runs at HEAD** (dirty DB, after DEV-A-17/18 and the last two test-timing fixes: AC-T6-4 loading watch armed before the scroll; AC-T7-6 and smoke step 11 clear leftover thread unreads with an unthreaded receipt first) | `threads.spec.ts` desktop **42 pass / 0 fail / 1 skip** (AC-T3-5, device-only manual) · `mobile-threads.spec.ts` **14/14** · `smoke.spec.ts` desktop **8 pass / 4 fresh-seed skips** incl. both step 11 thread tests · `mobile-smoke.spec.ts` **12/12** incl. step 11. |
+| Thread criteria | **All built and green** (AC-T7 7/7 desktop, AC-T7/T8 8/8 mobile; AC-T3-5 manual). **BUG-6** re-filed as a test defect (spec fixed, AC-T6-4 passes; a latent `usePagination` pin bug fixed alongside). **BUG-7** fixed (tombstone; AC-T9-3 passes). **BUG-5** fixed (`ThreadReplyConflictError`; AC-T2-3 passes). |
+| APK | Rebuilt with threads: `android/app/build/outputs/apk/debug/app-debug.apk`, 9.3 MB, LAN homeserver URL baked (`cap:build:android:lan`). Stakeholder handoff: docs/PHASE3_DEMO.md. |
 | Element Web interop (thread from alice visible as a thread for bob) | not yet checked (manual, Wave 9) |
 | Open bugs | **BUG-4 only** (environment: login time right after a full suite run). BUG-5, BUG-7 fixed; BUG-6 was a test defect, spec fixed. |
 

@@ -42,6 +42,8 @@ Conventions as docs/ACCEPTANCE.md. **Prefix rule**: inside `thread-panel`, every
 | `thread-list-item-{rootId}` (+`data-count`, `data-ts`) | One item per thread, newest activity first |
 | `thread-list-item-author`, `thread-list-item-snippet`, `thread-list-item-count`, `thread-list-item-time`, `thread-list-item-avatars` | Inside an item: root author, root `previewText` (<= 2 lines), `N replies`, relative time, up to 3 avatars |
 | `thread-list-empty` | "No threads yet" |
+| `thread-list-empty-hint` | Second line under the empty state ("Hover a message and choose Reply in thread" / long-press on phone); added by DEV-A-17 |
+| `thread-list-backdrop` | Overlay behind the open popover / sheet; click or tap closes the list (Dev A cannot render the Principal's `drawer-backdrop`); added by DEV-A-17 |
 | `thread-list-close` | Close button (sheet header / popover) |
 | `header-back` | Phone-only; replaces `header-menu` while a thread is open; closes the thread. (Dropped in Phase 2 as a duplicate name, re-added here with this single meaning.) |
 | `header-thread-room` | Room name under the `Thread` title on phone |

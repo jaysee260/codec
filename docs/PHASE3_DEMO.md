@@ -49,7 +49,7 @@ The APK is rebuilt with threads (`npm run cap:build:android:lan`); install and l
 - Login can feel slow (about 10 s) only right after the automated suites have run against the homeserver (BUG-4 in docs/BUGS.md); do not run them just before the demo.
 
 ## 6. Element interop
-Threads are standard Matrix threads (`m.thread`, as Element Web sends them). Open Element Web against this homeserver as **bob**: alice's threads appear as threads there, with the same replies, and a thread started in Element appears here with its summary row and in the Threads list.
+Threads use the standard Matrix thread relation (`m.thread`) in the exact shape Element Web sends, verified against Element's source but not yet exercised in Element itself. Expected when you open Element Web against this homeserver as **bob**: alice's threads appear as threads there, with the same replies, and a thread started in Element appears here with its summary row and in the Threads list.
 
 ## 7. If it lands well
 | Next | Effort |
