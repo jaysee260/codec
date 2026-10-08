@@ -41,6 +41,7 @@ import {
 import {
   closeThreadOnPhone,
   longPressThread,
+  openActionSheet,
   openThreadFromList,
   openThreadsList,
   replyInThread,
@@ -413,9 +414,13 @@ test.describe('AC-T8 the phone header while a thread is open', () => {
     await messageList(page).evaluate((el) => {
       el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 300);
     });
+    // Baseline is taken with the action sheet already open: the long-press fixture scrolls the
+    // root row into view, which is setup, not the thread visit being measured.
+    const sheet = await openActionSheet(page, rootId);
     const scrollBefore = await messageList(page).evaluate((el) => el.scrollTop);
-
-    await longPressThread(page, rootId);
+    await sheet.getByTestId('message-action-thread').tap();
+    await expect(sheet).toBeHidden();
+    await expect(threadPanel(page)).toHaveAttribute('data-root', rootId);
     await closeThreadOnPhone(page);
 
     await expect(page.getByTestId('header-menu')).toBeVisible();

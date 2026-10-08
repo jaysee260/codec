@@ -121,13 +121,21 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
       scheduleThread(room.roomId, thread.id);
       scheduleTimeline(room.roomId);
     };
+    // Unread counts change outside of /sync too (the SDK zeroes them when my own receipt lands on the last
+    // event); the client does not re-emit this one either.
+    const onUnread = (): void => {
+      scheduleRooms();
+      threadsVersion.call();
+    };
     room.on(ThreadEvent.New, onThreadNew);
     room.on(ThreadEvent.Update, onThreadUpdate);
     room.on(ThreadEvent.Delete, onThreadDelete);
+    room.on(RoomEvent.UnreadNotifications, onUnread);
     roomListeners.set(room.roomId, () => {
       room.off(ThreadEvent.New, onThreadNew);
       room.off(ThreadEvent.Update, onThreadUpdate);
       room.off(ThreadEvent.Delete, onThreadDelete);
+      room.off(RoomEvent.UnreadNotifications, onUnread);
     });
   };
   client.getRooms().forEach(attachRoom);

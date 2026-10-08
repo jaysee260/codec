@@ -209,9 +209,15 @@ export function ThreadList({ roomId, anchor, onClose }: ThreadListProps) {
         {items.length === 0 && loading && <div className={styles.status}>Loading threads...</div>}
 
         {items.length === 0 && !loading && (
-          <div className={styles.empty} data-testid="thread-list-empty">
-            <span className={styles.emptyTitle}>No threads yet</span>
-            <span className={styles.emptyText}>Hover a message and pick &ldquo;Reply in thread&rdquo; to start one.</span>
+          <div className={styles.empty}>
+            {/* AC-T7-5 asserts `toHaveText('No threads yet')`, so the testid carries that string and
+             * nothing else; the hint is a sibling. */}
+            <span className={styles.emptyTitle} data-testid="thread-list-empty">
+              No threads yet
+            </span>
+            <span className={styles.emptyText} data-testid="thread-list-empty-hint">
+              Hover a message and pick &ldquo;Reply in thread&rdquo; to start one.
+            </span>
           </div>
         )}
 

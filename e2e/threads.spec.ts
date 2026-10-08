@@ -1086,10 +1086,23 @@ test.describe('AC-T7 Threads button and list', () => {
     await openGeneral(page);
     await scrollListToBottom(page);
     const { rootId } = await rootInView(page, { label: 'QA T7-6 root' });
-    // Read the room first, so the only unread left is the thread one.
+    // Read the room first, so the only unread left is the thread one. An *unthreaded* m.read on
+    // the newest event clears every thread's unread server-side (leftovers from earlier runs
+    // would otherwise keep the room-level dot on regardless of this test's thread).
+    await alice.receipt(R.general, rootId);
+    // Server first: `unreadFor()` returns `{ count, receiptEventId, approximate }` (main timeline
+    // after alice's newest main receipt), so compare the count, not the object.
     await expect
-      .poll(() => badgeCount(page.getByTestId(`channel-unread-${R.general}`)), { timeout: 10_000 })
-      .toBeNull();
+      .poll(async () => (await alice.unreadFor(R.general)).count, { timeout: 15_000 })
+      .toBe(0);
+    // The precondition this criterion needs is "no unread thread" (hard). The room badge is only
+    // the baseline for the before/after comparison below: wait for it to clear (it does on the
+    // next /sync), but a late /sync must not fail the thread criterion - the comparison still holds.
+    await expect(threadsUnreadDot(page)).toHaveCount(0, { timeout: 15_000 });
+    await page
+      .getByTestId(`channel-unread-${R.general}`)
+      .waitFor({ state: 'detached', timeout: 15_000 })
+      .catch(() => undefined);
     const badgeBefore = await badgeCount(page.getByTestId(`channel-unread-${R.general}`));
 
     await bob.sendThreadReply(R.general, rootId, uniqueBody('QA T7-6 unread reply'));

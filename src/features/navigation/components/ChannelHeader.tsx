@@ -34,7 +34,7 @@
  *          header-thread-room
  */
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Menu, MessagesSquare, Users } from 'lucide-react';
+import { ArrowLeft, Menu, MessageSquareText, Users } from 'lucide-react';
 import { useRoomSummary, useIsPhone } from '@/store/hooks.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useOpenThread, useThreadStore, useThreadUnread } from '@/store/threads.ts';
@@ -158,7 +158,7 @@ export function ChannelHeader({ roomId }: { roomId: string }) {
         ref={setThreadsAnchor}
         onClick={onThreads}
       >
-        <MessagesSquare size={20} />
+        <MessageSquareText size={20} />
         {threadUnread && (
           <span className={styles.threadsDot} data-testid="header-threads-unread" aria-label="Unread threads" />
         )}

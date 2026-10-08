@@ -163,7 +163,7 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
 | PRIN-8 `threadSupport: true`, bridge thread events, badge rule (`unreadByRoom` main-only), reply/display hygiene | P0 | done | Principal | `npm run verify:threads` 51/51; Phase 1 regression (shell + smoke) 11 pass / 4 fresh-seed skips / 0 fail; QA-17 gate green (below) |
-| PRIN-9 Timeline source, `threadRoot` sends, thread pagination, `useThreadSummary`, `useRoomThreads`, `useThreadStore` | P0 | done | Principal | Names per ARCHITECTURE "Phase 3 deltas"; BUG-5 (`replyTo` + `threadRoot` must reject) open against it |
+| PRIN-9 Timeline source, `threadRoot` sends, thread pagination, `useThreadSummary`, `useRoomThreads`, `useThreadStore` | P0 | done | Principal | Names per ARCHITECTURE "Phase 3 deltas"; BUG-5 (`replyTo` + `threadRoot`) fixed: `sendText` throws `ThreadReplyConflictError` before sending, AC-T2-3 passes |
 | PRIN-10 Thread panel container (desktop column swap, phone overlay, Android back) | P0 | done | Principal | |
 | PRIN-11 `scripts/send-thread-sample.mjs` (`npm run thread:sample`) + ARCHITECTURE deltas | P0 | done | Principal | |
 | PRIN-12 Seed threads in `#dev` | P1 | done | Principal | Applies on the next `seed:reset`; carol joins `#dev` as the seeded root author (ruling G-1) |
@@ -199,9 +199,9 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 | QA-17 regression gate after PRIN-8 (`threadSupport: true`) | `desktop` **87 pass / 1 fail / 8 skip**, `mobile` **58 / 0 / 0**: the flip did not regress Phase 1/2 (the one fail is the BUG-4 login-time tail, environment). |
 | Final `desktop` project (Phase 1 + `threads.spec.ts` + smoke step 11) | **114 pass / 3 fail / 13 skip / 11 did-not-run**. The did-not-run block is the serial smoke cascade after BUG-4 (login over 10 s under suite load); passes alone. |
 | Final `mobile` project (Phase 2 + `mobile-threads.spec.ts` + phone smoke step 11) | **65 pass / 2 fail / 7 skip**; both fails were flakes, hardened and re-verified (`voice.spec.ts` 18/18, `mobile-threads.spec.ts` 8 pass / 6 not-built). |
-| Thread criteria | **33 pass**; AC-T7 / AC-T8 not built yet (Dev A). **BUG-6** re-filed as a test defect (spec fixed, AC-T6-4 passes; a latent `usePagination` pin bug fixed alongside). **BUG-7** fixed (tombstone; AC-T9-3 passes). BUG-5 (`replyTo` + `threadRoot` not rejected, S2, Principal) open. |
+| Thread criteria | **33 pass**; AC-T7 / AC-T8 not built yet (Dev A). **BUG-6** re-filed as a test defect (spec fixed, AC-T6-4 passes; a latent `usePagination` pin bug fixed alongside). **BUG-7** fixed (tombstone; AC-T9-3 passes). **BUG-5** fixed (`ThreadReplyConflictError`; AC-T2-3 passes). |
 | Element Web interop (thread from alice visible as a thread for bob) | not yet checked (manual, Wave 9) |
-| Open bugs | BUG-4 (environment), BUG-5. BUG-6 (test defect) and BUG-7 fixed. |
+| Open bugs | **BUG-4 only** (environment: login time right after a full suite run). BUG-5, BUG-7 fixed; BUG-6 was a test defect, spec fixed. |
 
 ## Requests to Principal (Phase 3)
 | # | From | Request | Status |

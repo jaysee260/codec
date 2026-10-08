@@ -311,6 +311,11 @@ try {
   const perrors = collectErrors(ppage);
   await login(ppage);
   check('phone layout', (await ppage.getByTestId('app-shell').getAttribute('data-layout')) === 'phone');
+  // The room list must keep its scroll position across a thread visit (AC-T8-2): scroll away from the bottom first.
+  const mainScroll = () => ppage.evaluate(() => Math.round(document.querySelector('[data-testid="message-list"]').scrollTop));
+  await ppage.evaluate(() => { const el = document.querySelector('[data-testid="message-list"]'); el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 300); });
+  await sleep(300);
+  const scrollBefore = await mainScroll();
   await ppage.evaluate((id) => window.__matrixPoc.openThread(id), rootId);
   await ppage.getByTestId('thread-panel').waitFor({ timeout: 10_000 });
   const vp = ppage.viewportSize();
@@ -342,6 +347,9 @@ try {
   check('phone: back closes the thread first, then nothing left (minimise)', back.first === true && back.second === false && back.open === null);
   await ppage.getByTestId('thread-panel').waitFor({ state: 'detached', timeout: 5000 });
   check('phone: conversation visible again after closing', await ppage.getByTestId('composer-input').isVisible().catch(() => false));
+  await sleep(500);
+  const scrollAfter = await mainScroll();
+  check('phone: room list keeps its scroll position across the thread visit (AC-T8-2)', Math.abs(scrollAfter - scrollBefore) <= 8, `before ${scrollBefore} after ${scrollAfter}`);
   check('no console/page errors on phone (msc4143 probe 404 excluded)', perrors.all().length === 0, perrors.all().slice(0, 3).join(' | '));
   await phone.close();
 } finally {
