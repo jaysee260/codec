@@ -104,3 +104,20 @@
 .jumpBottom:hover {
   background: var(--accent-hover);
 }
+
+/* ---------------------------------------------------------------------------
+ * Thread panel (Phase 3): the panel is 400 px wide, so the channel's 28 px "beginning of" headline
+ * and 68 px badge are scaled down to fit without wrapping into four lines.
+ * ------------------------------------------------------------------------- */
+.startThread {
+  padding: 10px 16px 2px;
+}
+.startThread .startTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.startThread .startTopic {
+  margin-top: 4px;
+  font-size: var(--font-size-sm);
+}

@@ -1,23 +1,31 @@
 /**
  * App shell. Two layouts, one component tree for the features (they receive nothing but `roomId`):
  *
- * Desktop (`useLayoutStore.isPhone === false`): the Phase 1 three-column grid, unchanged.
- *  | rail 72px | sidebar 240px            | main (flex)                     | members 240px (optional) |
- *  | SpaceRail | ChannelSidebar           | ChannelHeader                    | MemberPanel              |
- *  |           | (channels or DMs)        | Conversation (list + composer)   |                          |
- *  |           | UserFooter               |                                  |                          |
+ * Desktop (`useLayoutStore.isPhone === false`): the Phase 1 three-column grid, plus the Phase 3 thread column.
+ *  | rail 72px | sidebar 240px            | main (flex)                     | members 240px (optional)    |
+ *  | SpaceRail | ChannelSidebar           | ChannelHeader                    | MemberPanel                 |
+ *  |           | (channels or DMs)        | Conversation (list + composer)   |  -or, while a thread is-    |
+ *  |           | UserFooter               |                                  |  open: ThreadView 400px     |
  *
  * Phone (PRIN-3): the conversation column fills the screen; the rail + sidebar live in a left drawer
  * (`nav-drawer`, `useLayoutStore.navOpen`) and the member panel in a right drawer (`member-drawer`,
  * `useLayoutStore.membersOpen`), both over a shared `drawer-backdrop`. The Shell owns the containers, the
  * backdrop, Escape, the edge-swipe gestures and the animation; Dev A owns the header buttons that call
  * `openNav()` / `toggleMembers()` and the contents. `data-layout` on `app-shell` says which branch rendered.
+ *
+ * Threads (Phase 3, `useThreadStore.openThreadRootId`): the shell mounts `<ThreadView roomId rootId />` in
+ * `thread-panel-container` - a 400 px right column on desktop (the member panel is not rendered while a thread
+ * is open and comes back when it closes; Dev A's `useNavUiStore.membersOpen` is untouched) and, on phone, a
+ * layer covering the conversation **below the channel header** (Dev A turns the header into back + "Thread");
+ * the covered conversation stays mounted (scroll kept) and is `inert` + `aria-hidden`; drawers still work on top.
+ * `app-shell[data-thread-open]` mirrors the state. Android back closes the thread first, then drawers.
  */
 import { useEffect, useRef, type TouchEvent } from 'react';
 import { useRoomStore } from '@/store/rooms.ts';
 import { useLayoutStore } from '@/store/layout.ts';
+import { useThreadStore } from '@/store/threads.ts';
 import { SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel } from '@/features/navigation';
-import { Conversation } from '@/features/conversation';
+import { Conversation, ThreadView } from '@/features/conversation';
 import { UserFooter } from './UserFooter.tsx';
 import { Drawer } from './Drawer.tsx';
 import styles from './Shell.module.css';
@@ -31,6 +39,13 @@ export function Shell() {
   const roomId = useRoomStore((s) => s.selectedRoomId);
   const isPhone = useLayoutStore((s) => s.isPhone);
   return isPhone ? <PhoneShell roomId={roomId} /> : <DesktopShell roomId={roomId} />;
+}
+
+/** The open thread's root id when it belongs to the room on screen (the store closes it on room change anyway). */
+function useOpenThreadFor(roomId: string | null): string | null {
+  const rootId = useThreadStore((s) => s.openThreadRootId);
+  const threadRoomId = useThreadStore((s) => s.openThreadRoomId);
+  return roomId && rootId && threadRoomId === roomId ? rootId : null;
 }
 
 /** Column 1 + 2: shared between the desktop grid and the phone nav drawer. */
@@ -68,13 +83,19 @@ function MainColumn({ roomId }: { roomId: string | null }) {
 }
 
 function DesktopShell({ roomId }: { roomId: string | null }) {
+  const threadRootId = useOpenThreadFor(roomId);
   return (
-    <div className={styles.shell} data-testid="app-shell" data-layout="desktop">
+    <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'}>
       <Navigation />
       <main className={styles.main}>
         <MainColumn roomId={roomId} />
       </main>
-      {roomId && (
+      {roomId && threadRootId && (
+        <aside className={styles.threadPanel} aria-label="Thread" data-testid="thread-panel-container">
+          <ThreadView key={`${roomId}|${threadRootId}`} roomId={roomId} rootId={threadRootId} />
+        </aside>
+      )}
+      {roomId && !threadRootId && (
         <aside className={styles.members} aria-label="Members">
           <MemberPanel roomId={roomId} />
         </aside>
@@ -93,8 +114,16 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
   const navOpen = useLayoutStore((s) => s.navOpen);
   const membersOpen = useLayoutStore((s) => s.membersOpen);
   const isDm = useRoomStore((s) => (roomId ? !!s.roomsById[roomId]?.isDm : false));
+  const threadRootId = useOpenThreadFor(roomId);
   const anyOpen = navOpen || membersOpen;
   const touch = useRef<TouchStart | null>(null);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
+
+  // `inert` has no typed React 18 prop; set it imperatively while a thread covers the conversation.
+  useEffect(() => {
+    const el = conversationRef.current as (HTMLDivElement & { inert?: boolean }) | null;
+    if (el) el.inert = !!threadRootId;
+  }, [threadRootId]);
 
   // Escape closes whichever drawer is open (keyboards exist on phones too, and in Playwright).
   useEffect(() => {
@@ -138,13 +167,31 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
       className={styles.phoneShell}
       data-testid="app-shell"
       data-layout="phone"
+      data-thread-open={threadRootId ? 'true' : 'false'}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchEnd}
     >
       <main className={styles.phoneMain}>
-        <MainColumn roomId={roomId} />
+        {roomId ? (
+          <>
+            <ChannelHeader roomId={roomId} />
+            <div className={styles.phoneBody}>
+              {/* The conversation stays mounted under the thread (scroll position kept); inert while covered. */}
+              <div ref={conversationRef} className={styles.phoneConversation} aria-hidden={threadRootId ? true : undefined}>
+                <Conversation roomId={roomId} />
+              </div>
+              {threadRootId && (
+                <div className={styles.phoneThread} data-testid="thread-panel-container" role="region" aria-label="Thread">
+                  <ThreadView key={`${roomId}|${threadRootId}`} roomId={roomId} rootId={threadRootId} />
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <MainColumn roomId={null} />
+        )}
       </main>
       <div
         className={`${styles.backdrop} ${anyOpen ? styles.backdropOpen : ''}`}

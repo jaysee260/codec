@@ -12,8 +12,13 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * | project | device | specs | outputDir |
  * |---|---|---|---|
- * | `desktop` | Desktop Chrome 1280x720 | the Phase 1 suite (`shell`, `navigation`, `conversation`, `smoke`) | `e2e/results/desktop` |
- * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) | `e2e/results/mobile` |
+ * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation`, `smoke`) + Phase 3 `threads` | `e2e/results/desktop` |
+ * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` | `e2e/results/mobile` |
+ *
+ * Phase 3 (QA-14): `threads.spec.ts` needs no entry — `desktop` takes everything the `testIgnore`
+ * does not name — but `mobile-threads.spec.ts` is listed in **both** regexes on purpose: added to
+ * `mobile`'s `testMatch` so it runs there, and to `desktop`'s `testIgnore` so it does not also run
+ * at 1280x720 (where long-press and the sheet variant are meaningless).
  *
  * Each project has its **own** `outputDir` so `npm run test:e2e:mobile` does not wipe the desktop
  * run's traces (Playwright clears `outputDir` on start). The two demo screenshot sets live *outside*
@@ -61,13 +66,13 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(voice|mobile-nav|mobile-smoke)\.spec\.ts$/,
+      testIgnore: /(voice|mobile-nav|mobile-smoke|mobile-threads)\.spec\.ts$/,
       outputDir: './e2e/results/desktop',
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile',
-      testMatch: /(voice|mobile-nav|mobile-smoke)\.spec\.ts$/,
+      testMatch: /(voice|mobile-nav|mobile-smoke|mobile-threads)\.spec\.ts$/,
       outputDir: './e2e/results/mobile',
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },

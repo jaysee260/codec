@@ -113,7 +113,13 @@ const raf = (): Promise<void> =>
     else setTimeout(resolve, 16);
   });
 
-export function useVoiceRecorder(roomId: string, opts: { onFinish?(): void } = {}): VoiceRecorder {
+export interface VoiceRecorderOptions {
+  onFinish?(): void;
+  /** Phase 3: send the voice note into this thread instead of the main timeline (DEV-B-22). */
+  threadRoot?: string;
+}
+
+export function useVoiceRecorder(roomId: string, opts: VoiceRecorderOptions = {}): VoiceRecorder {
   const [state, setState] = useState<RecorderState>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
   const [level, setLevel] = useState(0);
@@ -127,6 +133,9 @@ export function useVoiceRecorder(roomId: string, opts: { onFinish?(): void } = {
   const genRef = useRef(0);
   const onFinishRef = useRef(opts.onFinish);
   onFinishRef.current = opts.onFinish;
+  // Read through a ref so `deliver` does not need the thread root in its dependency list.
+  const threadRootRef = useRef(opts.threadRoot);
+  threadRootRef.current = opts.threadRoot;
   const supported = useRef(isRecordingSupported()).current;
 
   const clearTimers = useCallback((): void => {
@@ -166,7 +175,7 @@ export function useVoiceRecorder(roomId: string, opts: { onFinish?(): void } = {
       takeRef.current = null;
       teardown(true);
     };
-  }, [roomId, teardown]);
+  }, [roomId, opts.threadRoot, teardown]);
 
   const reset = useCallback(
     (next: RecorderState, message = ''): void => {
@@ -216,6 +225,7 @@ export function useVoiceRecorder(roomId: string, opts: { onFinish?(): void } = {
           durationMs: take.durationMs,
           waveform: take.waveform,
           mimetype: take.mimetype,
+          threadRoot: threadRootRef.current,
         });
         if (genRef.current !== gen) return;
         reset('idle');

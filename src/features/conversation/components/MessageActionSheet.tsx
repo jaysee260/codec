@@ -4,7 +4,7 @@
  *
  *   message-action-sheet            the sheet
  *   message-action-sheet-backdrop   its own overlay (the Principal owns `drawer-backdrop`)
- *   message-action-react / -reply / -edit / -delete   the same testids as the desktop toolbar, so
+ *   message-action-react / -reply / -thread / -edit / -delete   the same testids as the desktop toolbar, so
  *       only one of the two is ever mounted for a row (MessageRow branches on `useIsPhone()`).
  *   message-action-sheet-reaction-{emoji}   quick reactions inside the sheet (addition to the registry)
  *
@@ -13,7 +13,7 @@
  */
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { FaceSlightlySmilingPlus, Pencil, Reply, Trash } from 'lucide-react';
+import { FaceSlightlySmilingPlus, MessageSquareReply, Pencil, Reply, Trash } from 'lucide-react';
 import { hapticTap } from '@/lib/native.ts';
 import { REACTION_KEYS } from './ReactionPicker.tsx';
 import styles from './MessageActionSheet.module.css';
@@ -28,7 +28,10 @@ export interface MessageActionSheetProps {
   onReact(key: string): void;
   /** Open the full picker (anchored to the tapped button). */
   onMoreReactions(anchor: HTMLElement): void;
-  onReply(): void;
+  /** Quote reply in the same timeline. Omitted inside the thread panel (AC-T5-3). */
+  onReply?(): void;
+  /** Open this message as a thread (DEV-B-19). Omitted inside the thread panel: threads do not nest. */
+  onThread?(): void;
   onEdit(): void;
   onDelete(): void;
 }
@@ -41,6 +44,7 @@ export function MessageActionSheet({
   onReact,
   onMoreReactions,
   onReply,
+  onThread,
   onEdit,
   onDelete,
 }: MessageActionSheetProps) {
@@ -91,10 +95,18 @@ export function MessageActionSheet({
           <FaceSlightlySmilingPlus size={20} aria-hidden="true" />
           <span>More reactions</span>
         </button>
-        <button type="button" className={styles.action} data-testid="message-action-reply" onClick={onReply}>
-          <Reply size={20} aria-hidden="true" />
-          <span>Reply</span>
-        </button>
+        {onReply && (
+          <button type="button" className={styles.action} data-testid="message-action-reply" onClick={onReply}>
+            <Reply size={20} aria-hidden="true" />
+            <span>Reply</span>
+          </button>
+        )}
+        {onThread && (
+          <button type="button" className={styles.action} data-testid="message-action-thread" onClick={onThread}>
+            <MessageSquareReply size={20} aria-hidden="true" />
+            <span>Reply in thread</span>
+          </button>
+        )}
         {canEdit && (
           <button type="button" className={styles.action} data-testid="message-action-edit" onClick={onEdit}>
             <Pencil size={20} aria-hidden="true" />

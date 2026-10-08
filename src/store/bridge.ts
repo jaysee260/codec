@@ -3,28 +3,47 @@
  * stores with small debounces so a burst of sync events causes one React commit, not hundreds.
  *
  * Room list snapshot (rooms.ts):   any Room.* / RoomState.* / RoomMember.* / User.* / accountData
- * Timeline snapshot (timeline.ts): Room.timeline (live timeline set only), Room.timelineReset,
+ * Timeline snapshot (timeline.ts): Room.timeline (main live timeline set), Room.timelineReset,
  *                                  Room.redaction, Room.localEchoUpdated
+ * Thread snapshots (timeline.ts):  Room.timeline / Room.timelineReset whose timeline set belongs to a
+ *                                  Thread (`timelineSet.thread`), Room.redaction with a thread id,
+ *                                  Room.localEchoUpdated for events in a thread (Phase 3)
+ * Thread models (threads.ts):      ThreadEvent.New / Update / Delete. The CLIENT does not re-emit these
+ *                                  (only the Room does), so they are subscribed per Room: every room at
+ *                                  bind time plus ClientEvent.Room for rooms that arrive later (Phase 3)
  * Typing (timeline.ts):            RoomMember.typing (reads the m.typing event's user_ids directly,
  *                                  so users whose member event is not loaded yet still count)
  */
 import {
   ClientEvent,
+  EventStatus,
   EventType,
   HttpApiEvent,
   RoomEvent,
   RoomMemberEvent,
   RoomStateEvent,
   SyncState,
+  ThreadEvent,
   UserEvent,
+  type EventTimelineSet,
   type MatrixClient,
   type MatrixEvent,
   type Room,
   type RoomMember,
+  type Thread,
 } from 'matrix-js-sdk';
 import type { IRoomTimelineData } from 'matrix-js-sdk/lib/models/event-timeline-set.js';
 import { recomputeRooms } from './rooms.ts';
-import { refreshTimeline, refreshTimelines, setTypingForRoom } from './timeline.ts';
+import {
+  markRedactedThreadReply,
+  refreshThread,
+  refreshThreads,
+  refreshTimeline,
+  refreshTimelines,
+  setTypingForRoom,
+  threadKey,
+} from './timeline.ts';
+import { bumpThreadsVersion } from './threads.ts';
 
 const ROOMS_DEBOUNCE_MS = 50;
 const TIMELINE_DEBOUNCE_MS = 30;
@@ -58,17 +77,60 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
 
   const rooms = debounce(recomputeRooms, ROOMS_DEBOUNCE_MS);
   const pendingTimelines = new Set<string>();
+  /** threadKey -> [roomId, rootId] */
+  const pendingThreads = new Map<string, [string, string]>();
   const timelines = debounce(() => {
     const ids = [...pendingTimelines];
     pendingTimelines.clear();
     if (ids.length === 1) refreshTimeline(ids[0]!);
     else if (ids.length > 1) refreshTimelines(ids);
+    const threads = [...pendingThreads.values()];
+    pendingThreads.clear();
+    if (threads.length === 1) refreshThread(threads[0]![0], threads[0]![1]);
+    else if (threads.length > 1) {
+      const byRoom = new Map<string, string[]>();
+      for (const [roomId, rootId] of threads) byRoom.set(roomId, [...(byRoom.get(roomId) ?? []), rootId]);
+      for (const [roomId, roots] of byRoom) refreshThreads(roomId, roots);
+    }
   }, TIMELINE_DEBOUNCE_MS);
+  const threadsVersion = debounce(bumpThreadsVersion, TIMELINE_DEBOUNCE_MS);
   const scheduleTimeline = (roomId: string): void => {
     pendingTimelines.add(roomId);
     timelines.call();
   };
+  const scheduleThread = (roomId: string, rootId: string): void => {
+    pendingThreads.set(threadKey(roomId, rootId), [roomId, rootId]);
+    timelines.call();
+    threadsVersion.call();
+  };
   const scheduleRooms = (): void => rooms.call();
+
+  // Phase 3: ThreadEvent.* only fire on the Room. One listener set per room, attached at bind and on arrival.
+  const roomListeners = new Map<string, () => void>();
+  const attachRoom = (room: Room): void => {
+    if (roomListeners.has(room.roomId)) return;
+    const onThreadNew = (thread: Thread): void => {
+      scheduleThread(room.roomId, thread.id);
+      scheduleTimeline(room.roomId); // the root's summary row lives in the main timeline
+    };
+    const onThreadUpdate = (thread: Thread): void => {
+      scheduleThread(room.roomId, thread.id);
+      scheduleTimeline(room.roomId);
+    };
+    const onThreadDelete = (thread: Thread): void => {
+      scheduleThread(room.roomId, thread.id);
+      scheduleTimeline(room.roomId);
+    };
+    room.on(ThreadEvent.New, onThreadNew);
+    room.on(ThreadEvent.Update, onThreadUpdate);
+    room.on(ThreadEvent.Delete, onThreadDelete);
+    roomListeners.set(room.roomId, () => {
+      room.off(ThreadEvent.New, onThreadNew);
+      room.off(ThreadEvent.Update, onThreadUpdate);
+      room.off(ThreadEvent.Delete, onThreadDelete);
+    });
+  };
+  client.getRooms().forEach(attachRoom);
 
   const onSync = (state: SyncState, prev: SyncState | null): void => {
     if (state === SyncState.Syncing) scheduleRooms(); // every /sync response: unread counts, last activity
@@ -76,31 +138,73 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
       // Initial sync done (or reconnected after a gap): rebuild everything in one go.
       rooms.cancel();
       recomputeRooms();
-      refreshTimelines(client.getRooms().map((r) => r.roomId));
+      const all = client.getRooms();
+      all.forEach(attachRoom);
+      refreshTimelines(all.map((r) => r.roomId));
+      for (const room of all) {
+        const roots = room.getThreads().map((t) => t.id);
+        if (roots.length) refreshThreads(room.roomId, roots);
+      }
+      threadsVersion.call();
     }
+  };
+  const onRoom = (room: Room): void => {
+    attachRoom(room);
+    scheduleRooms();
   };
   const onAccountData = (event: MatrixEvent): void => {
     if (event.getType() === EventType.Direct) scheduleRooms();
   };
   const onTimeline = (
-    event: MatrixEvent,
+    _event: MatrixEvent,
     room: Room | undefined,
     toStartOfTimeline: boolean | undefined,
     _removed: boolean,
     data: IRoomTimelineData,
   ): void => {
     if (!room) return;
-    // Ignore thread timelines and filtered timeline sets; we only mirror the main live timeline.
-    if (data.timeline.getTimelineSet() !== room.getUnfilteredTimelineSet()) return;
+    const set = data.timeline.getTimelineSet();
+    // Thread timelines (Phase 3): the Thread re-emits its timeline set's events through the room.
+    if (set.thread) {
+      scheduleThread(room.roomId, set.thread.id);
+      return;
+    }
+    // Filtered timeline sets (thread list sets, search) are not mirrored; only the main live timeline is.
+    if (set !== room.getUnfilteredTimelineSet()) return;
     scheduleTimeline(room.roomId);
     if (!toStartOfTimeline && data.liveEvent) scheduleRooms(); // last activity / unread counts
-    void event;
   };
-  const onTimelineReset = (room: Room | undefined): void => {
-    if (room) scheduleTimeline(room.roomId);
+  const onTimelineReset = (room: Room | undefined, timelineSet?: EventTimelineSet): void => {
+    if (!room) return;
+    // A Thread resets its live timeline when its initial /relations fetch lands (that is when its events arrive).
+    if (timelineSet?.thread) scheduleThread(room.roomId, timelineSet.thread.id);
+    else scheduleTimeline(room.roomId);
   };
-  const onRedaction = (_event: MatrixEvent, room: Room): void => scheduleTimeline(room.roomId);
-  const onLocalEcho = (_event: MatrixEvent, room: Room): void => scheduleTimeline(room.roomId);
+  const onRedaction = (event: MatrixEvent, room: Room, threadId?: string): void => {
+    // `threadId` is the redacted event's thread root (captured before the SDK strips it). A redacted *reply* is
+    // moved into the main live timeline by the SDK (`moveAllRelatedToMainTimeline`); record it so the main
+    // snapshots keep it out of the channel. The root itself (threadId === redacted id) stays a main-timeline row.
+    const redactedId = event.event.redacts ?? event.getContent<{ redacts?: string }>().redacts;
+    if (threadId && redactedId && redactedId !== threadId) markRedactedThreadReply(room.roomId, redactedId);
+    scheduleTimeline(room.roomId);
+    if (threadId) scheduleThread(room.roomId, threadId);
+  };
+  const onLocalEcho = (event: MatrixEvent, room: Room): void => {
+    const thread = event.getThread();
+    if (thread) {
+      // matrix-js-sdk v43: `Room.addPendingEvent` (chronological ordering) only offers pending events to the
+      // room's own timeline sets; the thread's timeline set is not among them, so a reply's local echo never
+      // reaches `thread.events` until the remote echo arrives. Add it ourselves once (the remote echo is then
+      // merged by `thread.timelineSet.handleRemoteEcho`, no duplicate). `canContain` keeps edits/reactions to
+      // the root (main-timeline relations) out.
+      const id = event.getId();
+      if (id && event.status === EventStatus.SENDING && !thread.has(id) && thread.timelineSet.canContain(event)) {
+        thread.addEvent(event, false);
+      }
+      scheduleThread(room.roomId, thread.id);
+    }
+    scheduleTimeline(room.roomId);
+  };
   const onTyping = (event: MatrixEvent, member: RoomMember): void => {
     const me = client.getUserId();
     const ids = (event.getContent<{ user_ids?: string[] }>().user_ids ?? []).filter((id) => id !== me);
@@ -111,7 +215,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
   };
 
   client.on(ClientEvent.Sync, onSync);
-  client.on(ClientEvent.Room, scheduleRooms);
+  client.on(ClientEvent.Room, onRoom);
   client.on(ClientEvent.DeleteRoom, scheduleRooms);
   client.on(ClientEvent.AccountData, onAccountData);
   client.on(RoomEvent.Name, scheduleRooms);
@@ -139,8 +243,11 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
     dispose() {
       rooms.cancel();
       timelines.cancel();
+      threadsVersion.cancel();
+      for (const off of roomListeners.values()) off();
+      roomListeners.clear();
       client.off(ClientEvent.Sync, onSync);
-      client.off(ClientEvent.Room, scheduleRooms);
+      client.off(ClientEvent.Room, onRoom);
       client.off(ClientEvent.DeleteRoom, scheduleRooms);
       client.off(ClientEvent.AccountData, onAccountData);
       client.off(RoomEvent.Name, scheduleRooms);

@@ -32,9 +32,11 @@ export interface RoomSummary {
   membership: string;
   lastActiveTs: number;
   memberCount: number;
-  /** Unread notification count (`unread_notifications.notification_count`). */
+  /** Unread notification count of the **main timeline** (`unread_notifications.notification_count`; thread replies excluded since Phase 3). */
   unread: number;
   highlight: number;
+  /** Phase 3: some thread in the room has unread notifications (`unread_thread_notifications`, cleared by threaded receipts). */
+  threadUnread: boolean;
 }
 
 export type SpaceSelection = string | 'home';
@@ -55,6 +57,8 @@ export interface RoomStoreState {
   roomsById: Record<string, RoomSummary>;
   unreadByRoom: Record<string, number>;
   highlightByRoom: Record<string, number>;
+  /** Phase 3: `room.hasThreadUnreadNotification()` per room, for the header "Threads" dot. */
+  threadUnreadByRoom: Record<string, boolean>;
   selectedSpaceId: SpaceSelection;
   selectedRoomId: string | null;
   /** Last selected room per space ('home' for DMs), restored when switching back. */
@@ -149,6 +153,7 @@ const emptyState = {
   roomsById: {} as Record<string, RoomSummary>,
   unreadByRoom: {} as Record<string, number>,
   highlightByRoom: {} as Record<string, number>,
+  threadUnreadByRoom: {} as Record<string, boolean>,
   selectedSpaceId: 'home' as SpaceSelection,
   selectedRoomId: null as string | null,
   lastRoomBySpace: {} as Record<string, string>,
@@ -210,8 +215,11 @@ function summarize(room: Room, dmUserId: string | undefined, parentSpaceId: stri
     membership: room.getMyMembership(),
     lastActiveTs: room.getLastActiveTimestamp(),
     memberCount: room.getJoinedMemberCount(),
-    unread: room.getUnreadNotificationCount(NotificationCountType.Total),
-    highlight: room.getUnreadNotificationCount(NotificationCountType.Highlight),
+    // Phase 3: main timeline only. `getUnreadNotificationCount()` would add every thread's count, and a
+    // main-timeline receipt (thread_id 'main') never clears those, so the channel badge could get stuck.
+    unread: room.getRoomUnreadNotificationCount(NotificationCountType.Total),
+    highlight: room.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
+    threadUnread: room.hasThreadUnreadNotification(),
   };
 }
 
@@ -249,6 +257,7 @@ export function recomputeRooms(): void {
   const roomsById: Record<string, RoomSummary> = {};
   const unreadByRoom: Record<string, number> = {};
   const highlightByRoom: Record<string, number> = {};
+  const threadUnreadByRoom: Record<string, boolean> = {};
 
   for (const room of rooms) {
     const membership = room.getMyMembership();
@@ -273,6 +282,7 @@ export function recomputeRooms(): void {
     roomsById[room.roomId] = summary;
     unreadByRoom[room.roomId] = summary.unread;
     highlightByRoom[room.roomId] = summary.highlight;
+    threadUnreadByRoom[room.roomId] = summary.threadUnread;
 
     if (membership === KnownMembership.Invite) {
       invites.push(summary);
@@ -364,6 +374,7 @@ export function recomputeRooms(): void {
     roomsById,
     unreadByRoom,
     highlightByRoom,
+    threadUnreadByRoom,
     selectedSpaceId,
     selectedRoomId,
     lastRoomBySpace,

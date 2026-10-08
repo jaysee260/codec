@@ -1,5 +1,5 @@
 /**
- * Composer (DEV-B-2 / B-6 / B-8 / B-9 / B-10 / B-12 / B-15).
+ * Composer (DEV-B-2 / B-6 / B-8 / B-9 / B-10 / B-12 / B-15 / B-20 / B-22).
  *
  * Enter sends, Shift+Enter inserts a newline, the textarea auto-grows, typing notifications are
  * throttled to one every 4 s, attachments come from the paperclip or a clipboard paste, and the
@@ -11,18 +11,42 @@
  * with a full-size box so AC-B2-4 (`composer-send` disabled while the input is blank) and AC-V6-1
  * (all three composer buttons >= 44 px on phone) hold at the same time. While a voice note is being
  * recorded / uploaded, `composer-recording` replaces the whole input box.
+ *
+ * Phase 3: one `source` prop decides which timeline this composer writes to.
+ *
+ *  - `{ roomId }` - the channel composer, byte-identical to Phase 1/2 (ids unprefixed, sends with no
+ *    relation, reply banner available).
+ *  - `{ roomId, threadRootId }` - the thread panel's composer: every id is prefixed
+ *    (`thread-composer-input`, `thread-composer-send`, `thread-composer-mic`, ...), the placeholder
+ *    reads `Replying in thread`, and text, files and voice notes all carry `threadRoot` so the core
+ *    builds the contract `m.relates_to` (docs/PHASE3_ACCEPTANCE.md "Thread reply event"). Quote
+ *    replies are out of scope inside a thread, so `replyTo` is never set there and can never collide
+ *    with `threadRoot` (which `sendText` rejects).
+ *
+ * Reply/edit/focus state is keyed by `sourceKey(source)`, so an edit started in the panel fills the
+ * panel's composer and the channel's banner stays closed (AC-T6-9).
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react';
 import { Mic, SendHorizontal, X } from 'lucide-react';
 import { canEditEvent, editText, sendFile, sendText } from '@/lib/matrix/actions.ts';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { displayNameOf, getDisplayBody, isPendingEvent } from '@/lib/matrix/utils.ts';
-import { useMyUserId, useRoomSummary, useRoomTimeline } from '@/store/hooks.ts';
+import { sourceKey, useIsPhone, useMyUserId, useRoomSummary, useThreadStore, useTimeline, type TimelineSource } from '@/store/hooks.ts';
 import { withToast } from '@/store/toast.ts';
-import { useConversationUi, useEditingId, useReplyTargetId } from '../hooks/useConversationUi.ts';
+import { useConversationUi, useEditingId, useFocusTick, useReplyTargetId } from '../hooks/useConversationUi.ts';
 import { useMentions, type MentionOption } from '../hooks/useMentions.ts';
 import { useTypingNotifier } from '../hooks/useTypingNotifier.ts';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.ts';
+import { makeTid, type Tid } from '../tid.ts';
 import { AttachButton } from './AttachButton.tsx';
 import { MentionAutocomplete } from './MentionAutocomplete.tsx';
 import { UploadProgress } from './UploadProgress.tsx';
@@ -31,17 +55,30 @@ import styles from './Composer.module.css';
 
 const MAX_HEIGHT = 340;
 
-export function Composer({ roomId }: { roomId: string }) {
+export interface ComposerProps {
+  source: TimelineSource;
+  /** Id prefix for every id this composer owns (`'thread-'` inside the panel). */
+  testIdPrefix?: string;
+}
+
+export function Composer({ source, testIdPrefix }: ComposerProps) {
+  const roomId = source.roomId;
+  const threadRoot = source.threadRootId;
+  const key = sourceKey(source);
+  const tid: Tid = useMemo(() => makeTid(testIdPrefix), [testIdPrefix]);
+
   const summary = useRoomSummary(roomId);
-  const { events } = useRoomTimeline(roomId);
+  const { events } = useTimeline(source);
   const myUserId = useMyUserId();
-  const replyToId = useReplyTargetId(roomId);
-  const editingId = useEditingId(roomId);
-  const focusTick = useConversationUi((s) => s.focusTick);
+  const isPhone = useIsPhone();
+  const replyToId = useReplyTargetId(key);
+  const editingId = useEditingId(key);
+  const focusTick = useFocusTick(key);
   const startEdit = useConversationUi((s) => s.startEdit);
   const cancelEdit = useConversationUi((s) => s.cancelEdit);
   const cancelReply = useConversationUi((s) => s.cancelReply);
   const clearTargets = useConversationUi((s) => s.clearComposerTargets);
+  const closeThread = useThreadStore((s) => s.closeThread);
 
   const [text, setText] = useState('');
   const [uploads, setUploads] = useState<string[]>([]);
@@ -51,19 +88,29 @@ export function Composer({ roomId }: { roomId: string }) {
 
   const typing = useTypingNotifier(roomId);
   const mentions = useMentions(roomId);
-  const recorder = useVoiceRecorder(roomId);
+  const recorder = useVoiceRecorder(roomId, { threadRoot });
   const room = getClientOrNull()?.getRoom(roomId) ?? null;
 
-  // --- room change -----------------------------------------------------------
+  /**
+   * Find an event by id for the edit prefill. `Room.findEventById` searches the main timeline and
+   * the room's thread timelines, but a reply that only exists in the thread snapshot we are rendering
+   * (a just-sent local echo, or a reply loaded by `/relations` alone) is looked up in that snapshot.
+   */
+  const findEvent = useCallback(
+    (eventId: string) => room?.findEventById(eventId) ?? events.find((e) => e.getId() === eventId),
+    [room, events],
+  );
+
+  // --- source change ---------------------------------------------------------
   useEffect(() => {
     setText('');
     mentions.reset();
-    clearTargets(roomId);
+    clearTargets(key);
     inputRef.current?.focus();
-    // Intentionally only on room change; the helpers are stable store actions.
-  }, [roomId]);
+    // Intentionally only on source change; the helpers are stable store actions.
+  }, [key]);
 
-  // --- focus requests from the message list (reply / edit buttons) ------------
+  // --- focus requests addressed to this composer (reply / edit buttons, panel open) -------------
   useEffect(() => {
     if (focusTick) inputRef.current?.focus();
   }, [focusTick]);
@@ -73,7 +120,7 @@ export function Composer({ roomId }: { roomId: string }) {
   // commit that shows `composer-edit-banner`; an effect would leave one frame with an empty input.
   if (editingId !== editSeed) {
     setEditSeed(editingId);
-    const target = editingId ? room?.findEventById(editingId) : undefined;
+    const target = editingId ? findEvent(editingId) : undefined;
     setText(target ? getDisplayBody(target).text : '');
   }
 
@@ -114,7 +161,7 @@ export function Composer({ roomId }: { roomId: string }) {
       for (const file of files) {
         const name = file.name || 'clipboard image';
         setUploads((list) => [...list, name]);
-        void withToast(() => sendFile(roomId, file), `Could not upload ${name}`).finally(() =>
+        void withToast(() => sendFile(roomId, file, { threadRoot }), `Could not upload ${name}`).finally(() =>
           setUploads((list) => {
             const index = list.indexOf(name);
             return index < 0 ? list : [...list.slice(0, index), ...list.slice(index + 1)];
@@ -122,7 +169,7 @@ export function Composer({ roomId }: { roomId: string }) {
         );
       }
     },
-    [roomId],
+    [roomId, threadRoot],
   );
 
   const submit = (): void => {
@@ -133,8 +180,10 @@ export function Composer({ roomId }: { roomId: string }) {
     if (editingId) {
       const target = editingId;
       setText('');
-      cancelEdit(roomId);
+      cancelEdit(key);
       mentions.reset();
+      // No `threadRoot` here on purpose: the core derives it from the *target* event, which keeps an
+      // edit of a reply inside the thread and an edit of the root in the main timeline (AC-T9-1).
       void withToast(() => editText(roomId, target, body, extra.html), 'Could not save the edit');
       return;
     }
@@ -142,8 +191,13 @@ export function Composer({ roomId }: { roomId: string }) {
     setText('');
     typing.stop();
     mentions.reset();
-    clearTargets(roomId);
-    void withToast(() => sendText(roomId, body, { ...extra, replyTo: replyToId }), 'Could not send the message');
+    clearTargets(key);
+    // `replyTo` and `threadRoot` are mutually exclusive in the core; inside a thread there is no
+    // reply action, so this branch is the only place either of them is set.
+    void withToast(
+      () => sendText(roomId, body, threadRoot ? { ...extra, threadRoot } : { ...extra, replyTo: replyToId }),
+      'Could not send the message',
+    );
     inputRef.current?.focus();
   };
 
@@ -189,19 +243,28 @@ export function Composer({ roomId }: { roomId: string }) {
     if (e.key === 'Escape') {
       if (editingId) {
         e.preventDefault();
-        cancelEdit(roomId);
+        cancelEdit(key);
         return;
       }
       if (replyToId) {
         e.preventDefault();
-        cancelReply(roomId);
+        cancelReply(key);
+        return;
+      }
+      // Inside a thread: Escape first clears a draft, and only closes the panel when there is
+      // nothing to lose (AC-T6-9; desktop only, phone closes with `header-back`).
+      if (threadRoot) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (text) setText('');
+        else if (!isPhone) closeThread();
         return;
       }
     }
 
     if (e.key === 'ArrowUp' && !text && !editingId && lastOwnEditableId) {
       e.preventDefault();
-      startEdit(roomId, lastOwnEditableId);
+      startEdit(key, lastOwnEditableId);
       return;
     }
 
@@ -218,8 +281,14 @@ export function Composer({ roomId }: { roomId: string }) {
     uploadFiles(files);
   };
 
-  const replyName = replyToId ? displayNameOf(room, room?.findEventById(replyToId)?.getSender() ?? '') : '';
-  const placeholder = summary ? (summary.isDm ? `Message @${summary.name}` : `Message #${summary.name}`) : 'Message';
+  const replyName = replyToId ? displayNameOf(room, findEvent(replyToId)?.getSender() ?? '') : '';
+  const placeholder = threadRoot
+    ? 'Replying in thread'
+    : summary
+      ? summary.isDm
+        ? `Message @${summary.name}`
+        : `Message #${summary.name}`
+      : 'Message';
   const canSend = text.trim().length > 0;
   const attached = !!(editingId || replyToId || uploads.length || (!recorder.barOpen && recorder.error));
   /** `composer-mic` only ever reports idle | requesting | denied (test-id registry). */
@@ -229,7 +298,7 @@ export function Composer({ roomId }: { roomId: string }) {
     : 'Voice messages need the app or an https page (no microphone on this page)';
 
   return (
-    <div className={styles.composer} data-testid="composer">
+    <div className={styles.composer} data-testid={tid('composer')}>
       {mentions.open && (
         <MentionAutocomplete
           options={mentions.options}
@@ -242,16 +311,16 @@ export function Composer({ roomId }: { roomId: string }) {
       <UploadProgress names={uploads} />
 
       {editingId && (
-        <div className={styles.banner} data-testid="composer-edit-banner">
+        <div className={styles.banner} data-testid={tid('composer-edit-banner')}>
           <span className={styles.bannerText}>Editing message</span>
           <span className={styles.bannerHint}>escape to cancel &middot; enter to save</span>
           <button
             type="button"
             className={styles.bannerClose}
-            data-testid="composer-edit-cancel"
+            data-testid={tid('composer-edit-cancel')}
             title="Cancel editing"
             aria-label="Cancel editing"
-            onClick={() => cancelEdit(roomId)}
+            onClick={() => cancelEdit(key)}
           >
             <X size={16} />
           </button>
@@ -259,15 +328,15 @@ export function Composer({ roomId }: { roomId: string }) {
       )}
 
       {!editingId && replyToId && (
-        <div className={styles.banner} data-testid="composer-reply-banner">
+        <div className={styles.banner} data-testid={tid('composer-reply-banner')}>
           <span className={styles.bannerText}>Replying to {replyName}</span>
           <button
             type="button"
             className={styles.bannerClose}
-            data-testid="composer-reply-cancel"
+            data-testid={tid('composer-reply-cancel')}
             title="Cancel reply"
             aria-label="Cancel reply"
-            onClick={() => cancelReply(roomId)}
+            onClick={() => cancelReply(key)}
           >
             <X size={16} />
           </button>
@@ -277,14 +346,14 @@ export function Composer({ roomId }: { roomId: string }) {
       {!recorder.barOpen && recorder.error && <VoiceErrorBanner message={recorder.error} />}
 
       {recorder.barOpen ? (
-        <VoiceRecorderBar recorder={recorder} />
+        <VoiceRecorderBar recorder={recorder} tid={tid} />
       ) : (
         <div className={`${styles.box} ${attached ? styles.boxAttached : ''}`}>
-          <AttachButton onFiles={uploadFiles} />
+          <AttachButton tid={tid} onFiles={uploadFiles} />
           <textarea
             ref={inputRef}
             className={styles.input}
-            data-testid="composer-input"
+            data-testid={tid('composer-input')}
             placeholder={placeholder}
             rows={1}
             value={text}
@@ -306,7 +375,7 @@ export function Composer({ roomId }: { roomId: string }) {
             <button
               type="button"
               className={styles.mic}
-              data-testid="composer-mic"
+              data-testid={tid('composer-mic')}
               data-state={micState}
               data-supported={recorder.supported ? 'true' : 'false'}
               title={micTitle}
@@ -324,7 +393,7 @@ export function Composer({ roomId }: { roomId: string }) {
             <button
               type="button"
               className={styles.send}
-              data-testid="composer-send"
+              data-testid={tid('composer-send')}
               title={editingId ? 'Save changes' : 'Send message'}
               aria-label={editingId ? 'Save changes' : 'Send message'}
               aria-hidden={canSend ? undefined : true}

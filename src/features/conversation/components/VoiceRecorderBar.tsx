@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader, Mic, RotateCcw, Trash } from 'lucide-react';
+import { plainTid, type Tid } from '../tid.ts';
 import type { VoiceRecorder } from '../hooks/useVoiceRecorder.ts';
 import styles from './VoiceRecorderBar.module.css';
 
@@ -51,13 +52,13 @@ function LevelBars({ level, live }: { level: number; live: boolean }) {
   );
 }
 
-export function VoiceRecorderBar({ recorder }: { recorder: VoiceRecorder }) {
+export function VoiceRecorderBar({ recorder, tid = plainTid }: { recorder: VoiceRecorder; tid?: Tid }) {
   const { state, elapsedLabel, level, error } = recorder;
   const busy = state === 'encoding' || state === 'sending';
   const status = STATUS_TEXT[state];
 
   return (
-    <div className={styles.bar} data-testid="composer-recording" data-state={state} role="group" aria-label="Recording a voice message">
+    <div className={styles.bar} data-testid={tid('composer-recording')} data-state={state} role="group" aria-label="Recording a voice message">
       <button
         type="button"
         className={styles.cancel}

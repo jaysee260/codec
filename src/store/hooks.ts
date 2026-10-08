@@ -5,17 +5,28 @@ import { useEffect, useMemo } from 'react';
 import { KnownMembership, type MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { loadMembers } from '@/lib/matrix/actions.ts';
-import { displayNameOf, isDisplayableEvent, memberAvatarUrl } from '@/lib/matrix/utils.ts';
+import { displayNameOf, isDisplayableEvent, isMainTimelineEvent, memberAvatarUrl } from '@/lib/matrix/utils.ts';
 import { useRoomStore, type RoomSummary } from './rooms.ts';
-import { ensureTimeline, useTimelineStore } from './timeline.ts';
+import {
+  ensureThreadTimeline,
+  ensureTimeline,
+  isRedactedThreadReply,
+  paginateBack,
+  threadKey,
+  useTimelineStore,
+  type TimelineSource,
+} from './timeline.ts';
 import { useSessionStore } from './session.ts';
 
 const EMPTY_EVENTS: MatrixEvent[] = [];
 
 export interface RoomTimeline {
-  /** Displayable events only (messages, stickers; no reactions/edits/state), oldest first. */
+  /**
+   * Displayable events only, oldest first. Main timeline: messages + stickers, no reactions/edits/state and
+   * **no thread replies**. Thread timeline: the replies (messages/stickers) without the root event.
+   */
   events: MatrixEvent[];
-  /** All live timeline events, unfiltered. */
+  /** All live timeline events, unfiltered (thread timelines include the root once history is fully loaded). */
   allEvents: MatrixEvent[];
   hasMore: boolean;
   isPaginating: boolean;
@@ -24,19 +35,41 @@ export interface RoomTimeline {
   paginateBack(limit?: number): Promise<void>;
 }
 
-/** Live timeline for a room, pre-filtered for display. */
-export function useRoomTimeline(roomId: string | null): RoomTimeline {
-  const allEvents = useTimelineStore((s) => (roomId ? s.eventsByRoom[roomId] : undefined)) ?? EMPTY_EVENTS;
-  const hasMore = useTimelineStore((s) => (roomId ? (s.canPaginateBack[roomId] ?? true) : false));
-  const isPaginating = useTimelineStore((s) => (roomId ? !!s.isPaginating[roomId] : false));
+/** Same shape for both kinds of timeline (Phase 3 name). */
+export type Timeline = RoomTimeline;
+
+/**
+ * Live timeline for a source: `{ roomId }` = the room's main timeline, `{ roomId, threadRootId }` = that thread
+ * (SDK `Thread` timeline, `/relations`-backed). Same return shape either way. Opening a thread source creates
+ * the Thread model and loads its newest replies; `paginateBack` loads older ones.
+ */
+export function useTimeline(source: TimelineSource | null): RoomTimeline {
+  const roomId = source?.roomId ?? null;
+  const rootId = source?.threadRootId ?? null;
+  const key = roomId && rootId ? threadKey(roomId, rootId) : null;
+  const allEvents =
+    useTimelineStore((s) => (key ? s.eventsByThread[key] : roomId ? s.eventsByRoom[roomId] : undefined)) ?? EMPTY_EVENTS;
+  const hasMore = useTimelineStore((s) =>
+    key ? (s.canPaginateBackThread[key] ?? true) : roomId ? (s.canPaginateBack[roomId] ?? true) : false,
+  );
+  const isPaginating = useTimelineStore((s) => (key ? !!s.isPaginatingThread[key] : roomId ? !!s.isPaginating[roomId] : false));
   const version = useTimelineStore((s) => s.version);
-  const paginateBack = useTimelineStore((s) => s.paginateBack);
 
   useEffect(() => {
-    if (roomId) ensureTimeline(roomId);
-  }, [roomId]);
+    if (!roomId) return;
+    if (rootId) void ensureThreadTimeline(roomId, rootId);
+    else ensureTimeline(roomId);
+  }, [roomId, rootId]);
 
-  const events = useMemo(() => allEvents.filter(isDisplayableEvent), [allEvents]);
+  const events = useMemo(
+    () =>
+      rootId
+        ? allEvents.filter((e) => e.getId() !== rootId && isDisplayableEvent(e))
+        : // `eventsByRoom` already skips redacted thread replies the SDK moved into the main timeline; re-checked here
+          // so a consumer reading `allEvents` through its own filter gets the same guarantee.
+          allEvents.filter((e) => isMainTimelineEvent(e) && !isRedactedThreadReply(roomId!, e.getId())),
+    [allEvents, rootId, roomId],
+  );
 
   return {
     events,
@@ -44,12 +77,22 @@ export function useRoomTimeline(roomId: string | null): RoomTimeline {
     hasMore,
     isPaginating,
     version,
-    paginateBack: (limit?: number) => (roomId ? paginateBack(roomId, limit) : Promise.resolve()),
+    paginateBack: (limit?: number) =>
+      roomId ? paginateBack(rootId ? { roomId, threadRootId: rootId } : { roomId }, limit) : Promise.resolve(),
   };
 }
 
-/** Display names of users typing in a room (never includes the current user). */
-export function useTyping(roomId: string | null): string[] {
+/** Live main timeline for a room, pre-filtered for display (Phase 1 name; thin wrapper over `useTimeline`). */
+export function useRoomTimeline(roomId: string | null): RoomTimeline {
+  return useTimeline(roomId ? { roomId } : null);
+}
+
+/**
+ * Display names of users typing in a room (never includes the current user). Accepts a room id or a timeline
+ * source; typing is room-scoped in Matrix, so a thread source reports the same room-wide list.
+ */
+export function useTyping(source: string | TimelineSource | null): string[] {
+  const roomId = typeof source === 'string' ? source : (source?.roomId ?? null);
   const ids = useTimelineStore((s) => (roomId ? s.typingByRoom[roomId] : undefined));
   const roomVersion = useRoomStore((s) => s.version);
   return useMemo(() => {
@@ -119,3 +162,19 @@ export function useMyUserId(): string | null {
 
 // Phase 2 (docs/PHASE2_TICKETS.md Shared API): layout hooks live in ./layout.ts and are re-exported here.
 export { useIsPhone, useViewport, type Viewport } from './layout.ts';
+
+// Phase 3: thread hooks live in ./threads.ts and are re-exported here.
+export {
+  useThreadStore,
+  useThreadSummary,
+  useThreadRoot,
+  useRoomThreads,
+  useThreadUnread,
+  useOpenThread,
+  useOpenThreadRootId,
+  type ThreadSummary,
+  type ThreadInfo,
+  type RoomThreads,
+  type ThreadState,
+} from './threads.ts';
+export { type TimelineSource, sourceKey, threadKey } from './timeline.ts';

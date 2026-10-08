@@ -1,7 +1,7 @@
 /**
- * Read receipts (DEV-B-7). Sends an `m.read` receipt for the newest event in the open room when the
- * tab is visible and the list is at the bottom. This is what clears the unread badges in the sidebar
- * (they are server-computed and echo back on the next /sync).
+ * Read receipts (DEV-B-7, extended for threads in DEV-B-20). Sends an `m.read` receipt for the newest
+ * event of the open **source** when the tab is visible and the list is at the bottom. This is what
+ * clears the unread badges in the sidebar (they are server-computed and echo back on the next /sync).
  *
  * Which event: the newest *displayable* event that already has a server event id. Reactions, edits
  * and redactions never bump `notification_count`, so a receipt on the last visible row clears the
@@ -14,11 +14,20 @@
  *
  * A failed POST is retried (bounded): the "already sent" marker is only set once the request has
  * actually resolved, so a dropped receipt cannot leave the room looking permanently unread.
+ *
+ * Phase 3:
+ *  - a **thread** source receipts the newest reply with `thread_id` = the root (the SDK derives it
+ *    from the event; `threadId` is passed too for the case where the event is not loaded locally), so
+ *    the thread's unread count and the header "Threads" dot clear while the main timeline's `main`
+ *    receipt stays where it was (AC-T6-8);
+ *  - the **room** instance pauses while a thread covers the conversation on phone (`paused`): alice
+ *    must not "read" rows she cannot see, which is what AC-T3-4 asserts. On desktop the channel stays
+ *    visible next to the panel, so nothing pauses there.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { MatrixEvent } from 'matrix-js-sdk';
 import { sendReadReceipt } from '@/lib/matrix/actions.ts';
-import { useRoomTimeline } from '@/store/hooks.ts';
+import { useTimeline, type TimelineSource } from '@/store/hooks.ts';
 
 const DEADLINE_MS = 400;
 const RETRY_MS = 1_500;
@@ -40,9 +49,17 @@ function useTabVisible(): boolean {
   return visible;
 }
 
+export interface ReadReceiptOptions {
+  /** Stop sending receipts (the list is covered by a thread panel on phone, AC-T3-4). */
+  paused?: boolean;
+}
+
 /** `atBottom` comes from the message list's scroll position. */
-export function useReadReceipt(roomId: string, atBottom: boolean): void {
-  const { events } = useRoomTimeline(roomId);
+export function useReadReceipt(source: string | TimelineSource, atBottom: boolean, opts: ReadReceiptOptions = {}): void {
+  const roomId = typeof source === 'string' ? source : source.roomId;
+  const threadRootId = typeof source === 'string' ? undefined : source.threadRootId;
+  const paused = !!opts.paused;
+  const { events } = useTimeline({ roomId, threadRootId });
   const visible = useTabVisible();
   /** Newest event id the server has acknowledged a receipt for. */
   const sentRef = useRef<string | null>(null);
@@ -59,7 +76,7 @@ export function useReadReceipt(roomId: string, atBottom: boolean): void {
     inFlightRef.current = null;
     dueRef.current = 0;
     failedRef.current = { eventId: '', attempts: 0 };
-  }, [roomId]);
+  }, [roomId, threadRootId]);
 
   // Newest event that actually exists on the server (local echoes have `~` ids).
   let lastId: string | null = null;
@@ -71,7 +88,7 @@ export function useReadReceipt(roomId: string, atBottom: boolean): void {
   }
 
   useEffect(() => {
-    if (!lastId || !atBottom || !visible) return;
+    if (!lastId || !atBottom || !visible || paused) return;
     if (sentRef.current === lastId || inFlightRef.current === lastId) return;
     const attempts = failedRef.current.eventId === lastId ? failedRef.current.attempts : 0;
     if (attempts >= MAX_ATTEMPTS) return; // give up on this event; a newer one starts over
@@ -83,7 +100,7 @@ export function useReadReceipt(roomId: string, atBottom: boolean): void {
       () => {
         dueRef.current = 0;
         inFlightRef.current = target;
-        void sendReadReceipt(roomId, target).then(
+        void sendReadReceipt(roomId, target, threadRootId ? { threadId: threadRootId } : {}).then(
           () => {
             inFlightRef.current = null;
             sentRef.current = target;
@@ -101,5 +118,5 @@ export function useReadReceipt(roomId: string, atBottom: boolean): void {
     return () => clearTimeout(timer);
     // `version` is deliberately NOT a dependency: it also bumps for typing notifications, and the
     // events array identity already changes whenever the timeline does.
-  }, [roomId, lastId, atBottom, visible, retryTick]);
+  }, [roomId, threadRootId, lastId, atBottom, visible, paused, retryTick]);
 }

@@ -1,8 +1,8 @@
 /**
- * Scrolling timeline (DEV-B-1 / B-3 / B-6 / B-7).
+ * Scrolling timeline (DEV-B-1 / B-3 / B-6 / B-7 / B-20).
  *
  * Scroll rules:
- * - on room change: jump to the bottom and re-arm pagination;
+ * - on source change: jump to the bottom and re-arm pagination;
  * - new events: only follow the bottom when the user is within 40 px of it ("stick to bottom");
  * - backwards pagination: pin the top-most row before the request and restore `scrollTop` by however
  *   far *that row* moved once the taller content lands, so the row the user was reading stays put
@@ -11,15 +11,30 @@
  *   pinned row itself: an older message from the same sender turns its group header off, which makes
  *   the container grow by less than the content above the row did;
  * - a reply-quote jump scrolls to the target, paginating back until it is loaded, then flashes it.
+ *
+ * Phase 3: the same component renders a channel (`source = { roomId }`) and the replies inside a
+ * thread panel (`{ roomId, threadRootId }`). Three differences, all driven by the source:
+ *
+ *  - **ids.** Inside the panel every id this component owns goes through `tid()` and comes out
+ *    prefixed (`thread-message-list`, `thread-timeline-start`, `thread-timeline-loading`), because
+ *    both lists are on the page at once. Row ids are untouched (`message-{eventId}`).
+ *  - **pagination gate.** A thread's backward token only exists after the SDK's initial
+ *    `/relations` fetch; until then the store reports "more, unknown" and a short list would ask for
+ *    history on every commit. `isThreadReady` holds the sentinel until the first page has landed.
+ *  - **read receipts.** On phone the panel covers the conversation, so the channel's instance pauses:
+ *    alice must not "read" rows she cannot see (AC-T3-4). The panel's own instance never pauses and
+ *    receipts carry the thread id (AC-T6-8).
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, Hash } from 'lucide-react';
-import { useRoomSummary } from '@/store/hooks.ts';
+import { sourceKey, useIsPhone, useOpenThreadRootId, useRoomSummary, type TimelineSource } from '@/store/hooks.ts';
+import { isThreadReady } from '@/store/threads.ts';
 import { initialsOf } from '@/lib/format.ts';
 import { useRoomEvents } from '../hooks/useRoomEvents.ts';
 import { usePagination } from '../hooks/usePagination.ts';
 import { useReadReceipt } from '../hooks/useReadReceipt.ts';
 import { useConversationUi } from '../hooks/useConversationUi.ts';
+import { makeTid, type Tid } from '../tid.ts';
 import { DayDivider } from './DayDivider.tsx';
 import { MessageRow } from './MessageRow.tsx';
 import styles from './MessageList.module.css';
@@ -38,11 +53,24 @@ interface ScrollAnchor {
   scrollHeight: number;
 }
 
-export function MessageList({ roomId }: { roomId: string }) {
-  const { items, hasMore, isPaginating, paginateBack, version } = useRoomEvents(roomId);
+export interface MessageListProps {
+  source: TimelineSource;
+  /** Id prefix for this list's own testids (`'thread-'` inside the panel). */
+  testIdPrefix?: string;
+}
+
+export function MessageList({ source, testIdPrefix }: MessageListProps) {
+  const roomId = source.roomId;
+  const threadRootId = source.threadRootId;
+  const key = sourceKey(source);
+  const tid: Tid = useMemo(() => makeTid(testIdPrefix), [testIdPrefix]);
+
+  const { items, hasMore, isPaginating, paginateBack, version } = useRoomEvents(source);
   const summary = useRoomSummary(roomId);
   const jump = useConversationUi((s) => s.jump);
   const clearJump = useConversationUi((s) => s.clearJump);
+  const isPhone = useIsPhone();
+  const openThreadRootId = useOpenThreadRootId();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -57,7 +85,15 @@ export function MessageList({ roomId }: { roomId: string }) {
   const [atBottom, setAtBottom] = useState(true);
   const [flashId, setFlashId] = useState<string | null>(null);
 
-  useReadReceipt(roomId, atBottom);
+  // The channel list stops receipting while a thread covers it on phone (AC-T3-4); the panel's own
+  // list always receipts, into the thread (AC-T6-8).
+  useReadReceipt(source, atBottom, { paused: isPhone && !threadRootId && openThreadRootId !== null });
+
+  /** A thread can only be paginated once its first `/relations` page has landed. */
+  const canStartPaginating = useMemo(
+    () => (threadRootId ? isThreadReady(roomId, threadRootId) : true),
+    [roomId, threadRootId, version],
+  );
 
   const scrollToBottom = useCallback((smooth = false): void => {
     const el = containerRef.current;
@@ -67,7 +103,7 @@ export function MessageList({ roomId }: { roomId: string }) {
     else el.scrollTop = el.scrollHeight;
   }, []);
 
-  // Room change: bottom, reset every scroll flag, re-arm the pagination sentinel after first paint.
+  // Source change: bottom, reset every scroll flag, re-arm the pagination sentinel after first paint.
   useLayoutEffect(() => {
     anchor.current = null;
     stick.current = true;
@@ -78,7 +114,7 @@ export function MessageList({ roomId }: { roomId: string }) {
     if (el) el.scrollTop = el.scrollHeight;
     const timer = setTimeout(() => setArmed(true), 200);
     return () => clearTimeout(timer);
-  }, [roomId]);
+  }, [key]);
 
   // Keep the viewport stable across every timeline commit.
   useLayoutEffect(() => {
@@ -124,13 +160,13 @@ export function MessageList({ roomId }: { roomId: string }) {
   usePagination({
     containerRef,
     sentinelRef,
-    enabled: armed && hasMore && !isPaginating,
+    enabled: armed && hasMore && !isPaginating && canStartPaginating,
     load,
     revision: version,
   });
 
   // Jump to (and flash) a message, loading history until it exists.
-  const jumpNonce = jump && jump.roomId === roomId ? jump.nonce : 0;
+  const jumpNonce = jump && jump.key === key ? jump.nonce : 0;
   const jumpEventId = jump?.eventId;
   useEffect(() => {
     if (!jumpNonce || !jumpEventId) return;
@@ -160,6 +196,7 @@ export function MessageList({ roomId }: { roomId: string }) {
 
   const isDm = summary?.isDm ?? false;
   const label = summary ? (isDm ? summary.name : `#${summary.name}`) : 'this room';
+  const hasRows = items.some((item) => item.kind === 'message');
 
   return (
     <div className={styles.wrap}>
@@ -169,22 +206,34 @@ export function MessageList({ roomId }: { roomId: string }) {
        */}
       {isPaginating && (
         <div className={styles.loadingWrap}>
-          <div className={styles.spinner} data-testid="timeline-loading" role="status" aria-label="Loading older messages" />
+          <div className={styles.spinner} data-testid={tid('timeline-loading')} role="status" aria-label="Loading older messages" />
         </div>
       )}
 
-      <div className={styles.list} data-testid="message-list" ref={containerRef} onScroll={onScroll}>
+      <div className={styles.list} data-testid={tid('message-list')} ref={containerRef} onScroll={onScroll}>
         <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
 
         {!hasMore && (
-          <div className={styles.start}>
-            <div className={styles.startIcon} aria-hidden="true">
-              {isDm ? initialsOf(summary?.name ?? '?') : <Hash size={40} />}
-            </div>
-            <h2 className={styles.startTitle} data-testid="timeline-start">
-              {isDm ? `This is the beginning of your direct message history with ${label}` : `This is the beginning of ${label}`}
+          <div className={`${styles.start} ${threadRootId ? styles.startThread : ''}`}>
+            {/* The panel is 400 px wide and the root is already pinned above it, so the thread's
+                "beginning of" block is one muted line rather than the channel's badge + headline. */}
+            {!threadRootId && (
+              <div className={styles.startIcon} aria-hidden="true">
+                {isDm ? initialsOf(summary?.name ?? '?') : <Hash size={40} />}
+              </div>
+            )}
+            <h2 className={styles.startTitle} data-testid={tid('timeline-start')}>
+              {threadRootId
+                ? 'This is the beginning of the thread'
+                : isDm
+                  ? `This is the beginning of your direct message history with ${label}`
+                  : `This is the beginning of ${label}`}
             </h2>
-            {summary?.topic && <p className={styles.startTopic}>{summary.topic}</p>}
+            {threadRootId ? (
+              !hasRows && <p className={styles.startTopic}>No replies yet - start the thread below.</p>
+            ) : (
+              summary?.topic && <p className={styles.startTopic}>{summary.topic}</p>
+            )}
           </div>
         )}
 
@@ -194,7 +243,7 @@ export function MessageList({ roomId }: { roomId: string }) {
           ) : (
             <MessageRow
               key={item.key}
-              roomId={roomId}
+              source={source}
               event={item.event}
               groupStart={item.groupStart}
               flash={flashId === item.event.getId()}
@@ -206,7 +255,7 @@ export function MessageList({ roomId }: { roomId: string }) {
       </div>
 
       {!atBottom && (
-        <button type="button" className={styles.jumpBottom} data-testid="scroll-to-bottom" onClick={() => scrollToBottom(true)}>
+        <button type="button" className={styles.jumpBottom} data-testid={tid('scroll-to-bottom')} onClick={() => scrollToBottom(true)}>
           <ArrowDown size={14} aria-hidden="true" />
           Jump to present
         </button>

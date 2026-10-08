@@ -1,17 +1,23 @@
 /**
  * Dev-only window hooks (`import.meta.env.DEV`; tree-shaken out of production builds).
  *
- *   window.__matrixPoc = { layout, rooms, session, timeline, getClient, getVoiceMessage, getHsUrl }
+ *   window.__matrixPoc = { layout, rooms, session, timeline, threads, getClient, getVoiceMessage, getHsUrl,
+ *                          actions, utils, openThread, closeThread, getThreadSummary, getThreadModel, ... }
  *
- * Used by scripts/verify-phone-shell.mjs (open the nav drawer for a screenshot, round-trip a voice event
- * through the real parser) and handy in the browser console. Never referenced by product code.
+ * Used by scripts/verify-phone-shell.mjs and scripts/verify-thread-shell.mjs (open the nav drawer / a thread for
+ * a screenshot, round-trip events through the real parsers) and handy in the browser console. `actions` and
+ * `utils` are the whole modules (`__matrixPoc.actions.sendText(roomId, 'hi', { threadRoot })`).
+ * Never referenced by product code.
  */
 import { useLayoutStore } from '@/store/layout.ts';
 import { useRoomStore } from '@/store/rooms.ts';
 import { useSessionStore } from '@/store/session.ts';
-import { useTimelineStore } from '@/store/timeline.ts';
+import { useTimelineStore, paginateBack, refreshThread, isRedactedThreadReply } from '@/store/timeline.ts';
+import { useThreadStore, getThreadSummary, getThreadModel, isThreadReady } from '@/store/threads.ts';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { getHsUrl } from '@/lib/matrix/config.ts';
+import * as actions from '@/lib/matrix/actions.ts';
+import * as utils from '@/lib/matrix/utils.ts';
 import { getDisplayBody, getVoiceMessage } from '@/lib/matrix/utils.ts';
 import { analyzeAudio, pickRecordingMimeType } from '@/lib/audio/index.ts';
 import { isNativeApp, platform } from '@/lib/native.ts';
@@ -22,6 +28,7 @@ export function installDevHooks(): void {
     rooms: useRoomStore,
     session: useSessionStore,
     timeline: useTimelineStore,
+    threads: useThreadStore,
     getClient: getClientOrNull,
     getHsUrl,
     getVoiceMessage,
@@ -30,5 +37,16 @@ export function installDevHooks(): void {
     pickRecordingMimeType,
     isNativeApp,
     platform,
+    // Phase 3
+    actions,
+    utils,
+    paginateBack,
+    refreshThread,
+    isRedactedThreadReply,
+    openThread: (rootId: string, roomId?: string) => useThreadStore.getState().openThread(rootId, roomId),
+    closeThread: () => useThreadStore.getState().closeThread(),
+    getThreadSummary,
+    getThreadModel,
+    isThreadReady,
   };
 }

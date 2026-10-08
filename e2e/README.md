@@ -1,7 +1,7 @@
 # e2e
 
-QA owns this folder (see `docs/TICKETS.md` QA-1 and `docs/PHASE2_TICKETS.md` QA-8..13). Specs are
-`*.spec.ts`, helpers live in `fixtures/`.
+QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..13 and
+`docs/PHASE3_TICKETS.md` QA-14..18). Specs are `*.spec.ts`, helpers live in `fixtures/`.
 
 ## Projects
 
@@ -9,18 +9,20 @@ QA owns this folder (see `docs/TICKETS.md` QA-1 and `docs/PHASE2_TICKETS.md` QA-
 
 | Project | Device | Specs | `outputDir` |
 |---|---|---|---|
-| `desktop` | `devices['Desktop Chrome']`, 1280x720 | the Phase 1 suite | `e2e/results/desktop` |
-| `mobile` | `devices['Pixel 7']` — 412x839 CSS px, `isMobile`, `hasTouch`, `permissions: ['microphone']` | the Phase 2 phone suites | `e2e/results/mobile` |
+| `desktop` | `devices['Desktop Chrome']`, 1280x720 | the Phase 1 suite + Phase 3 threads | `e2e/results/desktop` |
+| `mobile` | `devices['Pixel 7']` — 412x839 CSS px, `isMobile`, `hasTouch`, `permissions: ['microphone']` | the Phase 2 phone suites + Phase 3 phone threads | `e2e/results/mobile` |
 
 | File | Project | Covers |
 |---|---|---|
 | `shell.spec.ts` | desktop | AC-SH-1 .. AC-SH-5 (login, session, logout) |
 | `navigation.spec.ts` | desktop | AC-A1-1 .. AC-A9-1 (rail, channels, DMs, members, badges, create/invite) |
 | `conversation.spec.ts` | desktop | AC-B1-1 .. AC-B10-3 (timeline, composer, pagination, rich bodies, reactions, replies, receipts, upload, edit/delete, mentions) |
-| `smoke.spec.ts` | desktop | the `docs/PLAN.md` demo script, steps 1-10, serial, one screenshot per step into `results/demo/` |
+| `smoke.spec.ts` | desktop | the `docs/PLAN.md` demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` thread walk-through as step 11; serial, one screenshot per sub-step into `results/demo/` |
 | `voice.spec.ts` | mobile | AC-V1 .. AC-V6 recording/playback, with every sent event re-read through the API and the uploaded bytes checked by their container magic |
 | `mobile-nav.spec.ts` | mobile | AC-M1 .. AC-M6 (phone shell, drawers, header, touch targets, bottom sheets, viewport CSS) + the layout half of AC-V6 |
-| `mobile-smoke.spec.ts` | mobile | the `docs/PHASE2_PLAN.md` **phone** demo script, steps 1-10, serial, one screenshot per step into `e2e/demo-mobile/` |
+| `mobile-smoke.spec.ts` | mobile | the `docs/PHASE2_PLAN.md` **phone** demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` phone thread walk-through as step 11; serial, one screenshot per sub-step into `e2e/demo-mobile/` |
+| `threads.spec.ts` | desktop | AC-T1 .. AC-T9: the thread wire contract, main-timeline hygiene, panel geometry, the summary row, Reply in thread, ThreadView, the Threads list, in-thread edits/reactions/delete/media |
+| `mobile-threads.spec.ts` | mobile | AC-T3-4, AC-T4-6, AC-T5-2, AC-T7-1/2/4/7, AC-T8-1..3, and the AC-V6-1 composer rules applied to `thread-composer-*` |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
@@ -54,12 +56,15 @@ npm run test:e2e              # both projects
 npm run test:e2e:desktop      # Phase 1 suite only          (= playwright test --project=desktop)
 npm run test:e2e:mobile       # Phase 2 phone suites only    (= playwright test --project=mobile)
 npm run test:e2e:smoke        # the desktop demo script only
+npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
 npm run test:e2e:fresh        # seed:reset + both projects   <-- the intended full run
 npm run test:android-build    # APK build + aapt checks (NOT a Playwright project; see below)
 
 # one criterion — always name the project, the specs do not overlap
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile --reporter=list
 npx playwright test e2e/conversation.spec.ts -g "AC-B4-2" --project=desktop --reporter=list
+npx playwright test e2e/threads.spec.ts -g "AC-T6-4" --project=desktop --reporter=list
+npx playwright test e2e/mobile-threads.spec.ts -g "AC-T8-1" --project=mobile --reporter=list
 ```
 
 Artefacts: `e2e/results/<project>/<test>/` (trace, failure screenshot, video),
@@ -155,8 +160,8 @@ AC-B4-2, AC-B6-2/AC-B6-3, AC-B6-4.
 - Reading a read receipt through `/sync` needs cache-busting: Synapse caches *initial* `/sync`
   responses for about two minutes keyed by the filter, so polling with a constant filter replays a
   pre-receipt snapshot. `ApiUser.getReceipts` varies the filter per call; `readReceiptOf` also picks
-  the newest `m.read` by `ts`, because a user can hold both a threaded (`thread_id: "main"`, what
-  matrix-js-sdk sends) and an unthreaded receipt at different positions.
+  the newest `m.read` by `ts` **among main-timeline receipts only** — after the Phase 3 `threadSupport`
+  flip a user holds one receipt per thread as well; see the Phase 3 section below.
 - `workers: 1` and `fullyParallel: false`: the suite drives one shared homeserver and several tests
   assert on live cross-user updates.
 
@@ -202,3 +207,60 @@ AC-B4-2, AC-B6-2/AC-B6-3, AC-B6-4.
   overrides; `getMedia` returns `{ status, bytes, contentType, magicHex, container }` where
   `container` comes from the magic bytes alone (`1A 45 DF A3` WebM, `OggS`, `ftyp`@4 MP4,
   `RIFF…WAVE`).
+
+### Phase 3 additions (`fixtures/threads.ts`, thread specs)
+
+- **Receipt helpers are main-timeline only.** `threadSupport: true` makes matrix-js-sdk send a
+  receipt *per timeline*: `thread_id: "main"` for the room plus one per thread, all living in the same
+  `m.receipt` event. `readReceiptOf` / `unreadFor` therefore filter to `thread_id === "main" ||
+  undefined` (`isMainReceipt`) before taking the newest by `ts` — without that, every Phase 1
+  receipt criterion reads back a *thread* position, which is newer. Use
+  `threadReceiptOf(roomId, userId, rootId)` for an in-thread position and `threadReceipt()` to post
+  one. `notifiesUser` (behind `unreadFor`) also drops `rel_type: "m.thread"` events, because
+  `/messages` still returns thread replies in the room chunk while the app's badge counts main only.
+- **`sendThreadReply(roomId, rootId, body, { latest })`** posts the exact contract content from
+  `docs/PHASE3_ACCEPTANCE.md` (`rel_type: "m.thread"`, `event_id` = the root, `is_falling_back: true`,
+  `m.in_reply_to` = the newest reply else the root). **Pass `latest` explicitly when sending a run of
+  replies** — the previous call's return value — or each reply costs a `/relations` round trip, which
+  is three times the work for the 40-reply pagination cases. `seedThread({ roomId, replies })` builds
+  a whole root-plus-chain in one call and is what every test uses.
+- **Assert the registry, never the skeleton.** The PRIN-10 `ThreadView` placeholder used
+  `data-root-id`, `thread-message-{id}`, `thread-empty` and `thread-load-more`; the contract is
+  `thread-panel[data-root]`, rows keyed `message-{eventId}` inside `thread-message-list`,
+  `thread-replies-divider`, `thread-timeline-start` / `-loading`. `fixtures/threads.ts` supports only
+  the registry names on purpose, so a divergence is reported instead of absorbed.
+- **The prefix rule.** Inside `thread-panel` every `composer-*`, `message-list`, `timeline-*` and
+  `typing-indicator` id is renamed (`thread-composer-*`, `thread-message-list`, `thread-timeline-*`,
+  `thread-typing`), but **rows keep `message-{eventId}`** and everything inside a row
+  (`message-actions`, `reaction-*`, `message-edited`, `voice-message`) keeps its Phase 1/2 name. The
+  root is `thread-root`, not a second `message-{rootId}`.
+- **`requireThreadUi(test, page, features)` is the "not built yet" guard**, the same idiom as
+  `requireFreshSeed`: it probes the UI **once per worker in its own page**, annotates `not-built` and
+  skips, so a test that runs and fails is a real defect. It probes *entry points*
+  (`header-threads`, `message-action-thread`, a panel with `thread-composer-input`, a rendered
+  `thread-summary-*`, phone `header-back`), never panel internals — the skeleton already had
+  `thread-panel` in the tree.
+- **The probe shares the test's origin storage.** `context().newPage()` is a *second page in the same
+  context*, so the probe's own login would be restored by the test page's `goto('/')` and
+  `login-form` would never appear (`loginAs`'s `dropStoredSession` is a no-op while the test page is
+  on `about:blank`). The probe clears `localStorage` before closing and the specs call
+  `resetSession(page)` before `loginAs`. **The two smoke specs deliberately do not use the probe** —
+  clearing storage would log their long-lived shared page out mid-demo; they check for the entry
+  point inline and `test.skip()`.
+- **`stableRow(page, eventId)` instead of `row(...).scrollIntoViewIfNeeded()`.** `#general` takes
+  live traffic from the devs and from the rest of the suite, so the list auto-scrolls while a test is
+  aiming at a row and the raw call fails with "element is not stable" / "not attached".
+  `longPressThread` goes through it and retries the gesture once if the sheet did not open.
+- **An avatar stack carries no text.** `thread-summary-avatars` / `thread-list-item-avatars` hold an
+  `<img>` or an initials badge; identity is in `title` / `aria-label` / `alt`. Use
+  `avatarNames(stack)`, not `toContainText`.
+- **`thread-composer-send` follows AC-V1-1**, like the room composer: the mic owns the slot while the
+  input is empty and send appears with text. Assert it *attached*, and visible only after typing.
+- **"The channel gained no row" is asserted as a set, with a sentinel.** A negative assertion
+  resolves instantly, so AC-T1-2 snapshots `roomRowIds(page)`, has bob post a thread reply **and then
+  a normal message**, waits for the normal message's row (which proves sync delivered both) and only
+  then compares the sets. Never assert an absence without something to wait for.
+- Deviations recorded in the spec headers: the pagination cases build **40** replies where the
+  criteria say 35 (strictly harder), "within 3 s" criteria poll for 5 s, and AC-T2-6's 200 ms local
+  echo is measured into an annotation with a 1 s assertion (Playwright's own press -> locator round
+  trip is ~100 ms). AC-T3-5 (Android back order) is device-only and listed in `docs/BUGS.md`.

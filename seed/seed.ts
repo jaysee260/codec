@@ -381,6 +381,29 @@ interface Step {
   key?: string;
   /** alice sends an m.read receipt for this message right after it (and any reactions). */
   receipt?: boolean;
+  /**
+   * Phase 3: thread replies to this message (spec `m.thread` relation with the `is_falling_back` fallback).
+   * Sent right after the message unless `late` - late replies are sent after the whole script, i.e. after
+   * alice's final receipt, so a fresh seed leaves that thread unread for her (header "Threads" dot).
+   * Reply ids land in seed-output.json as `<threadKey><n>` (e.g. `dev.threadReply1`); the root is `<key>`.
+   */
+  thread?: ThreadReply[];
+  threadKey?: string;
+}
+
+interface ThreadReply {
+  who: string;
+  body: string;
+  late?: boolean;
+}
+
+/** Exactly what the client sends for a thread reply (`sendText(roomId, body, { threadRoot })`). */
+function threadReplyContent(body: string, rootId: string, latestId: string): Json {
+  return {
+    msgtype: 'm.text',
+    body,
+    'm.relates_to': { rel_type: 'm.thread', event_id: rootId, is_falling_back: true, 'm.in_reply_to': { event_id: latestId } },
+  };
 }
 
 const GENERAL: Step[] = [
@@ -394,7 +417,15 @@ const GENERAL: Step[] = [
   { who: 'carol', body: 'Reminder: the Q4 planning meeting is Thursday at 10am.', html: 'Reminder: the <strong>Q4 planning meeting</strong> is Thursday at 10am.', key: 'general.bold' },
   { who: 'dave', body: 'Will it be recorded?' },
   { who: 'carol', body: 'Yes, recording goes in the shared drive afterwards.' },
-  { who: 'bob', body: 'Lunch today? Thinking tacos.', reactions: [['👍', ['alice', 'carol']]], key: 'general.reacted' },
+  {
+    who: 'bob',
+    body: 'Lunch today? Thinking tacos.',
+    reactions: [['👍', ['alice', 'carol']]],
+    key: 'general.reacted',
+    // Phase 3 thread #2 (1 reply), posted after alice's final receipt so it is unread for her on a fresh seed.
+    thread: [{ who: 'carol', body: 'Tacos were great. Same place next week?', late: true }],
+    threadKey: 'general.lateThreadReply',
+  },
   { who: 'alice', body: 'Tacos works. Noon?' },
   { who: 'bob', body: 'Noon it is.' },
   { who: 'dave', body: 'PSA: the VPN cert rotates tonight, you may need to reconnect tomorrow morning.', reactions: [['👀', ['bob']]] },
@@ -420,6 +451,18 @@ const GENERAL: Step[] = [
   { who: 'carol', body: 'Will there be snacks?' },
   { who: 'bob', body: 'There will be snacks.', replyTo: 34 },
   { who: 'dave', body: '🍩' },
+  {
+    // Phase 3 thread #1 (3 replies, mixed users). Replies never show in the main timeline.
+    who: 'alice',
+    body: 'What should we demo first on Friday? Reply in the thread so #general stays readable.',
+    key: 'general.threadRoot',
+    threadKey: 'general.threadReply',
+    thread: [
+      { who: 'bob', body: 'The new chat client, obviously.' },
+      { who: 'carol', body: 'Agreed, then the Q4 roadmap.' },
+      { who: 'dave', body: '+1, and keep AOB short.' },
+    ],
+  },
   { who: 'alice', body: 'Reminder to fill in your timesheets before EOD.' },
   { who: 'carol', body: 'Done ✅' },
   { who: 'dave', body: 'Done' },
@@ -443,6 +486,18 @@ const DEV: Step[] = [
   { who: 'alice', body: 'SVG logo is in the design repo under /brand.' },
   { who: 'dave', body: 'Bumping Node to 24 in CI this week, shout if that breaks anything.' },
   { who: 'bob', body: "Should be fine, we're already on 24 locally." },
+  {
+    // Phase 3 thread in #dev (docs/PHASE3_TICKETS.md PRIN-12): carol root; bob, alice, carol replies.
+    who: 'carol',
+    body: 'Which Node 24 features are we actually relying on? Thread below.',
+    key: 'dev.threadRoot',
+    threadKey: 'dev.threadReply',
+    thread: [
+      { who: 'bob', body: 'Native type stripping for the seed script.' },
+      { who: 'alice', body: 'And the built-in fetch, no more node-fetch.' },
+      { who: 'carol', body: "Good, I'll note both in the CI ticket." },
+    ],
+  },
   { who: 'alice', body: 'Ship it.', receipt: true },
 ];
 
@@ -477,6 +532,14 @@ async function runScript(
   logoPng?: Uint8Array,
 ): Promise<void> {
   const ids: string[] = [];
+  const lateReplies: { step: Step; rootId: string; reply: ThreadReply; n: number }[] = [];
+  const sendThreadReply = async (step: Step, rootId: string, reply: ThreadReply, n: number): Promise<void> => {
+    const latest = threadLatest.get(rootId) ?? rootId;
+    const id = await sendEvent(sessions[reply.who]!, roomId, 'm.room.message', threadReplyContent(reply.body, rootId, latest));
+    threadLatest.set(rootId, id);
+    if (step.threadKey) events[`${step.threadKey}${n}`] = id;
+  };
+  const threadLatest = new Map<string, string>();
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!;
     const sender = sessions[step.who]!;
@@ -518,9 +581,17 @@ async function runScript(
         });
       }
     }
+    for (let n = 0; n < (step.thread?.length ?? 0); n++) {
+      const reply = step.thread![n]!;
+      if (reply.late) lateReplies.push({ step, rootId: eventId, reply, n: n + 1 });
+      else await sendThreadReply(step, eventId, reply, n + 1);
+    }
     if (step.receipt) await sendReceipt(sessions.alice!, roomId, eventId);
   }
-  console.log(`  sent ${steps.length} messages`);
+  // Late thread replies: after the final receipt, so alice has an unread thread (Phase 3 header dot).
+  for (const late of lateReplies) await sendThreadReply(late.step, late.rootId, late.reply, late.n);
+  const threadCount = steps.reduce((n, s) => n + (s.thread?.length ?? 0), 0);
+  console.log(`  sent ${steps.length} messages${threadCount ? ` + ${threadCount} thread replies` : ''}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -556,7 +627,7 @@ const SPACES: SpaceSpec[] = [
     channels: [
       { name: 'general', alias: 'general', topic: 'Company-wide chat. Be nice.', members: ['alice', 'bob', 'carol', 'dave'], order: '01', script: GENERAL, key: 'general' },
       { name: 'random', alias: 'random', topic: 'Off-topic, memes, lunch plans.', members: ['alice', 'bob', 'carol', 'dave'], order: '02', script: RANDOM, key: 'random' },
-      { name: 'dev', alias: 'dev', topic: 'Engineering talk. Stack traces welcome.', members: ['alice', 'bob', 'dave'], order: '03', script: DEV, key: 'dev' },
+      { name: 'dev', alias: 'dev', topic: 'Engineering talk. Stack traces welcome.', members: ['alice', 'bob', 'carol', 'dave'], order: '03', script: DEV, key: 'dev' },
     ],
   },
   {

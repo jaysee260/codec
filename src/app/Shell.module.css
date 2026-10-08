@@ -117,3 +117,45 @@
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Threads (Phase 3): desktop right column / phone full-screen layer (`thread-panel-container`)
+ * ------------------------------------------------------------------------- */
+.threadPanel {
+  width: var(--thread-w);
+  min-width: var(--thread-w);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-chat);
+  border-left: 1px solid var(--border);
+}
+
+/* Everything under the phone header: the conversation, and the thread layer over it. */
+.phoneBody {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.phoneConversation {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.phoneThread {
+  position: absolute;
+  inset: 0;
+  /* above the conversation, below the drawer backdrop (20) and the drawers; the header stays visible */
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-chat);
+}

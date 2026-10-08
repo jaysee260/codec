@@ -4,7 +4,10 @@ QA owns this file (docs/TICKETS.md QA-6, docs/PHASE2_TICKETS.md QA-13). Every fa
 row; devs close a row with the commit that fixes it (put the commit sha in **Status**).
 
 **Severity** — `S1` blocks the demo script (docs/PLAN.md on desktop, docs/PHASE2_PLAN.md on the
-phone) · `S2` wrong but the demo still works · `S3` cosmetic.
+phone, docs/PHASE3_PLAN.md for threads) · `S2` wrong but the demo still works · `S3` cosmetic.
+Phase 3 raises two specific things to `S1` on sight: **a thread reply leaking into the channel
+timeline** (as a row or as a reply quote) and **any Phase 1/2 criterion regressing after
+`threadSupport: true`** — both are the premise of the whole phase, so neither demo survives them.
 
 **Platform** (Phase 2 column) — `web-desktop` the `desktop` Playwright project / a real browser at
 1280 px · `web-mobile-emulated` the `mobile` Playwright project (`devices['Pixel 7']`, fake mic; no
@@ -19,6 +22,7 @@ npm run hs:up && npm run seed:reset && npm run dev          # homeserver + fixtu
 npm run test:e2e                                            # both projects
 npm run test:e2e:desktop                                    # Phase 1 suite only
 npm run test:e2e:mobile                                     # Phase 2 phone suites only
+npm run test:e2e:threads                                    # Phase 3 thread specs (both projects)
 npm run test:android-build                                  # APK build + manifest checks
 npx playwright test e2e/conversation.spec.ts -g "AC-B3-2" --project=desktop
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile
@@ -46,7 +50,7 @@ Phase 2 test is written to tolerate it).
 
 | BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
 |---|---|---|---|---|---|---|---|---|---|---|
-| BUG-4 | AC-SH-2, docs/PHASE2_PLAN.md phone demo step 1 | S3 | web-desktop | no | Principal | 1. Run the whole `desktop` project (`npm run test:e2e:desktop`, ~14 min) against the current dirty homeserver. 2. Watch the last spec, `smoke.spec.ts` step 1. | Login to painted shell in under 10 s (AC-SH-2); the demo scripts want under 3 s. | **10 609 ms** at the tail of the run — just over the criterion. Re-running step 1 alone on an idle homeserver passes (7.4 s for the whole test, login well inside budget), and the **phone** smoke measures **1 832 ms** on the same homeserver, so this is initial-sync cost on a server that has just absorbed a 14-minute suite, not a layout or code regression. Recorded because login time *is* a demo criterion: if the stakeholder's device pass is run straight after a full suite, step 1 may feel slow. Mitigation for demo day: do not run the suites immediately before the demo, or `npm run seed:reset` first. | `e2e/results/desktop/smoke-demo-script-QA-3-smo-73c29-*/` (trace.zip) | **Open** — environment/perf, no code change proposed. |
+| BUG-4 | AC-SH-2, docs/PHASE2_PLAN.md phone demo step 1 | S3 | web-desktop | no | Principal | 1. Run the whole `desktop` project (`npm run test:e2e:desktop`, ~14 min) against the current dirty homeserver. 2. Watch the last spec, `smoke.spec.ts` step 1. | Login to painted shell in under 10 s (AC-SH-2); the demo scripts want under 3 s. | **10 609 ms** at the tail of the run — just over the criterion. Re-running step 1 alone on an idle homeserver passes (7.4 s for the whole test, login well inside budget), and the **phone** smoke measures **1 832 ms** on the same homeserver, so this is initial-sync cost on a server that has just absorbed a 14-minute suite, not a layout or code regression. Recorded because login time *is* a demo criterion: if the stakeholder's device pass is run straight after a full suite, step 1 may feel slow. Mitigation for demo day: do not run the suites immediately before the demo, or `npm run seed:reset` first. | `e2e/results/desktop/smoke-demo-script-QA-3-smo-73c29-*/` (trace.zip) | **Open** — environment/perf, no code change proposed. **Worse in Phase 3 and now consequential:** the final Wave 8 `desktop` run measured **16 083 ms** at the tail of a 31-minute suite, and because `smoke.spec.ts` is `mode: 'serial'`, step 1's failure left **all 11 later steps "did not run"** — including the new thread step 11. The cause still looks like initial-sync cost on a hammered homeserver rather than a thread regression: the `mobile` smoke's step 1 measured **1 832 ms** on the same homeserver when it ran first, and step 11 passes in 2.1 s when `smoke.spec.ts` is run on its own (`npm run test:e2e:smoke`). Two things follow for demo day: do not run the suites immediately before the demo (or `npm run seed:reset` first), and judge the demo steps from a standalone smoke run, not from the tail of a full-project run. |
 | — | — | — | — | — | — | *No product defect found in the emulated phone pass.* **52** Phase 2 acceptance criteria green in **58 tests** — `voice.spec.ts` (18 tests / 23 criteria), `mobile-nav.spec.ts` (30 / 29), `mobile-smoke.spec.ts` (10 phone-demo steps) — plus **6** more (AC-C1-1..4, AC-C3-1/2) in the 20 checks of `npm run test:android-build`: **58 criteria in all**. The six failures on the first run were all QA-side and are listed under "Fixture-side defects" below. | | | `e2e/demo-mobile/` (10 phone demo screenshots) | — |
 
 ### Flake pass (QA P2)
@@ -120,6 +124,117 @@ Severity:          S1 blocks the demo / S2 wrong but the demo works / S3 cosmeti
 Paste the filled block into the **Actual** cell of a new row with `Platform: android-device` (or
 `ios-device`) and `Manual: yes`.
 
+## Phase 3 (threads)
+
+Wave 8 QA pass (QA-14..18) against `e2e/threads.spec.ts` (desktop, 43 tests) and
+`e2e/mobile-threads.spec.ts` (phone, 14 tests) on a **dirty** homeserver, plus the QA-17 regression
+gate on the Phase 1/2 projects after the Principal's `threadSupport: true` flip. Every thread test
+creates its own root and replies through the API, so nothing here needs a fresh seed.
+
+```
+npm run test:e2e:threads                                       # both thread specs, both projects
+npx playwright test e2e/threads.spec.ts --project=desktop -g "AC-T6-4"
+npx playwright test e2e/mobile-threads.spec.ts --project=mobile -g "AC-T3-4"
+npm run thread:sample -- --root <eventId>                      # bob replies into a live thread
+```
+
+**Wave 8 reading note.** Dev A and Dev B were implementing while this pass ran, so a red criterion
+could mean three different things. The specs separate them: each test declares the UI entry point it
+needs (`requireThreadUi`, `e2e/fixtures/threads.ts`) and **skips with a `not-built` annotation** when
+that entry point is absent. A test that *ran* and failed is therefore a product defect or a test
+defect — never "not implemented yet". The not-built list for this pass is under "Not built yet".
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-5 | AC-T2-3 | S2 | web-desktop | no | Principal (PRIN-9) | 1. Log in as alice, open `#general`. 2. In the console (the dev hook the test uses): `__matrixPoc.actions.sendText(roomId, 'x', { replyTo: $root, threadRoot: $root })`. 3. Look for the message on the server. | The call **rejects** and no event is sent (`replyTo` with `threadRoot` is a contradiction; an in-thread quote reply, `is_falling_back: false`, is explicitly out of scope — docs/PHASE3_PLAN.md "Out of scope"). | The promise **resolves** and an event **is sent**, with exactly the shape the phase ruled out: `"m.relates_to": { "rel_type": "m.thread", "event_id": "$root", "is_falling_back": false, "m.in_reply_to": { "event_id": "$root" } }`. `sendRoomMessage` in `src/lib/matrix/actions.ts` passes `replyTo` straight into `threadRelation()`, whose first branch builds the `is_falling_back: false` form; there is no guard. Consequences beyond the criterion: the contract in docs/PHASE3_ACCEPTANCE.md says `is_falling_back` is *always* `true`, and our own readers treat `is_falling_back: false` as a real quote (`getReplyTargetId`), so such an event renders a reply quote inside the panel — which AC-T1-3 forbids. Suggested fix: reject when both are set, at the top of `sendText` / `sendRoomMessage`, and drop the `replyTo` branch of `threadRelation` until in-thread quote replies are in scope. | `e2e/results/desktop/threads-AC-T2-timeline-sou-b6c56-hreadRoot-and-sends-nothing-desktop/` (the `sent-anyway` annotation carried the full event) | **Fixed** by the Principal during Wave 8, exactly as suggested: `sendText` now throws `ThreadReplyConflictError` (`src/lib/matrix/actions.ts`) **before** anything is sent, and `sendRoomMessage` no longer takes a `replyTo` at all, so the `is_falling_back: false` branch is gone. Re-verified in the final `desktop` run: AC-T2-3 passes and no event reaches the server. |
+| BUG-6 | AC-T6-4 (AC-B3-2 rule) | S2 | web-desktop | no | Dev B (DEV-B-20) | 1. Create a root with 40 API thread replies (`sendThreadReply` in a loop, or `npm run thread:sample -- --root <id> --replies 40`). 2. Open the thread from the message toolbar. 3. Note the top-most rendered reply row and its viewport `y`. 4. Scroll `thread-message-list` to the top so the thread pages back. 5. Measure that same row's `y` again. | The anchor row stays put (`thread-timeline-loading` shows, older replies prepend, drift <= 5 px — the same rule DEV-B-3 implements for the room timeline and AC-T6-4 restates for the panel). | The anchor row moved **504.6 px** down the viewport: the panel keeps `scrollTop` while a page of older replies is prepended, so the reader is thrown out of position on every page-in. This is BUG-2 again, in the second list — the room timeline's anchoring (capture `scrollHeight`, restore `scrollTop += delta`) has not been applied to `thread-message-list`. Everything else about thread pagination is correct: all 40 replies load, oldest first, no duplicate ids, `thread-timeline-start` appears (AC-T2-4 passes). | `e2e/results/desktop/threads-AC-T6-ThreadView-A-00f09--and-pages-in-without-drift-desktop/` (the `anchor-drift` annotation has the measurement) | **Open** |
+| BUG-7 | AC-T9-3 | S2 | web-desktop | no | Dev B (DEV-B-22) | 1. Open a thread, send two replies of your own from `thread-composer-input`. 2. Hover the second reply, click `message-action-delete`, confirm with `delete-confirm`. | The row stays and shows `message-redacted` (as a redacted message does in the room timeline, AC-B9), and the divider/summary count drops by 1. | The **row disappears from `thread-message-list` entirely** — the test's diagnostic reports `row-gone/no-placeholder` where the criterion wants `row-present/redacted`. **Half the criterion is fine and that half is verified separately** (the test asserts the two independently, and only the row assertion fails): the redaction goes through and `thread-replies-divider` does tick from `2 replies` to `1 reply`. So this is purely the panel's render path dropping redacted thread replies instead of rendering the Phase 1 `message-redacted` placeholder the room timeline shows (AC-B9). A P1 ticket, but a row vanishing under the reader's cursor mid-demo is the kind of thing a stakeholder notices, hence S2 rather than S3. | `e2e/results/desktop/threads-AC-T9-in-thread-ed-bd097--and-drops-the-count-by-one-desktop/` | **Open** |
+
+### QA-17 regression gate — the `threadSupport: true` flip did not regress Phase 1/2
+
+Run after PRIN-8 landed and after QA-14's main-timeline-only receipt fixtures were in place (the gate
+precondition in docs/PHASE3_PLAN.md "Sequence").
+
+| Project | Result | Verdict |
+|---|---|---|
+| `desktop` (96 tests) | 79 pass / 9 fail / 8 skip, then **87 pass / 1 fail / 8 skip** after triage | No regression from the flip. 8 of the 9 failures were a **transient broken build**: every one is `app-shell` / `current-user` never rendering after login, in one contiguous block (AC-B5-6, AC-B6-1..5, AC-B7-1/2/3), and all 8 pass on re-run — the dev server on 5173 was serving a half-saved edit while Dev B worked. The 9th is AC-A4-2, see G-1. |
+| `mobile` (58 tests) | 57 pass / 1 fail / 0 skip, then **58 pass** after a fixture fix | No regression from the flip. The single failure (AC-V2-5) was a QA-side seed-window defect, listed under "Fixture-side defects". |
+
+Two gate findings that are **not** product defects but do need an owner:
+
+| # | Finding | Owner |
+|---|---|---|
+| G-1 | **AC-A4-2 ("`#dev` has three members and carol is absent") is no longer true of this homeserver, and will not be true again.** Carol joined `#dev` on 2026-10-08 (Phase 3 thread tooling), and **PRIN-12 seeds the `#dev` thread with a carol-authored root**, so carol is a `#dev` member from the next `seed:reset` onwards: the criterion's seeded expectation now contradicts another Phase 3 ticket. QA has made the test derive membership from the server and record the drift with `noteSeedDrift` (the criterion's real content — the panel lists exactly who the server says is joined — still passes), but the **criterion text in docs/ACCEPTANCE.md needs a PM decision**: drop "carol is absent", or seed the `#dev` thread under a member who is already there. | PM / Principal |
+| G-2 | `npm run verify:threads` pointed at a `scripts/verify-thread-shell.mjs` that was not in the tree, so the command failed immediately. **Resolved during Wave 8** — the Principal landed the script; re-checked at the end of this pass. | Principal (closed) |
+
+### Final Wave 8 runs (AC-T11-3)
+
+`npx playwright test --project=desktop` then `--project=mobile`, sequentially, on the dirty
+homeserver, with both thread specs and both smoke step 11s in place.
+
+| Project | Tests | Pass | Fail | Skip | Did not run | Time |
+|---|---|---|---|---|---|---|
+| `desktop` | 141 | **114** | 3 | 13 | 11 | 31.1 min |
+| `mobile` | 74 | **65** | 2 | 7 | 0 | 3.4 min |
+
+**Desktop failures**: BUG-6 (AC-T6-4) and BUG-7 (AC-T9-3), both open and listed above, plus
+**BUG-4** (`smoke.spec.ts` step 1, login 16 083 ms) — and because that spec is `mode: 'serial'`,
+step 1's failure is what produced all **11 "did not run"**, demo step 11 included. Run on its own,
+`npm run test:e2e:smoke` is 7 passed / 5 skipped with step 11a green and step 11b skipped
+(`header-threads` not built), and both screenshot sets are written: `e2e/results/demo/11-*` (5 shots)
+and `e2e/demo-mobile/11-*` (4 shots).
+
+**Mobile failures**: both **intermittent, both pass on re-run, neither is a product defect**, and
+both are now hardened in the specs (see "Fixture-side defects" 7 and 8). The 13 desktop and 7 mobile
+skips are the 8 known fresh-seed skips, 1 manual clipboard criterion, the `not-built` thread UI, and
+the device-only AC-T3-5.
+
+**Re-verified after the hardening**: `e2e/mobile-threads.spec.ts` 8 passed / 6 not-built, and
+`e2e/voice.spec.ts` 18/18 passed.
+
+### Observation: the thread suites make `#general` slower to page back (no defect, one recommendation)
+
+After this pass `#general` holds **1 066 events, 335 of them (31.4 %) thread replies**. Thread
+replies are real events in the room's `/messages` history but are *correctly* absent from the main
+timeline, so backwards pagination has to walk ~1.5x more server events to surface the same number of
+rendered rows. The visible effect is in the Phase 1 suite, not the product: `conversation.spec.ts`
+tests that call `withFullHistory()` went from a few seconds to **36-43 s each**, which is most of why
+the final `desktop` run took 31 minutes against the gate run's 10.
+
+Nothing fails because of it and no criterion is violated — the app still reaches
+`timeline-start` correctly. Two follow-ups worth taking:
+
+1. **QA (next pass):** move the 40-reply pagination fixtures (`theBigThread()` in
+   `e2e/threads.spec.ts`) from `#general` to `#dev`. The criteria do not name a room, and it would
+   keep ~80 events per run out of the room every Phase 1 pagination criterion walks.
+2. **Principal (worth a look, not a bug):** a room where a third of the history is thread replies is
+   now the normal case for this homeserver. Worth confirming that `paginateBack` cannot return a page
+   of *only* thread replies and be mistaken for "no more history" — the tests reach the start banner,
+   so it behaves today, but the margin is narrower than it was.
+
+### Not built yet (as of this QA pass — informational, not defects)
+
+Probed once per run by `requireThreadUi`; these are the entry points that were absent, with the
+criteria that consequently skipped rather than failed.
+
+| Missing | Owner | Criteria skipped |
+|---|---|---|
+| `header-threads` / `header-threads-unread` — the button is not in `channel-header`. `src/features/navigation/components/ThreadList.tsx` **exists** and already uses the registry names (`thread-list[data-variant]`, `thread-list-item-{rootId}`, `-author` / `-snippet` / `-count` / `-time` / `-avatars`, `thread-list-empty`, `thread-list-close`), but nothing mounts it and `ThreadList.module.css` is missing — it is dead code today, so the app still builds; it will not once the header imports it. | Dev A (DEV-A-17) | desktop AC-T2-7, AC-T7-1..8; phone AC-T7-1 / 2 / 4 / 7; desktop demo step 11b; phone demo step 11b |
+| `header-back` / `header-thread-room` on phone | Dev A (DEV-A-18) | phone AC-T8-1, AC-T8-2 |
+
+Built and green at the time of the pass: `message-action-thread` (toolbar and sheet), `thread-panel`
+with the registry composer, `thread-root`, `thread-replies-divider`, `thread-message-list`,
+`thread-typing`, `thread-summary-{rootId}` with `-count` / `-time` / `-avatars`,
+`thread-timeline-start`, `thread-timeline-loading`, `thread-close`, `app-shell[data-thread-open]`.
+
+### Contract divergences for the Principal (not defects; the devs code against the ticket table)
+
+| # | docs/PHASE3_TICKETS.md "Shared API" says | The tree has | Why it matters |
+|---|---|---|---|
+| D-1 | `src/store/thread.ts`, `useThreadStore` with `open: { roomId, rootId } \| null` plus `openThreadRootId` | `src/store/threads.ts`, `useThreadStore` with `openThreadRootId` / `openThreadRoomId` fields and a `useOpenThread()` selector returning `{ roomId, threadRootId }` | Internal only, and QA asserts the DOM contract (`app-shell[data-thread-open]`, `thread-panel[data-root]`) rather than the store, so nothing in the suite depends on it. **Resolved during Wave 8**: docs/ARCHITECTURE.md now has the "Phase 3 deltas (threads)" section AC-T10-4 asks for, which records these renames. Left here as the record of what QA checked. |
+| D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. |
+| D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
+
 ## Not bugs — criteria that cannot be judged on a dirty homeserver
 
 These are skipped with an actionable reason by `e2e/fixtures/fresh.ts`, not failed. They need
@@ -133,9 +248,31 @@ seed-sensitive.
 | AC-B8-4 | Clipboard paste — the criterion itself marks Playwright optional; verify by hand. |
 | demo steps 2, 3, 5, 6 | Step 2 asserts the seeded `3` badge on `#random`; steps 3/5/6 act on seeded rows that must be in the opening window. |
 
+### Phase 3 criteria that cannot be judged here (no emulator, no device)
+
+| Criterion | Why | Who checks it |
+|---|---|---|
+| AC-T3-5 | Android hardware back must close an open thread **before** closing drawers or leaving the app. `@capacitor/app` `backButton` events are not dispatched in Chromium, so the order can only be seen on a device. The handler order is in `src/app/Shell.tsx` (thread, then sheets/drawers, then `minimizeApp`) and reviewable, but not testable here. | Stakeholder, on the APK, same pass as AC-M6 / AC-V7 |
 ## Fixture-side defects found and fixed in this suite (no dev action)
 
 Recorded so the same trap is not re-introduced.
+
+### Phase 3 (QA-14 .. QA-18)
+
+Eight QA-side defects found and fixed during the thread pass. The first is the one the regression
+gate was designed to catch (the `threadSupport` flip breaking a Phase 2 fixture assumption); 2-6 are
+defects in the new thread suite itself; 7-8 are timing flakes the final full runs exposed.
+
+| # | Symptom | Cause | Fix |
+|---|---|---|---|
+| 1 | **AC-V2-5 red in the `mobile` gate** — `message-$4SDk….voice-message` never rendered for bob. | The test picked "alice's newest `m.audio` in `#dev`" from the newest **60** `/messages` events, but bob's first render only holds the initial sync window (~30). `#dev` now absorbs the Phase 3 thread tooling (`npm run thread:sample`, the 40-reply pagination fixtures), so the chosen note was hundreds of events back and had no row at all — and `scrollIntoViewIfNeeded().catch()` swallowed the miss. The predicate also accepted a plain `m.audio`, which renders as `message-file` by design (AC-V4-3). | `e2e/voice.spec.ts`: look only inside a 25-event window, require `org.matrix.msc3245.voice`, and post a fresh note when neither holds. |
+| 2 | **17 of 20 thread tests red with `login-form` never appearing**, the page showing an already-logged-in shell. | `requireThreadUi` probes the UI in `page.context().newPage()`, which **shares origin storage** with the test's own page. The probe's `loginAs` left `matrix-poc.session` behind, and `loginAs`'s own `dropStoredSession` is a no-op while the test page is still on `about:blank`, so `goto('/')` restored the probe's session instead of showing the form. | The probe clears `localStorage` before closing, and `resetSession(page)` (new, in `e2e/fixtures/threads.ts`) runs before every `loginAs` in the two thread specs. |
+| 3 | **AC-T2-5 red** — "the latest sender is among the avatars", received `""`. | The assertion read **text** from `thread-summary-avatars`. An avatar is an `<img>` (or an initials badge) and carries no text; identity lives in `title` / `aria-label` / `alt`. Bob has a seeded avatar, so the stack was correct and the assertion was not. | `avatarNames(stack)` in `e2e/fixtures/threads.ts` reads identity from those attributes, falling back to text; AC-T2-5 and AC-T4-2/3 use it. |
+| 4 | **AC-T6-1 red** — `thread-composer-send` "hidden". | The button follows the Phase 2 composer rule (AC-V1-1): the mic owns the slot while the input is empty and send appears with text. Asserting it *visible* on an empty composer contradicted a Phase 2 criterion. | AC-T6-1 asserts the element is attached, then visible after a character is typed. |
+| 5 | **AC-T3-4 (phone) red** — `message-action-sheet` never opened. | The test opened and closed the member drawer first; the just-closed backdrop was still fading over the row, so the synthetic CDP touch landed on the backdrop and the 600 ms long-press never reached the row. | Dropped the drawer preamble (a long-press cannot reach a row an open drawer covers either, so it added no coverage); the drawer/sheet "one at a time" invariant is asserted where it is reachable, in AC-T7-7. |
+| 6 | **AC-T5-2 (phone) red** — `locator.scrollIntoViewIfNeeded: element is not stable / not attached`. | `#general` takes live traffic from the devs and from the rest of the suite, so the list auto-scrolls while a test aims at a row. | `stableRow(page, eventId)` waits for visibility and tolerates a few scroll attempts; `longPressThread` retries the gesture once if the sheet did not open. Both thread specs and the `requireThreadUi` probe go through it. |
+| 7 | **AC-V1-1 red once** in the final `mobile` run — `channel-header-name` read `general` where the test opened `#dev`. | `openRoom` pre-seeds `nav.selection` and trusted it. The room store validates a stored selection against the rooms it knows and falls back to the space's first channel when the target has not arrived in the first `/sync` batch — a pre-existing race that Phase 3 widens (`threadSupport: true` asks Synapse for per-thread unread counts, and `#general` now carries 335 thread replies). AC-V1-2 calls the same helper and passed in the same run; AC-V1-1 passes on re-run. | `openRoom` now *verifies* the header and re-selects the room through the drawer (`tapRoom`) when the pre-seed lost the race. |
+| 8 | **AC-T4-6 (phone) red once** in the final `mobile` run — bob's root row never became visible. | A 20 s budget for a `/sync` round trip that occasionally takes longer on this homeserver under load. Passes on re-run. | `rootInView` in `e2e/mobile-threads.spec.ts` waits 30 s for the root row. |
 
 ### Phase 2 (QA-8 .. QA-12)
 

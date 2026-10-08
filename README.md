@@ -2,6 +2,7 @@
 
 Vite + React 18 + TypeScript + matrix-js-sdk + zustand. Local Synapse (Docker, or WSL1 where Docker cannot run). No E2EE, no calls.
 Phase 2 adds a phone layout, voice notes (MSC3245) and Capacitor 7 wrappers for Android and iOS.
+Phase 3 adds threads (Matrix `m.thread`, Slack/Element semantics, Discord-style panel); `npm run thread:sample` posts one to #dev through the API and `npm run verify:threads` checks the core on port 5183 (`docs/ARCHITECTURE.md` "Phase 3 deltas").
 
 ## Quickstart (5 commands)
 

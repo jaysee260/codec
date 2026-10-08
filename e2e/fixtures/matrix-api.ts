@@ -15,6 +15,11 @@
  *    can be a one-shot call.
  *  - `unread_notifications` on an initial sync is unreliable on this Synapse build, so unread is
  *    derived from receipts + timeline by `unreadFor()` instead of read from sync.
+ *
+ * Phase 3 (QA-14) adds the thread surface — `sendThreadReply`, `getThreads`, `getRelations`,
+ * `getThreadSummary`, `threadReceipt`/`threadReceiptOf` — and makes the Phase 1/2 receipt helpers
+ * **main-timeline only**, because `threadSupport: true` gives every user one `m.read` position per
+ * thread on top of `main`. See {@link ReceiptMap} and `notifiesUser`.
  */
 import { readFileSync } from 'node:fs';
 import { HS_URL, PASSWORD, SERVER_NAME, type UserKey } from './seed.ts';
@@ -125,8 +130,28 @@ export interface HierarchyRoom {
   room_type?: string;
 }
 
-/** Read receipts for a room: eventId -> userId -> { ts }. */
-export type ReceiptMap = Record<string, Record<string, { ts?: number }>>;
+/**
+ * Read receipts for a room: eventId -> userId -> `{ ts, thread_id }`.
+ *
+ * Phase 3 (QA-14): with `threadSupport: true` matrix-js-sdk sends a **threaded** receipt for every
+ * position — `thread_id: "main"` for the room timeline and `thread_id: "$root"` for each thread — so
+ * one user holds several `m.read` positions in the same room at once. `thread_id` is therefore part
+ * of the data, not noise: `readReceiptOf`/`unreadFor` look at main only, `threadReceiptOf` at one
+ * thread. A receipt posted by `ApiUser.receipt()` without a thread id has `thread_id: undefined`,
+ * which counts as main (the spec's unthreaded receipt).
+ */
+export type ReceiptMap = Record<string, Record<string, ReceiptData>>;
+
+export interface ReceiptData {
+  ts?: number;
+  /** `"main"`, a thread root id, or absent for an unthreaded receipt. */
+  thread_id?: string;
+}
+
+/** True for the room ("main") timeline position: `thread_id` is `"main"` or absent. */
+export function isMainReceipt(receipt: ReceiptData | undefined): boolean {
+  return !!receipt && (receipt.thread_id === undefined || receipt.thread_id === 'main');
+}
 
 export interface TypingWatcher {
   /** The most recent `m.typing` user_ids seen by this watcher (excludes nobody). */
@@ -171,12 +196,29 @@ export interface ApiUser {
   /** Typing notification for this user (`on: false` clears it immediately). */
   typing(roomId: string, on: boolean, timeoutMs?: number): Promise<void>;
   redact(roomId: string, eventId: string, reason?: string): Promise<string>;
-  /** Send an `m.read` receipt. NOTE: Synapse refuses to move a receipt backwards. */
-  receipt(roomId: string, eventId: string): Promise<void>;
-  /** All `m.read` receipts currently visible in the room. */
+  /**
+   * Send an `m.read` receipt. NOTE: Synapse refuses to move a receipt backwards.
+   * `threadId` sends the Phase 3 threaded form (`{ thread_id }`): a thread root id for an in-thread
+   * position, `'main'` for the room timeline. Omitted = the Phase 1 unthreaded receipt.
+   */
+  receipt(roomId: string, eventId: string, threadId?: string): Promise<void>;
+  /** `POST m.read` on `eventId` with `{ thread_id: rootId }` (AC-T6-8 / the receipt contract). */
+  threadReceipt(roomId: string, rootId: string, eventId: string): Promise<void>;
+  /** All `m.read` receipts currently visible in the room, `thread_id` included. */
   getReceipts(roomId: string): Promise<ReceiptMap>;
-  /** The event id `userId`'s `m.read` receipt points at, or undefined. */
+  /**
+   * The event id `userId`'s **main-timeline** `m.read` receipt points at, or undefined.
+   * Threaded receipts (`thread_id` = a root id) are ignored — see {@link ReceiptMap}.
+   */
   readReceiptOf(roomId: string, userId: string): Promise<string | undefined>;
+  /** The event id `userId`'s receipt **for the thread `rootId`** points at, or undefined (AC-T6-8). */
+  threadReceiptOf(roomId: string, userId: string, rootId: string): Promise<string | undefined>;
+  /** Newest receipt position of `userId` whose receipt data passes `accept` (the two above build on it). */
+  newestReceiptOf(
+    roomId: string,
+    userId: string,
+    accept: (receipt: ReceiptData) => boolean,
+  ): Promise<string | undefined>;
   getEvent(roomId: string, eventId: string): Promise<MatrixEventJson>;
   /** `GET /_matrix/client/v1/rooms/{spaceId}/hierarchy` */
   hierarchy(spaceId: string): Promise<{ rooms: HierarchyRoom[] }>;
@@ -221,6 +263,113 @@ export interface ApiUser {
   sendVoice(roomId: string, opts?: SendVoiceOptions): Promise<SentVoice>;
   /** Downloads an `mxc://` uri through `/_matrix/media/v3/download` for magic-byte checks (AC-V2-3). */
   getMedia(mxc: string): Promise<DownloadedMedia>;
+
+  /* ---------------------------------------------------------------- threads (Phase 3, QA-14) */
+
+  /**
+   * Posts a thread reply with the **exact** contract content of docs/PHASE3_ACCEPTANCE.md:
+   *
+   * ```json
+   * { "msgtype": "m.text", "body": body,
+   *   "m.relates_to": { "rel_type": "m.thread", "event_id": rootId,
+   *                     "is_falling_back": true, "m.in_reply_to": { "event_id": latest ?? rootId } } }
+   * ```
+   *
+   * `latest` is the newest reply already in the thread. Pass it explicitly when sending a run of
+   * replies (the previous call's return value) — it saves a `/relations` round trip per reply, which
+   * matters when a test needs 35+ of them. Omitted, the newest reply is read from `getRelations`
+   * (falling back to the root for the first reply of a thread).
+   */
+  sendThreadReply(roomId: string, rootId: string, body: string, opts?: SendThreadReplyOptions): Promise<string>;
+  /**
+   * `GET /_matrix/client/v1/rooms/{roomId}/threads?include=all` — root events, **newest activity
+   * first**, following `next_batch` up to `maxPages` (default 3, as `useRoomThreads` does).
+   */
+  getThreads(roomId: string, opts?: GetThreadsOptions): Promise<ThreadsPage>;
+  /**
+   * `GET /_matrix/client/v1/rooms/{roomId}/relations/{rootId}/m.thread?dir=b&limit=50` —
+   * the thread's replies **newest first** (the direction the SDK paginates in). `oldestFirst`
+   * reverses the whole walk, which is the order the panel must render.
+   */
+  getRelations(roomId: string, rootId: string, opts?: GetRelationsOptions): Promise<RelationsPage>;
+  /**
+   * The server's bundled thread summary on a root: `unsigned["m.relations"]["m.thread"]`, read from
+   * `/event` (and from `/messages` as a fallback, because Synapse only bundles relations on some
+   * paths for some event ages). `null` when the event carries no thread bundle.
+   */
+  getThreadSummary(roomId: string, rootId: string): Promise<ServerThreadSummary | null>;
+  /** Alias of {@link getThreadSummary} under the docs/PHASE3_TICKETS.md name. */
+  threadSummaryOf(roomId: string, rootId: string): Promise<ServerThreadSummary | null>;
+  /** `GET /user/{me}/filter/{filterId}` — the sync filter the app registered (AC-T1-1). */
+  getFilter(filterId: string): Promise<Record<string, unknown> | undefined>;
+}
+
+export interface SendThreadReplyOptions {
+  /** `m.in_reply_to.event_id`. Default: the newest existing reply, else the root. */
+  latest?: string;
+  /** Extra top-level content keys merged into the message (e.g. `format`/`formatted_body`). */
+  extra?: Record<string, unknown>;
+}
+
+export interface GetThreadsOptions {
+  /** `all` (default) or `participated`. */
+  include?: 'all' | 'participated';
+  /** Server page size. Default 50. */
+  limit?: number;
+  /** How many `next_batch` pages to follow. Default 3 (what `useRoomThreads` does). */
+  maxPages?: number;
+}
+
+export interface ThreadsPage {
+  /** Root events, newest activity first. */
+  chunk: MatrixEventJson[];
+  /** Root event ids in the same order (the order `thread-list-item-*` must be in). */
+  rootIds: string[];
+  /** The token left over after `maxPages`, when the room has more threads. */
+  nextBatch?: string;
+}
+
+export interface GetRelationsOptions {
+  limit?: number;
+  maxPages?: number;
+  /** Return the replies oldest first (the order the panel renders). Default false = newest first. */
+  oldestFirst?: boolean;
+}
+
+export interface RelationsPage {
+  chunk: MatrixEventJson[];
+  /** Reply event ids in `chunk` order. */
+  replyIds: string[];
+  nextBatch?: string;
+}
+
+/** `unsigned["m.relations"]["m.thread"]` as Synapse bundles it. */
+export interface ServerThreadSummary {
+  count: number;
+  current_user_participated?: boolean;
+  latest_event?: MatrixEventJson;
+}
+
+/** The `m.relates_to` every thread reply must carry (docs/PHASE3_ACCEPTANCE.md). */
+export interface ThreadRelatesTo {
+  rel_type: string;
+  event_id: string;
+  is_falling_back?: boolean;
+  'm.in_reply_to'?: { event_id?: string };
+}
+
+/**
+ * `m.relates_to` of an event as fetched from the API, typed for field-by-field assertions
+ * (AC-T2-1/2: `rel_type`, `event_id`, `is_falling_back`, `m.in_reply_to.event_id`).
+ */
+export function threadRelationOf(event: MatrixEventJson | undefined): ThreadRelatesTo | undefined {
+  const relation = event?.content?.['m.relates_to'] as ThreadRelatesTo | undefined;
+  return relation && typeof relation.rel_type === 'string' ? relation : undefined;
+}
+
+/** True for any event whose relation is `m.thread`, whatever `is_falling_back` says (the reading rule). */
+export function isThreadReplyJson(event: MatrixEventJson): boolean {
+  return threadRelationOf(event)?.rel_type === 'm.thread';
 }
 
 /* ------------------------------------------------------------------ voice messages (Phase 2) */
@@ -409,15 +558,21 @@ export function waveformFromSamples(samples: Float32Array, buckets = 100): numbe
 }
 
 /**
- * Would this event bump `notification_count` for `forUserId` under Synapse's default push rules?
- * Own messages, reactions, redactions and edits (`.m.rule.suppress_edits`) do not.
+ * Would this event bump the **main-timeline** `notification_count` for `forUserId` under Synapse's
+ * default push rules? Own messages, reactions, redactions and edits (`.m.rule.suppress_edits`) do not.
+ *
+ * Phase 3: neither do **thread replies**. With `threadSupport: true` Synapse reports them under
+ * `unread_thread_notifications` and the app's room badge is `getRoomUnreadNotificationCount(Total)`,
+ * i.e. main only (docs/PHASE3_PLAN.md "Room badges"). `/messages` still returns thread replies in the
+ * room chunk, so without this they would be counted here and `unreadFor` would drift above the badge
+ * the moment this suite leaves a thread reply in a seeded room.
  */
 function notifiesUser(event: MatrixEventJson, forUserId: string): boolean {
   if (event.type !== 'm.room.message') return false;
   if (event.sender === forUserId) return false;
   if (typeof event.content?.msgtype !== 'string') return false; // redacted body
   const relation = event.content['m.relates_to'] as { rel_type?: string } | undefined;
-  return relation?.rel_type !== 'm.replace';
+  return relation?.rel_type !== 'm.replace' && relation?.rel_type !== 'm.thread';
 }
 
 async function login(key: UserKey): Promise<{ userId: string; token: string }> {
@@ -500,11 +655,15 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
       return res.event_id;
     },
 
-    async receipt(roomId, eventId) {
+    async receipt(roomId, eventId, threadId) {
       await request('POST', `${V3}/rooms/${room(roomId)}/receipt/m.read/${encodeURIComponent(eventId)}`, {
         token,
-        body: {},
+        body: threadId ? { thread_id: threadId } : {},
       });
+    },
+
+    threadReceipt(roomId, rootId, eventId) {
+      return api.receipt(roomId, eventId, rootId);
     },
 
     async getReceipts(roomId) {
@@ -533,7 +692,7 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
       for (const ev of events) {
         if (ev.type !== 'm.receipt') continue;
         for (const [eventId, byType] of Object.entries(ev.content as Record<string, unknown>)) {
-          const read = (byType as Record<string, Record<string, { ts?: number }>>)['m.read'];
+          const read = (byType as Record<string, Record<string, ReceiptData>>)['m.read'];
           if (!read) continue;
           out[eventId] = { ...(out[eventId] ?? {}), ...read };
         }
@@ -541,20 +700,36 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
       return out;
     },
 
-    async readReceiptOf(roomId, forUserId) {
+    /**
+     * Newest receipt position of `forUserId` that {@link accept}s, by `ts`.
+     *
+     * A user holds several `m.read` positions in one room at once: matrix-js-sdk sends a threaded
+     * receipt per timeline (`thread_id: "main"` plus one per thread) and `ApiUser.receipt()` posts
+     * unthreaded ones; Synapse keeps all of them in the room's `m.receipt` event. Taking whichever
+     * key `Object.entries` yields first returns an arbitrary — often older, or another thread's —
+     * position, so filter first and then pick the newest by `ts`.
+     */
+    async newestReceiptOf(roomId, forUserId, accept) {
       const receipts = await api.getReceipts(roomId);
-      // A user can hold several `m.read` positions at once: matrix-js-sdk sends *threaded* receipts
-      // (`thread_id: "main"`) while `ApiUser.receipt()` posts unthreaded ones, and Synapse keeps both
-      // in the room's `m.receipt` event. Taking whichever key `Object.entries` yields first returns
-      // an arbitrary — often older — position, so pick the newest by `ts`.
       let newest: { eventId: string; ts: number } | undefined;
       for (const [eventId, users] of Object.entries(receipts)) {
         const receipt = users[forUserId];
-        if (!receipt) continue;
+        if (!receipt || !accept(receipt)) continue;
         const ts = receipt.ts ?? 0;
         if (!newest || ts > newest.ts) newest = { eventId, ts };
       }
       return newest?.eventId;
+    },
+
+    readReceiptOf(roomId, forUserId) {
+      // Main timeline only (QA-14): after the `threadSupport` flip alice also holds a receipt per
+      // thread, and those are *newer* than her main one, so an unfiltered "newest by ts" would
+      // report a thread position for every main-timeline criterion (AC-B7-3, AC-A5, unreadFor).
+      return api.newestReceiptOf(roomId, forUserId, isMainReceipt);
+    },
+
+    threadReceiptOf(roomId, forUserId, rootId) {
+      return api.newestReceiptOf(roomId, forUserId, (r) => r.thread_id === rootId);
     },
 
     getEvent(roomId, eventId) {
@@ -860,6 +1035,100 @@ export async function asUser(key: UserKey): Promise<ApiUser> {
         magicHex,
         container: detectContainer(bytes),
       };
+    },
+
+    // ------------------------------------------------------------ threads (Phase 3)
+
+    async sendThreadReply(roomId, rootId, body, opts = {}) {
+      let latest = opts.latest;
+      if (!latest) {
+        const existing = await api.getRelations(roomId, rootId, { limit: 1, maxPages: 1 });
+        latest = existing.replyIds[0] ?? rootId; // `dir=b` -> [0] is the newest reply
+      }
+      return api.sendEvent(roomId, 'm.room.message', {
+        msgtype: 'm.text',
+        body,
+        'm.relates_to': {
+          rel_type: 'm.thread',
+          event_id: rootId,
+          is_falling_back: true,
+          'm.in_reply_to': { event_id: latest },
+        },
+        ...(opts.extra ?? {}),
+      });
+    },
+
+    async getThreads(roomId, opts = {}) {
+      const { include = 'all', limit = 50, maxPages = 3 } = opts;
+      const chunk: MatrixEventJson[] = [];
+      let from: string | undefined;
+      let nextBatch: string | undefined;
+      for (let page = 0; page < maxPages; page += 1) {
+        const res = await request<{ chunk?: MatrixEventJson[]; next_batch?: string }>(
+          'GET',
+          `${V1}/rooms/${room(roomId)}/threads`,
+          { token, query: { include, limit, from } },
+        );
+        chunk.push(...(res.chunk ?? []));
+        nextBatch = res.next_batch;
+        if (!res.next_batch || (res.chunk ?? []).length === 0) {
+          nextBatch = undefined;
+          break;
+        }
+        from = res.next_batch;
+      }
+      return { chunk, rootIds: chunk.map((e) => e.event_id), nextBatch };
+    },
+
+    async getRelations(roomId, rootId, opts = {}) {
+      const { limit = 50, maxPages = 5, oldestFirst = false } = opts;
+      const chunk: MatrixEventJson[] = [];
+      let from: string | undefined;
+      let nextBatch: string | undefined;
+      for (let page = 0; page < maxPages; page += 1) {
+        const res = await request<{ chunk?: MatrixEventJson[]; next_batch?: string }>(
+          'GET',
+          `${V1}/rooms/${room(roomId)}/relations/${encodeURIComponent(rootId)}/m.thread`,
+          { token, query: { dir: 'b', limit, from } },
+        );
+        chunk.push(...(res.chunk ?? []));
+        nextBatch = res.next_batch;
+        if (!res.next_batch || (res.chunk ?? []).length === 0) {
+          nextBatch = undefined;
+          break;
+        }
+        from = res.next_batch;
+      }
+      const ordered = oldestFirst ? [...chunk].reverse() : chunk;
+      return { chunk: ordered, replyIds: ordered.map((e) => e.event_id), nextBatch };
+    },
+
+    async getThreadSummary(roomId, rootId) {
+      const read = (event: MatrixEventJson | undefined): ServerThreadSummary | null => {
+        const relations = event?.unsigned?.['m.relations'] as
+          | Record<string, ServerThreadSummary>
+          | undefined;
+        const summary = relations?.['m.thread'];
+        return summary && typeof summary.count === 'number' ? summary : null;
+      };
+      // `/event` is the cheap path; `/messages` is the fallback because Synapse does not bundle
+      // relations on every path for every event age (the Advisor's probe reads both).
+      const direct = read(await api.getEvent(roomId, rootId).catch(() => undefined));
+      if (direct) return direct;
+      const chunk = await api.messagesDeep(roomId, 3);
+      return read(chunk.find((e) => e.event_id === rootId));
+    },
+
+    threadSummaryOf(roomId, rootId) {
+      return api.getThreadSummary(roomId, rootId);
+    },
+
+    getFilter(filterId) {
+      return request<Record<string, unknown> | undefined>(
+        'GET',
+        `${V3}/user/${encodeURIComponent(userId)}/filter/${encodeURIComponent(filterId)}`,
+        { token, allow404: true },
+      );
     },
   };
 

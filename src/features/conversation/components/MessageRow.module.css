@@ -173,3 +173,16 @@
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* ---------------------------------------------------------------------------
+ * Thread panel (Phase 3): the root message at the top of the panel. Same row markup, but it is not a
+ * timeline entry - no top margin, slightly tighter gutter, and it never highlights on hover.
+ * ------------------------------------------------------------------------- */
+.asThreadRoot {
+  margin-top: 0;
+  padding: 8px 12px;
+  gap: 12px;
+}
+.asThreadRoot:hover {
+  background: transparent;
+}

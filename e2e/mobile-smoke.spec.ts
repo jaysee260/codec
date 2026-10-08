@@ -31,6 +31,9 @@ import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { DISPLAY_NAMES, NAMES, resolveRoom, userId } from './fixtures/seed.ts';
 import { annotate, ensureUnread, noteSeedDrift } from './fixtures/state.ts';
 import { messageList, settledEventId } from './fixtures/ui.ts';
+// `stableRow` only (the `requireThreadUi` probe is deliberately not used in this serial spec — it
+// would clear the shared page's session; see the step 11 header).
+import { openActionSheet } from './fixtures/threads.ts';
 import {
   backdrop,
   box,
@@ -51,6 +54,8 @@ const ALICE = userId('alice');
 const BOB = userId('bob');
 /** The seeded unread the demo script shows on `#random` (docs/SEED_DATA.md). */
 const RANDOM_BADGE_ON_FRESH_SEED = 3;
+/** The thread root phone step 11a creates, reused by step 11b (Phase 3 phone demo rows 2-6). */
+let demoThreadRootId = '';
 
 const R: Record<'acme' | 'gaming' | 'general' | 'random' | 'dev' | 'dmBob', string> = {
   acme: '',
@@ -349,5 +354,143 @@ test.describe('phone demo script (QA-11 mobile smoke)', () => {
 
     await tapBackdrop(page);
     await expect(memberDrawer(page)).toHaveAttribute('data-open', 'false');
+  });
+
+  /**
+   * Step 11 is the Phase 3 phone thread walk-through (QA-17, AC-T11-2): docs/PHASE3_PLAN.md "Phone
+   * demo script" rows 2-6, with bob's `npm run thread:sample` replaced by `sendThreadReply`.
+   * Screenshots land in `e2e/demo-mobile/11-*`, one per demo sub-step.
+   *
+   * Split like the desktop step 11: rows 2-4 are Dev B's panel (DEV-B-19/20) and rows 5-6 are Dev A's
+   * Threads sheet and `header-back` (DEV-A-17/18), so each half skips on its own while Wave 8 runs.
+   * The `requireThreadUi` probe is deliberately not used here — it would clear this long-lived shared
+   * page's session (see the note in `e2e/smoke.spec.ts` step 11).
+   */
+  test('step 11 — long-press to Reply in thread, send from the phone, back to the channel (demo 2-4)', async () => {
+    test.setTimeout(120_000);
+
+    const rootBody = `[demo] Phone thread root ${Date.now().toString(36)}`;
+    const rootId = await bob.send(R.general, rootBody);
+    // --- demo row 2: long-press -> the sheet -> Reply in thread -> the full-screen thread.
+    // `openActionSheet` rather than a bare `longPress`: step 10 closed the member drawer by tapping
+    // outside, and the fading `drawer-backdrop` swallows the next synthetic touch (see the helper).
+    const sheet = await openActionSheet(page, rootId);
+    const sheetItem = sheet.getByTestId('message-action-thread');
+    if ((await sheetItem.count()) === 0) {
+      await tapBackdrop(page).catch(() => undefined);
+      annotate('not-built', 'phone demo step 11a: `message-action-thread` in the sheet (DEV-B-19)');
+      test.skip(true, 'phone demo step 11a: `message-action-thread` is not built yet (DEV-B-19)');
+    }
+    await phoneShot(page, 11, 'action-sheet');
+
+    await sheetItem.tap();
+    await expect(sheet).toBeHidden();
+    const panel = page.getByTestId('thread-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('data-root', rootId);
+    await expect(page.getByTestId('thread-root')).toContainText(rootBody);
+    await expect(page.getByTestId('thread-composer-input')).toHaveAttribute(
+      'placeholder',
+      'Replying in thread',
+    );
+    // The thread fills the screen under the header.
+    const shell = await box(page.getByTestId('app-shell'), 'app-shell');
+    const panelBox = await box(panel, 'thread-panel');
+    expect(Math.round(panelBox.width), 'the thread is full-screen').toBe(Math.round(shell.width));
+    await phoneShot(page, 11, 'thread-fullscreen');
+
+    // --- demo row 3: "From my phone"
+    const input = page.getByTestId('thread-composer-input');
+    await input.tap();
+    await input.fill('From my phone');
+    await input.press('Enter');
+    await expect(
+      page
+        .getByTestId('thread-message-list')
+        .getByTestId(/^message-[$~]/)
+        .filter({ hasText: 'From my phone' }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('thread-replies-divider')).toHaveText('1 reply', { timeout: 10_000 });
+    await phoneShot(page, 11, 'phone-reply-sent');
+
+    // --- demo row 4: the back arrow returns to #general with a "1 reply" summary under the root
+    const back = page.getByTestId('header-back');
+    if ((await back.count()) === 0) {
+      annotate('not-built', 'phone demo step 11a: `header-back` is not built yet (DEV-A-18)');
+    } else {
+      await back.tap();
+      await expect(panel).toHaveCount(0);
+      await expect(page.getByTestId('channel-header-name')).toContainText(NAMES.general);
+    }
+    // `waitFor`, not `count()`: the summary row renders on a `threadVersion` bump a moment after the
+    // panel's divider has ticked, so an instant count would write a false `not-built` annotation and
+    // screenshot the timeline without the row this demo step is about.
+    const summary = page.getByTestId(`thread-summary-${rootId}`);
+    const summaryShown = await summary
+      .waitFor({ state: 'attached', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (summaryShown) {
+      await summary.scrollIntoViewIfNeeded();
+      await expect(summary.getByTestId('thread-summary-count')).toHaveText('1 reply', { timeout: 10_000 });
+    } else {
+      annotate('not-built', 'phone demo step 11a: `thread-summary-{rootId}` (DEV-B-18)');
+    }
+    await phoneShot(page, 11, 'back-in-channel-with-summary');
+
+    demoThreadRootId = rootId;
+  });
+
+  test('step 11 — bob replies: the Threads dot, the bottom sheet and reopening the thread (demo 5-6)', async () => {
+    test.setTimeout(90_000);
+
+    const threadsBtn = page.getByTestId('header-threads');
+    test.skip(
+      (await threadsBtn.count()) === 0,
+      'phone demo step 11b: `header-threads` is not built yet (DEV-A-17)',
+    );
+    test.skip(!demoThreadRootId, 'phone demo step 11b needs the thread step 11a created');
+
+    // --- demo row 5: bob's reply ticks the summary and lights the dot
+    await bob.sendThreadReply(R.general, demoThreadRootId, '[demo] Replying from my laptop');
+    await expect(page.getByTestId('header-threads-unread')).toBeVisible({ timeout: 10_000 });
+    const summary = page.getByTestId(`thread-summary-${demoThreadRootId}`);
+    const summaryShown = await summary
+      .waitFor({ state: 'attached', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (summaryShown) {
+      await expect(summary.getByTestId('thread-summary-count')).toHaveText('2 replies', {
+        timeout: 10_000,
+      });
+    }
+    await phoneShot(page, 11, 'threads-dot');
+
+    // --- demo row 6: the bottom sheet lists it; tapping opens the full-screen thread; back returns
+    await threadsBtn.tap();
+    const list = page.getByTestId('thread-list');
+    await expect(list).toBeVisible();
+    await expect(list).toHaveAttribute('data-variant', 'sheet');
+    const item = page.getByTestId(`thread-list-item-${demoThreadRootId}`);
+    await expect(item).toBeVisible({ timeout: 10_000 });
+    await expect(item.getByTestId('thread-list-item-count')).toHaveText('2 replies');
+    await expectTapTarget(item, `thread-list-item-${demoThreadRootId}`);
+    await phoneShot(page, 11, 'threads-sheet');
+
+    await item.tap();
+    await expect(list).toBeHidden();
+    await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-root', demoThreadRootId);
+    await expect(page.getByTestId('thread-replies-divider')).toHaveText('2 replies', { timeout: 10_000 });
+    await phoneShot(page, 11, 'thread-from-sheet');
+
+    const back = page.getByTestId('header-back');
+    if ((await back.count()) === 0) {
+      annotate('not-built', 'phone demo step 11b: `header-back` is not built yet (DEV-A-18)');
+    } else {
+      await back.tap();
+      await expect(page.getByTestId('thread-panel')).toHaveCount(0);
+      await expect(page.getByTestId('channel-header-name')).toContainText(NAMES.general);
+      await phoneShot(page, 11, 'back-to-channel');
+    }
   });
 });

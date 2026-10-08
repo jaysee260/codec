@@ -307,7 +307,17 @@ test.describe('DEV-A-4 member list', () => {
     await expect(page.getByTestId(`member-item-${ALICE}`)).toBeVisible();
     await expect(page.getByTestId(`member-item-${BOB}`)).toBeVisible();
     await expect(page.getByTestId(`member-item-${DAVE}`)).toBeVisible();
-    await expect(page.getByTestId(`member-item-${CAROL}`)).toHaveCount(0);
+    // "carol is absent" is a property of the *seed*, not of the member list, and Phase 3 changes it:
+    // PRIN-12 seeds the #dev thread with a carol-authored root, so carol is a #dev member from the
+    // next `seed:reset` onwards (she already joined this homeserver's #dev on 2026-10-08). The
+    // criterion's real content — the panel lists exactly who the server says is joined — is asserted
+    // against the server either way; the seeded expectation is recorded as drift (QA-17).
+    if (CAROL in joined) {
+      noteSeedDrift('AC-A4-2 (#dev carol absent)', 0, 1);
+      await expect(page.getByTestId(`member-item-${CAROL}`)).toBeVisible();
+    } else {
+      await expect(page.getByTestId(`member-item-${CAROL}`)).toHaveCount(0);
+    }
     await expect(page.getByTestId('member-count')).toContainText(String(Object.keys(joined).length));
   });
 

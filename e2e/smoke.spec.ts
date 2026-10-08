@@ -12,7 +12,7 @@
  *
  * This spec must be green before the Wave 3 dry run.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
@@ -62,6 +62,8 @@ const R = {
 let snacksEventId = '';
 /** The channel this run creates in step 10. */
 let memesName = '';
+/** The thread root step 11a creates, reused by step 11b (Phase 3 demo rows 2-7). */
+let demoThreadRootId = '';
 
 test.describe('demo script (QA-3 smoke)', () => {
   test.beforeAll(async ({ browser }) => {
@@ -357,5 +359,183 @@ test.describe('demo script (QA-3 smoke)', () => {
     await expect(invited).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId(`member-item-${CAROL}`)).toBeVisible({ timeout: 10_000 });
     await stepShot(page, 10, 'carol-invited');
+  });
+
+  /**
+   * Step 11 is the Phase 3 thread walk-through (QA-17, AC-T11-1): docs/PHASE3_PLAN.md "Desktop demo
+   * script" rows 2-7, with bob's `npm run thread:sample` replaced by `sendThreadReply` so the step
+   * needs no terminal. Screenshots land in `e2e/results/demo/11-*`, one per demo sub-step.
+   *
+   * It is split in two tests because the two halves depend on different owners: rows 2-4 and 8 need
+   * Dev B's panel (DEV-B-19/20), rows 5-7 need Dev A's Threads button and list (DEV-A-17). Each half
+   * skips with a `not-built` annotation while its half of Wave 8 is still in progress, so the demo
+   * set is as complete as the build is — and the *other* half still produces its screenshots.
+   *
+   * No `requireThreadUi` here on purpose: its probe opens a second page in this context and then
+   * clears the origin's storage, which would log this spec's long-lived shared `page` out mid-demo.
+   */
+  /**
+   * Is this piece of thread UI in the DOM?
+   *
+   * `waitFor`, not `count()`: the summary row renders on a `threadVersion` bump a moment *after* the
+   * panel's divider has already ticked, so an instant count would often read 0 and write a false
+   * `not-built` annotation — and screenshot the timeline without the row the demo is about.
+   */
+  async function threadUiPresent(locator: Locator, timeout = 10_000): Promise<boolean> {
+    return locator
+      .waitFor({ state: 'attached', timeout })
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  test('step 11 — Reply in thread: panel, two replies, live summary, bob replies (demo 2-4, 8)', async () => {
+    test.setTimeout(120_000);
+
+    // Back to where the thread demo starts: Acme HQ / #general, at the bottom.
+    await openSpace(page, R.acme);
+    await channelItem(page, R.general).click();
+    await expect(messageList(page)).toBeVisible();
+    await scrollListToBottom(page);
+
+    // Demo row 2 hovers "Lunch today? Thinking tacos." — a root of our own keeps the step replayable
+    // on a dirty homeserver (the seeded message may already carry threads from earlier runs).
+    const rootBody = `[demo] Lunch today? Thinking tacos. ${Date.now().toString(36)}`;
+    const rootId = await bob.send(R.general, rootBody);
+    const rootRow = row(page, rootId);
+    await expect(rootRow).toBeVisible({ timeout: 20_000 });
+    await rootRow.scrollIntoViewIfNeeded();
+
+    const actions = await hoverActions(page, rootId);
+    const threadAction = actions.getByTestId('message-action-thread');
+    test.skip(
+      !(await threadUiPresent(threadAction, 3_000)),
+      'demo step 11a: `message-action-thread` is not built yet (DEV-B-19)',
+    );
+
+    // --- demo row 2: the member column becomes the thread panel
+    await threadAction.click();
+    const panel = page.getByTestId('thread-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('data-root', rootId);
+    await expect(page.getByTestId('thread-root')).toContainText(rootBody);
+    await expect(page.getByTestId('thread-replies-divider')).toHaveText('No replies yet');
+    await expect(page.getByTestId('thread-composer-input')).toHaveAttribute(
+      'placeholder',
+      'Replying in thread',
+    );
+    await expect(page.getByTestId('thread-composer-input')).toBeFocused();
+    await expect(page.getByTestId('member-list')).toBeHidden();
+    await stepShot(page, 11, 'thread-opened');
+
+    // --- demo row 3: two replies in the panel, no new rows in the channel, summary "2 replies"
+    const roomRowsBefore = await page
+      .getByTestId('message-list')
+      .locator('[data-testid^="message-$"], [data-testid^="message-~"]')
+      .count();
+    for (const text of ['Tacos work for me', 'Noon?']) {
+      const composerInput = page.getByTestId('thread-composer-input');
+      await composerInput.click();
+      await composerInput.fill(text);
+      await composerInput.press('Enter');
+      await expect(
+        page.getByTestId('thread-message-list').getByTestId(/^message-[$~]/).filter({ hasText: text }),
+      ).toBeVisible({ timeout: 15_000 });
+    }
+    await expect(page.getByTestId('thread-replies-divider')).toHaveText('2 replies', { timeout: 10_000 });
+    const roomRowsAfter = await page
+      .getByTestId('message-list')
+      .locator('[data-testid^="message-$"], [data-testid^="message-~"]')
+      .count();
+    expect(roomRowsAfter, 'the channel timeline gains no rows from thread replies').toBe(roomRowsBefore);
+
+    const summary = page.getByTestId(`thread-summary-${rootId}`);
+    if (await threadUiPresent(summary)) {
+      await expect(summary.getByTestId('thread-summary-count')).toHaveText('2 replies', {
+        timeout: 10_000,
+      });
+      await expect(summary.getByTestId('thread-summary-time')).toHaveText('just now');
+    } else {
+      annotate('not-built', 'demo step 11a: `thread-summary-{rootId}` is not rendered yet (DEV-B-18)');
+    }
+    await stepShot(page, 11, 'two-replies-and-summary');
+
+    // --- demo row 4: bob replies (the demo runs `npm run thread:sample -- --root <id>` here)
+    const bobReply = await bob.sendThreadReply(R.general, rootId, '[demo] Noon works, see you there');
+    await expect(page.getByTestId('thread-message-list').getByTestId(`message-${bobReply}`)).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('thread-replies-divider')).toHaveText('3 replies', { timeout: 10_000 });
+    if (await threadUiPresent(summary)) {
+      await expect(summary.getByTestId('thread-summary-count')).toHaveText('3 replies', {
+        timeout: 10_000,
+      });
+    }
+    await stepShot(page, 11, 'bob-replied-live');
+
+    // --- demo row 5 (first half) and row 8: close the panel, the member column returns, and the
+    // summary row reopens the same thread.
+    await page.getByTestId('thread-close').click();
+    await expect(panel).toHaveCount(0);
+    await expect(page.getByTestId('member-list')).toBeVisible();
+    await stepShot(page, 11, 'panel-closed-members-back');
+
+    if (await threadUiPresent(summary)) {
+      await summary.scrollIntoViewIfNeeded();
+      await summary.click();
+      await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-root', rootId);
+      await stepShot(page, 11, 'reopened-from-summary');
+      await page.getByTestId('thread-close').click();
+    }
+
+    // Leave the thread on the board for step 11b.
+    demoThreadRootId = rootId;
+  });
+
+  test('step 11 — the Threads button: unread dot, list, reopen from the list (demo 5-7)', async () => {
+    test.setTimeout(90_000);
+
+    const threadsBtn = page.getByTestId('header-threads');
+    test.skip(
+      !(await threadUiPresent(threadsBtn, 3_000)),
+      'demo step 11b: `header-threads` is not built yet (DEV-A-17)',
+    );
+    test.skip(!demoThreadRootId, 'demo step 11b needs the thread step 11a created');
+
+    // --- demo row 5 (second half): bob replies again while the panel is closed -> the dot appears
+    await bob.sendThreadReply(R.general, demoThreadRootId, '[demo] Bringing the guacamole');
+    await expect(page.getByTestId('header-threads-unread')).toBeVisible({ timeout: 10_000 });
+    const summary = page.getByTestId(`thread-summary-${demoThreadRootId}`);
+    if (await threadUiPresent(summary)) {
+      await expect(summary.getByTestId('thread-summary-count')).toHaveText('4 replies', {
+        timeout: 10_000,
+      });
+    }
+    await stepShot(page, 11, 'threads-dot');
+
+    // --- demo row 6: the list, with our thread at the top
+    await threadsBtn.click();
+    const list = page.getByTestId('thread-list');
+    await expect(list).toBeVisible();
+    await expect(list).toHaveAttribute('data-variant', 'popover');
+    const item = page.getByTestId(`thread-list-item-${demoThreadRootId}`);
+    await expect(item).toBeVisible({ timeout: 10_000 });
+    await expect(item.getByTestId('thread-list-item-author')).toContainText(DISPLAY_NAMES.bob);
+    await expect(item.getByTestId('thread-list-item-count')).toHaveText('4 replies');
+    await expect(item.getByTestId('thread-list-item-time')).toHaveText(/just now|min ago/);
+    const order = await list
+      .locator('[data-testid^="thread-list-item-$"]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid') ?? ''));
+    expect(order[0], 'our thread has the newest activity, so it is listed first').toBe(
+      `thread-list-item-${demoThreadRootId}`,
+    );
+    await stepShot(page, 11, 'threads-list');
+
+    // --- demo row 7: the item reopens the thread with all four replies and clears the dot
+    await item.click();
+    await expect(list).toBeHidden();
+    await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-root', demoThreadRootId);
+    await expect(page.getByTestId('thread-replies-divider')).toHaveText('4 replies', { timeout: 10_000 });
+    await expect(page.getByTestId('header-threads-unread')).toHaveCount(0, { timeout: 10_000 });
+    await stepShot(page, 11, 'reopened-from-list');
   });
 });

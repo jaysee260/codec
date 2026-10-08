@@ -24,6 +24,7 @@ import { getHsUrl } from '@/lib/matrix/config.ts';
 import { bindClient, unbindClient } from './bridge.ts';
 import { resetRooms } from './rooms.ts';
 import { resetTimelines } from './timeline.ts';
+import { resetThreads } from './threads.ts';
 
 export type SessionStatus = 'logged-out' | 'logging-in' | 'syncing' | 'ready' | 'error';
 
@@ -106,6 +107,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     await sdkLogout();
     resetRooms();
     resetTimelines();
+    resetThreads();
     set({ status: nextStatus, userId: null, displayName: null, avatarUrl: null, error: message, syncState: null });
   }
 
@@ -158,6 +160,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       await sdkLogout();
       resetRooms();
       resetTimelines();
+      resetThreads();
       set({ status: 'logged-out', userId: null, displayName: null, avatarUrl: null, error: null, syncState: null });
     },
   };

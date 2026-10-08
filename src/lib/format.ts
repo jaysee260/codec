@@ -116,6 +116,23 @@ export function formatFullTime(ts: number): string {
   return `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * Relative age for lists and thread summary rows (Phase 3; one helper so Dev A's Threads list and Dev B's
+ * summary row agree). Pinned strings: `just now` (< 60 s), `N min ago` (< 60 min), `N h ago` (< 24 h),
+ * `yesterday` (calendar yesterday), `N d ago` (< 7 days), else `DD/MM/YYYY`.
+ */
+export function formatRelative(ts: number, now: number = Date.now()): string {
+  const diff = Math.max(0, now - ts);
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} h ago`;
+  if (isSameDay(ts, now - 86_400_000)) return 'yesterday';
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 7) return `${Math.max(2, days)} d ago`;
+  const d = new Date(ts);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
 /** "Today", "Yesterday" or "30 September 2026" for day dividers. */
 export function formatDayDivider(ts: number): string {
   const now = Date.now();

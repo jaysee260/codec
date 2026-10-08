@@ -141,8 +141,11 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     initialSyncLimit: 30,
     lazyLoadMembers: true,
     pendingEventOrdering: PendingEventOrdering.Chronological,
-    // No threads (out of scope) and no crypto.
-    threadSupport: false,
+    // Phase 3: threads. In matrix-js-sdk v43 this is a startClient option (not createClient). It makes the
+    // SDK partition `m.thread` replies out of the main live timeline into `room.getThread(rootId)` models,
+    // add `thread_id` to read receipts, and request `unread_thread_notifications` in the sync filter.
+    // No crypto, ever.
+    threadSupport: true,
   });
   return c;
 }

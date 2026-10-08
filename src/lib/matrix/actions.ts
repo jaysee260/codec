@@ -2,8 +2,19 @@
  * Every write operation the UI performs against Matrix, plus a few synchronous readers over
  * SDK aggregates (members, reactions). Names and signatures are the contract in
  * docs/ARCHITECTURE.md; devs call these and never talk to the SDK for writes.
+ *
+ * Phase 3 (threads): sends accept `{ threadRoot }` and then carry the spec thread relation
+ *   m.relates_to: { rel_type: 'm.thread', event_id: <root>, is_falling_back: true,
+ *                   'm.in_reply_to': { event_id: <latest reply in the thread, else the root> } }
+ * (`replyTo` + `threadRoot` is rejected with `ThreadReplyConflictError`: no quote replies inside threads, AC-T2-3).
+ * Reactions, edits and redactions keep relating to their target; when the target is a thread reply they are
+ * sent with the SDK's `threadId` argument so the local echo lands in the thread timeline. Receipts carry
+ * `thread_id` ('main' or the root id) - the SDK derives it from the event. Threads never nest:
+ * `resolveThreadRoot()` collapses any reply id to its root.
  */
 import {
+  Direction,
+  EventStatus,
   EventType,
   KnownMembership,
   MatrixError,
@@ -14,10 +25,12 @@ import {
   Visibility,
   type Room,
   type RoomMember,
+  type Thread,
 } from 'matrix-js-sdk';
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events.js';
 import { getClient, getClientOrNull } from './client.ts';
 import { serverNameOf } from './config.ts';
+import { getThreadRelation, isThreadReply } from './utils.ts';
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { containerMimeType, voiceFileName } from '../audio/mime.ts';
 
@@ -67,10 +80,98 @@ export async function retryOnRateLimit<T>(fn: () => Promise<T>, label = 'This ac
 }
 
 // ---------------------------------------------------------------------------
+// Threads (Phase 3) - helpers shared by the send paths
+// ---------------------------------------------------------------------------
+
+/** `{ threadRoot }`: send into the thread rooted at that event (any reply id is collapsed to its root). */
+export interface ThreadOptions {
+  threadRoot?: string;
+}
+
+/** `m.relates_to` of a thread reply as sent on the wire (docs/ARCHITECTURE.md "Reply shape"). */
+export interface ThreadRelationContent {
+  rel_type: 'm.thread';
+  event_id: string;
+  is_falling_back: boolean;
+  'm.in_reply_to': { event_id: string };
+}
+
+/**
+ * Collapse an event id to the root of the thread it lives in (threads do not nest): a reply id becomes its
+ * root, a root or plain message id is returned unchanged. Unknown (not loaded) ids are returned as given.
+ */
+export function resolveThreadRoot(roomId: string, eventId: string): string {
+  const ev = getClientOrNull()?.getRoom(roomId)?.findEventById(eventId);
+  return getThreadRelation(ev)?.event_id ?? ev?.threadRootId ?? eventId;
+}
+
+/** Root id of the thread a *reply* lives in (from its wire relation); undefined for roots and plain messages. */
+export function threadRootOf(roomId: string, eventId: string): string | undefined {
+  return getThreadRelation(getClientOrNull()?.getRoom(roomId)?.findEventById(eventId))?.event_id;
+}
+
+/**
+ * Get the SDK `Thread` model for a root, creating it when the SDK does not know it yet (a message nobody has
+ * replied to, or a root outside the loaded window - the root event is fetched then). Creating the model also
+ * triggers its initial `/relations` fetch; the bridge mirrors the result into the timeline store. Resolves
+ * with null when the root event cannot be found or is a state event.
+ */
+export async function ensureThread(roomId: string, rootId: string): Promise<Thread | null> {
+  const client = getClientOrNull();
+  const room = client?.getRoom(roomId);
+  if (!client || !room) return null;
+  const existing = room.getThread(rootId);
+  if (existing) return existing;
+  let root = room.findEventById(rootId);
+  if (!root) {
+    try {
+      root = client.getEventMapper()(await client.fetchRoomEvent(roomId, rootId));
+    } catch {
+      return null;
+    }
+  }
+  if (root.isState()) return null;
+  return room.createThread(rootId, root, [], false);
+}
+
+/**
+ * Build the spec relation for a message sent into a thread. `m.in_reply_to` is the newest *sent* reply the
+ * SDK knows (never a local echo), else the root - always the fallback (`is_falling_back: true`): quote replies
+ * inside threads are out of scope for the POC (docs/PHASE3_ACCEPTANCE.md AC-T2-3).
+ */
+function threadRelation(room: Room | null | undefined, rootId: string): ThreadRelationContent {
+  const thread = room?.getThread(rootId);
+  const latest = thread?.lastReply((ev) => ev.isRelation(RelationType.Thread) && !ev.status)?.getId() ?? rootId;
+  return { rel_type: 'm.thread', event_id: rootId, is_falling_back: true, 'm.in_reply_to': { event_id: latest } };
+}
+
+/** Thrown (before anything is sent) when `replyTo` and `threadRoot` are combined (AC-T2-3). */
+export class ThreadReplyConflictError extends Error {
+  constructor() {
+    super('replyTo and threadRoot cannot be combined: threads do not nest and have no quote replies (AC-T2-3)');
+    this.name = 'ThreadReplyConflictError';
+  }
+}
+
+/** Send a room message, into a thread when `threadRoot` is given (local echo lands in that thread). */
+async function sendRoomMessage(roomId: string, content: Record<string, unknown>, threadRoot?: string): Promise<string> {
+  const client = getClient();
+  if (!threadRoot) {
+    const res = await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
+    return res.event_id;
+  }
+  const root = resolveThreadRoot(roomId, threadRoot);
+  await ensureThread(roomId, root);
+  content['m.relates_to'] = threadRelation(client.getRoom(roomId), root);
+  const res = await client.sendMessage(roomId, root, content as unknown as RoomMessageEventContent);
+  return res.event_id;
+}
+
+// ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
 
-export interface SendTextOptions {
+export interface SendTextOptions extends ThreadOptions {
   /** Sanitised-on-render HTML body; sent as `formatted_body` with `format: org.matrix.custom.html`. */
   html?: string;
   /** Event (or event id) this message replies to. Sets `m.relates_to.m.in_reply_to`. */
@@ -79,7 +180,7 @@ export interface SendTextOptions {
   mentions?: string[];
 }
 
-function buildTextContent(body: string, opts: SendTextOptions): RoomMessageEventContent {
+function buildTextContent(body: string, opts: SendTextOptions): Record<string, unknown> {
   const content: Record<string, unknown> = { msgtype: MsgType.Text, body };
   if (opts.html) {
     content.format = HTML_FORMAT;
@@ -88,17 +189,36 @@ function buildTextContent(body: string, opts: SendTextOptions): RoomMessageEvent
   if (opts.mentions?.length) content['m.mentions'] = { user_ids: opts.mentions };
   const replyId = typeof opts.replyTo === 'string' ? opts.replyTo : opts.replyTo?.getId();
   if (replyId) content['m.relates_to'] = { 'm.in_reply_to': { event_id: replyId } };
-  return content as unknown as RoomMessageEventContent;
+  return content;
 }
 
-/** Send an `m.text` message. Resolves with the event id. Local echo appears in the timeline immediately. */
+/**
+ * Send an `m.text` message. Resolves with the event id. Local echo appears in the timeline immediately.
+ * With `threadRoot` the message goes into that thread (main timeline untouched). `replyTo` together with
+ * `threadRoot` throws `ThreadReplyConflictError` before anything is sent (AC-T2-3: no quote replies in threads).
+ */
 export async function sendText(roomId: string, body: string, opts: SendTextOptions = {}): Promise<string> {
-  const res = await getClient().sendMessage(roomId, buildTextContent(body, opts));
-  return res.event_id;
+  if (opts.threadRoot && opts.replyTo) throw new ThreadReplyConflictError();
+  return sendRoomMessage(roomId, buildTextContent(body, opts), opts.threadRoot);
 }
 
-/** Edit a message: sends an `m.replace` relation with `m.new_content`. Resolves with the edit event id. */
-export async function editText(roomId: string, targetEventId: string, body: string, html?: string): Promise<string> {
+/** `sendText` with an HTML body (Phase 3 convenience; same options). */
+export async function sendHtml(roomId: string, body: string, html: string, opts: Omit<SendTextOptions, 'html'> = {}): Promise<string> {
+  return sendText(roomId, body, { ...opts, html });
+}
+
+/**
+ * Edit a message: sends an `m.replace` relation with `m.new_content`. Resolves with the edit event id.
+ * Editing a thread reply routes the edit through the thread (`threadRoot` is derived from the target when
+ * omitted).
+ */
+export async function editText(
+  roomId: string,
+  targetEventId: string,
+  body: string,
+  html?: string,
+  opts: ThreadOptions = {},
+): Promise<string> {
   const newContent: Record<string, unknown> = { msgtype: MsgType.Text, body };
   if (html) {
     newContent.format = HTML_FORMAT;
@@ -114,28 +234,34 @@ export async function editText(roomId: string, targetEventId: string, body: stri
     content.format = HTML_FORMAT;
     content.formatted_body = `* ${html}`;
   }
-  const res = await getClient().sendMessage(roomId, content as unknown as RoomMessageEventContent);
+  const threadId = opts.threadRoot ?? threadRootOf(roomId, targetEventId) ?? null;
+  const res = await getClient().sendMessage(roomId, threadId, content as unknown as RoomMessageEventContent);
   return res.event_id;
 }
 
-/** Redact (delete) any event: messages, reactions, edits. */
+/** Redact (delete) any event: messages, reactions, edits. Thread replies are redacted through their thread. */
 export async function redactEvent(roomId: string, eventId: string, reason?: string): Promise<void> {
-  await getClient().redactEvent(roomId, eventId, undefined, reason ? { reason } : undefined);
+  const threadId = threadRootOf(roomId, eventId) ?? null;
+  await getClient().redactEvent(roomId, threadId, eventId, undefined, reason ? { reason } : undefined);
 }
 
-/** Add an `m.reaction` (annotation) to an event. To remove one, redact `myEventId` from getReactions(). */
-export async function sendReaction(roomId: string, targetEventId: string, key: string): Promise<string> {
-  const res = await getClient().sendEvent(roomId, EventType.Reaction, {
+/**
+ * Add an `m.reaction` (annotation) to an event. To remove one, redact `myEventId` from getReactions().
+ * Reacting to a thread reply routes through the thread (derived from the target when `threadRoot` is omitted).
+ */
+export async function sendReaction(roomId: string, targetEventId: string, key: string, opts: ThreadOptions = {}): Promise<string> {
+  const threadId = opts.threadRoot ?? threadRootOf(roomId, targetEventId) ?? null;
+  const res = await getClient().sendEvent(roomId, threadId, EventType.Reaction, {
     'm.relates_to': { rel_type: RelationType.Annotation, event_id: targetEventId, key },
   });
   return res.event_id;
 }
 
 /** Convenience: add my reaction if I have not reacted with `key`, otherwise remove it. */
-export async function toggleReaction(roomId: string, targetEventId: string, key: string): Promise<void> {
+export async function toggleReaction(roomId: string, targetEventId: string, key: string, opts: ThreadOptions = {}): Promise<void> {
   const mine = getReactions(roomId, targetEventId).find((r) => r.key === key && r.mine);
   if (mine?.myEventId) await redactEvent(roomId, mine.myEventId);
-  else await sendReaction(roomId, targetEventId, key);
+  else await sendReaction(roomId, targetEventId, key, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,8 +334,8 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return { mxc, mimetype, size: file.size, name: file.name, ...(dims ?? {}) };
 }
 
-/** Upload then send: `m.image` for image/*, `m.file` otherwise. Resolves with the event id. */
-export async function sendFile(roomId: string, file: File): Promise<string> {
+/** Upload then send: `m.image` for image/*, `m.file` otherwise. Resolves with the event id. `threadRoot` sends it into a thread. */
+export async function sendFile(roomId: string, file: File, opts: ThreadOptions = {}): Promise<string> {
   const up = await uploadFile(file);
   const isImage = up.mimetype.startsWith('image/');
   const info: Record<string, unknown> = { mimetype: up.mimetype, size: up.size };
@@ -218,15 +344,14 @@ export async function sendFile(roomId: string, file: File): Promise<string> {
     info.h = up.h;
   }
   const content = { msgtype: isImage ? MsgType.Image : MsgType.File, body: up.name, url: up.mxc, info };
-  const res = await getClient().sendMessage(roomId, content as unknown as RoomMessageEventContent);
-  return res.event_id;
+  return sendRoomMessage(roomId, content, opts.threadRoot);
 }
 
 // ---------------------------------------------------------------------------
 // Voice messages (Phase 2, PRIN-5)
 // ---------------------------------------------------------------------------
 
-export interface VoiceMessageOptions {
+export interface VoiceMessageOptions extends ThreadOptions {
   /** Integer milliseconds (from `analyzeAudio`, else the recorder's wall-clock timing). */
   durationMs: number;
   /** About 100 ints in 0..1024 (`analyzeAudio().waveform`). Sanitised here; `[]` is allowed. */
@@ -244,9 +369,9 @@ export interface VoiceMessageOptions {
  *   org.matrix.msc1767.audio { duration, waveform }, org.matrix.msc3245.voice {}
  *
  * Resolves with the event id. Throws on upload/send failure (Dev B shows `recording-error`, AC-V5-2).
+ * Phase 3: `opts.threadRoot` sends the voice note into a thread (the thread relation is added to the content).
  */
 export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMessageOptions): Promise<string> {
-  const client = getClient();
   const mimetype = containerMimeType(opts.mimetype || blob.type) || 'audio/webm';
   const name = voiceFileName(mimetype);
   const duration = Math.max(0, Math.round(opts.durationMs || 0));
@@ -265,38 +390,70 @@ export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMe
     'org.matrix.msc1767.audio': { duration, waveform },
     'org.matrix.msc3245.voice': {},
   };
-  const res = await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
-  return res.event_id;
+  return sendRoomMessage(roomId, content, opts.threadRoot);
 }
 
 // ---------------------------------------------------------------------------
 // Typing & receipts
 // ---------------------------------------------------------------------------
 
-/** Send a typing notification. The server auto-expires it after `timeoutMs`. */
-export async function sendTyping(roomId: string, typing: boolean, timeoutMs = 5000): Promise<void> {
+/**
+ * Send a typing notification. The server auto-expires it after `timeoutMs`.
+ * Phase 3: `opts.threadRoot` is accepted for symmetry but **typing is room-scoped in Matrix** (there is no
+ * thread-scoped typing in the spec or in Synapse); the notification is the same room-wide one.
+ */
+export async function sendTyping(roomId: string, typing: boolean, timeoutMs = 5000, _opts: ThreadOptions = {}): Promise<void> {
   await getClient().sendTyping(roomId, typing, timeoutMs);
 }
 
-/** Send an `m.read` receipt for an event (usually the last one in the timeline). Clears unread counts. */
-export async function sendReadReceipt(roomId: string, event: MatrixEvent | string): Promise<void> {
+export interface ReceiptOptions {
+  /**
+   * Thread the receipt is for: the root id, or 'main'. Informational: the SDK derives `thread_id` from the
+   * event itself ('main' for main-timeline events and thread roots, the root id for thread replies), so the
+   * event always wins. Pass it when `event` is an id that is not loaded locally.
+   */
+  threadId?: string;
+}
+
+/**
+ * Send an `m.read` receipt for an event (usually the last one in the timeline). Clears unread counts.
+ * Phase 3: the receipt carries `thread_id` ('main' or the thread root), so a receipt on a thread reply clears
+ * that thread's unread count and a receipt on the main timeline no longer touches threads.
+ */
+export async function sendReadReceipt(roomId: string, event: MatrixEvent | string, opts: ReceiptOptions = {}): Promise<void> {
   const client = getClient();
-  const ev = typeof event === 'string' ? client.getRoom(roomId)?.findEventById(event) : event;
+  const room = client.getRoom(roomId);
+  let ev = typeof event === 'string' ? room?.findEventById(event) : event;
+  if (!ev && typeof event === 'string' && !event.startsWith('~')) {
+    ev = await fetchEvent(roomId, event);
+    if (ev && opts.threadId && opts.threadId !== 'main' && !getThreadRelation(ev)) ev.setThreadId(opts.threadId);
+  }
   if (!ev || !ev.getId() || ev.getId()!.startsWith('~')) return; // skip local echoes
   await client.sendReadReceipt(ev);
 }
 
-/** Mark a room fully read using the newest event in its live timeline. */
-export async function markRoomRead(roomId: string): Promise<void> {
-  const room = getClient().getRoom(roomId);
-  const events = room?.getLiveTimeline().getEvents() ?? [];
+/** Newest event with a server id and sent status, scanning backwards. */
+function newestSent(events: MatrixEvent[], skipId?: string): MatrixEvent | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i]!;
-    if (ev.status === null && ev.getId() && !ev.getId()!.startsWith('~')) {
-      await sendReadReceipt(roomId, ev);
-      return;
-    }
+    const id = ev.getId();
+    if (ev.status === null && id && !id.startsWith('~') && id !== skipId) return ev;
   }
+  return undefined;
+}
+
+/** Mark a room fully read using the newest event in its live timeline (main timeline; threads keep their own). */
+export async function markRoomRead(roomId: string): Promise<void> {
+  const room = getClient().getRoom(roomId);
+  const ev = newestSent(room?.getLiveTimeline().getEvents() ?? []);
+  if (ev) await sendReadReceipt(roomId, ev);
+}
+
+/** Phase 3: mark a thread read with a receipt on its newest reply (no-op when no reply is loaded). */
+export async function markThreadRead(roomId: string, threadRootId: string): Promise<void> {
+  const thread = getClient().getRoom(roomId)?.getThread(threadRootId);
+  const ev = thread ? newestSent(thread.events, threadRootId) : undefined;
+  if (ev && isThreadReply(ev)) await sendReadReceipt(roomId, ev, { threadId: threadRootId });
 }
 
 // ---------------------------------------------------------------------------
@@ -443,14 +600,19 @@ export interface ReactionSummary {
   myEventId?: string;
 }
 
-/** Aggregated reactions for an event, from the SDK's relations container. Safe to call in render. */
+/**
+ * Aggregated reactions for an event, from the SDK's relations container. Safe to call in render.
+ * Phase 3: reactions to thread replies are aggregated in the thread's own timeline set; this looks there
+ * when the target is a thread reply, so one call works for both timelines.
+ */
 export function getReactions(roomId: string, eventId: string): ReactionSummary[] {
   const client = getClientOrNull();
   const room = client?.getRoom(roomId);
   if (!client || !room) return [];
-  const relations = room
-    .getUnfilteredTimelineSet()
-    .relations.getChildEventsForEvent(eventId, RelationType.Annotation, EventType.Reaction);
+  const target = room.findEventById(eventId);
+  const thread = target && isThreadReply(target) ? target.getThread() : undefined;
+  const container = thread ? thread.timelineSet.relations : room.getUnfilteredTimelineSet().relations;
+  const relations = container.getChildEventsForEvent(eventId, RelationType.Annotation, EventType.Reaction);
   const sorted = relations?.getSortedAnnotationsByKey() ?? [];
   const me = client.getSafeUserId();
   const out: ReactionSummary[] = [];
@@ -470,14 +632,14 @@ export function getReactions(roomId: string, eventId: string): ReactionSummary[]
   return out;
 }
 
-/** Find an event in the room's loaded timeline or fetch it from the server (for reply quotes). */
+/** Find an event in the room's loaded timelines (main and threads) or fetch it from the server (for reply quotes). */
 export async function fetchEvent(roomId: string, eventId: string): Promise<MatrixEvent | undefined> {
   const client = getClient();
   const local = client.getRoom(roomId)?.findEventById(eventId);
   if (local) return local;
   try {
     const raw = await client.fetchRoomEvent(roomId, eventId);
-    return new MatrixEvent(raw);
+    return client.getEventMapper()(raw);
   } catch {
     return undefined;
   }
@@ -503,4 +665,46 @@ export function myPowerLevel(roomId: string): number {
   const room = client?.getRoom(roomId);
   if (!client || !room) return 0;
   return room.getMember(client.getSafeUserId())?.powerLevel ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Thread list (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the room's thread list from the server (`GET /_matrix/client/v1/rooms/{id}/threads`, `include=all` and
+ * `include=participated`, newest 30 by last activity) into the SDK: creates `room.threadsTimelineSets` on
+ * first use and runs `room.fetchRoomThreads()`, which instantiates a `Thread` model per root. Idempotent: the
+ * SDK fetches once per room (`threadsReady`); later activity arrives through /sync. After it resolves,
+ * `room.getThreads()` lists every known thread (also those discovered from the live timeline).
+ */
+export async function fetchRoomThreads(roomId: string): Promise<void> {
+  const room = roomOrNull(roomId);
+  if (!room) return;
+  await room.createThreadsTimelineSets();
+  await room.fetchRoomThreads();
+}
+
+/** True when the server has more (older) threads than the list loaded so far. */
+export function hasMoreRoomThreads(roomId: string): boolean {
+  const set = roomOrNull(roomId)?.threadsTimelineSets[0];
+  if (!set) return true; // not fetched yet
+  return set.getLiveTimeline().getPaginationToken(Direction.Backward) !== null;
+}
+
+/** Load the next (older) page of the thread list (30 threads). Resolves false when there was nothing more. */
+export async function loadMoreRoomThreads(roomId: string, limit = 30): Promise<boolean> {
+  const room = roomOrNull(roomId);
+  if (!room) return false;
+  await fetchRoomThreads(roomId);
+  const set = room.threadsTimelineSets[0];
+  if (!set) return false;
+  const timeline = set.getLiveTimeline();
+  if (!timeline.getPaginationToken(Direction.Backward)) return false;
+  return getClient().paginateEventTimeline(timeline, { backwards: true, limit });
+}
+
+/** Pending (unsent / failed) status of an event, for completeness of the thread local-echo story. */
+export function isSending(event: MatrixEvent): boolean {
+  return event.status === EventStatus.SENDING || event.status === EventStatus.QUEUED || event.status === EventStatus.ENCRYPTING;
 }

@@ -3,9 +3,9 @@
  */
 import {
   EventType,
+  MatrixEvent,
   MsgType,
   RelationType,
-  type MatrixEvent,
   type Room,
   type RoomMember,
 } from 'matrix-js-sdk';
@@ -16,7 +16,7 @@ import { sanitizeWaveform } from '../audio/analysis.ts';
 import { isAudioMimeType } from '../audio/mime.ts';
 
 export { mxcToHttp } from './mxc.ts';
-export { formatTime, formatFullTime, formatDayDivider, isSameDay, initialsOf, colorFor } from '../format.ts';
+export { formatTime, formatFullTime, formatDayDivider, formatRelative, isSameDay, initialsOf, colorFor } from '../format.ts';
 export { localpartOf, serverNameOf } from './config.ts';
 
 // ---------------------------------------------------------------------------
@@ -83,10 +83,101 @@ export function isDisplayableEvent(event: MatrixEvent): boolean {
   return true;
 }
 
-/** Event id this event replies to (from `m.relates_to.m.in_reply_to`), or undefined. */
+/**
+ * Event id this event replies to (from `m.relates_to.m.in_reply_to`), or undefined.
+ *
+ * Phase 3: a thread reply carries `m.in_reply_to` pointing at the previous reply **as a fallback for clients
+ * without thread support** (`is_falling_back: true`, spec 11.6.3). That is not a quote the user made, so it
+ * is ignored here (Element's `shouldDisplayReply`); only an explicit reply inside a thread
+ * (`is_falling_back: false`) is reported.
+ */
 export function getReplyTargetId(event: MatrixEvent): string | undefined {
-  const rel = event.getWireContent()['m.relates_to'] as { 'm.in_reply_to'?: { event_id?: string } } | undefined;
-  return rel?.['m.in_reply_to']?.event_id ?? undefined;
+  const rel = event.getWireContent()['m.relates_to'] as
+    | { 'm.in_reply_to'?: { event_id?: string }; rel_type?: string; is_falling_back?: boolean }
+    | undefined;
+  const target = rel?.['m.in_reply_to']?.event_id;
+  if (!target) return undefined;
+  if (rel?.rel_type === RelationType.Thread && rel.is_falling_back === true) return undefined;
+  return target;
+}
+
+// ---------------------------------------------------------------------------
+// Threads (Phase 3)
+// ---------------------------------------------------------------------------
+
+/** Wire shape of `m.relates_to` on a thread reply (spec v1.4+, "Threading"). */
+export interface ThreadRelation {
+  rel_type: 'm.thread';
+  /** The thread root event id. */
+  event_id: string;
+  /** True when `m.in_reply_to` is only the fallback for non-threaded clients (the normal case). */
+  is_falling_back?: boolean;
+  'm.in_reply_to'?: { event_id?: string };
+}
+
+/** The `m.thread` relation of a reply, or undefined for anything that is not a thread reply. */
+export function getThreadRelation(event: MatrixEvent | null | undefined): ThreadRelation | undefined {
+  const rel = event?.getWireContent()?.['m.relates_to'] as Partial<ThreadRelation> | undefined;
+  return rel?.rel_type === RelationType.Thread && typeof rel.event_id === 'string' ? (rel as ThreadRelation) : undefined;
+}
+
+/** True for events sent *into* a thread (`m.relates_to.rel_type === 'm.thread'`). Never true for the root. */
+export function isThreadReply(event: MatrixEvent): boolean {
+  return !!getThreadRelation(event);
+}
+
+/**
+ * True for a thread root: the server bundled an `m.thread` aggregation (`unsigned.m.relations.m.thread`) or the
+ * SDK knows a `Thread` for it. A message nobody has replied to yet is not a root.
+ */
+export function isThreadRoot(event: MatrixEvent): boolean {
+  return event.isThreadRoot;
+}
+
+/**
+ * Root id of the thread an event belongs to: the relation target for replies, the event's own id for roots,
+ * undefined for plain main-timeline events. Threads never nest, so this is always a main-timeline event id.
+ */
+export function getThreadRootId(event: MatrixEvent): string | undefined {
+  return getThreadRelation(event)?.event_id ?? event.threadRootId ?? (event.isThreadRoot ? event.getId() : undefined);
+}
+
+/** Server-side `m.thread` aggregation on a root event (`unsigned.m.relations.m.thread`), parsed. */
+export interface ThreadServerSummary {
+  count: number;
+  /** The newest reply as sent by the server (a bare MatrixEvent: no room state, no thread metadata). */
+  latestEvent?: MatrixEvent;
+  participated: boolean;
+}
+
+/**
+ * `unsigned.m.relations.m.thread` of a root event -> `{ count, latestEvent, participated } | null`. Present on
+ * roots from /sync, /messages, /threads and /event; this is what the summary row shows before the SDK `Thread`
+ * model has loaded (docs/PHASE3_TICKETS.md Shared API).
+ */
+export function getThreadServerSummary(event: MatrixEvent | null | undefined): ThreadServerSummary | null {
+  const bundle = event?.getServerAggregatedRelation<{
+    count?: number;
+    current_user_participated?: boolean;
+    latest_event?: Record<string, unknown>;
+  }>(RelationType.Thread);
+  if (!bundle) return null;
+  const latest = bundle.latest_event;
+  const roomId = event?.getRoomId();
+  return {
+    count: typeof bundle.count === 'number' ? bundle.count : 0,
+    latestEvent: latest ? new MatrixEvent({ ...latest, room_id: roomId } as never) : undefined,
+    participated: !!bundle.current_user_participated,
+  };
+}
+
+/**
+ * Row filter for the **main** timeline: `isDisplayableEvent` minus thread replies. The SDK already keeps
+ * `m.thread` replies out of `room.getLiveTimeline()` when `threadSupport` is on; this is the explicit
+ * guarantee for `useRoomTimeline` / `useTimeline({ roomId })`.
+ */
+export function isMainTimelineEvent(event: MatrixEvent): boolean {
+  return isDisplayableEvent(event) && !isThreadReply(event);
 }
 
 /** Strip the (legacy) plain-text reply fallback: leading "> " quoted lines up to the first blank line. */
@@ -121,6 +212,8 @@ export interface DisplayBody {
   mentions: string[];
   /** Present for `m.audio` events that carry playable media (voice notes and plain audio files). */
   voice?: VoiceMessageInfo;
+  /** Phase 3: root event id when this message is a thread reply (`m.relates_to.rel_type === 'm.thread'`). */
+  threadRoot?: string;
 }
 
 interface MessageContent {
@@ -226,6 +319,7 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
     info: isRedacted ? undefined : content.info,
     mentions: content['m.mentions']?.user_ids ?? [],
     voice,
+    threadRoot: getThreadRelation(event)?.event_id,
   };
 }
 

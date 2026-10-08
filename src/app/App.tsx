@@ -6,10 +6,12 @@
  *
  * Phase 2: also boots the native integration (status bar, keyboard, Android back button) and, in dev
  * builds only, exposes the stores on `window.__matrixPoc` for scripts (see devtools.ts).
+ * Phase 3: Android back closes an open thread first, then an open drawer, then minimises the app.
  */
 import { useEffect } from 'react';
 import { useSessionStore } from '@/store/session.ts';
 import { useLayoutStore } from '@/store/layout.ts';
+import { useThreadStore } from '@/store/threads.ts';
 import { initNative } from '@/lib/native.ts';
 import { LoginScreen } from './LoginScreen.tsx';
 import { LoadingScreen } from './LoadingScreen.tsx';
@@ -24,8 +26,9 @@ export function App() {
     if (import.meta.env.DEV) installDevHooks();
     void initNative({
       onKeyboard: (height) => useLayoutStore.getState().setKeyboardHeight(height),
-      // Android back: close an open drawer; otherwise initNative minimises the app.
-      onBackButton: () => useLayoutStore.getState().closeDrawers(),
+      // Android back: close an open thread first, else an open drawer; otherwise initNative minimises the app
+      // (docs/PHASE3_TICKETS.md PRIN-10: thread -> sheets/drawers -> minimizeApp).
+      onBackButton: () => useThreadStore.getState().closeThread() || useLayoutStore.getState().closeDrawers(),
     });
     void useSessionStore.getState().restore();
   }, []);

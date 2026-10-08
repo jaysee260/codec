@@ -2,8 +2,49 @@
 
 This document is the contract between the Principal-owned core (`src/lib`, `src/store`, `src/app`,
 `seed`, `scripts`, `homeserver`, and since Phase 2 `capacitor.config.ts`, `android/`, `ios/`) and the
-feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` "Shared API",
-**this file wins**; the differences are listed first.
+feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md`
+"Shared API", **this file wins**; the differences are listed first.
+
+## Phase 3 deltas (threads)
+
+What the Phase 3 brief, docs/PHASE3_PLAN.md and docs/PHASE3_TICKETS.md say versus what is shipped, and why.
+The full thread API is in "Threads (Phase 3)" below; the SDK traps in "Thread gotchas (Phase 3)".
+
+| Topic | Brief / plan / tickets say | What is actually shipped | Why |
+|---|---|---|---|
+| Reply fallback key | brief: `is_falling_back_to_thread: true` | **`is_falling_back: true`** (`m.relates_to: { rel_type: 'm.thread', event_id: <root>, is_falling_back: true, 'm.in_reply_to': { event_id: <latest sent reply, else root> } }`) | Spec (Threading, v1.4+), matrix-js-sdk `IEventRelation`, Element. Synapse accepts the wrong key silently; only Element rendering would reveal it. Advisor-verified. |
+| `threadSupport` | brief: in `createClient` | `startClient({ threadSupport: true })` (`src/lib/matrix/client.ts`) | In v43 it is a start option; `client.supportsThreads()` reads `clientOpts`. |
+| `isDisplayableEvent` | tickets: additionally drops thread replies | **Unchanged** (thread replies are displayable - the thread panel needs the same predicate); the main-only filter is `isMainTimelineEvent()` and `useRoomTimeline` / `useTimeline({ roomId })` apply it | The SDK already partitions replies out of `room.getLiveTimeline()`; verified (0 leaks, incl. live replies and local echoes). |
+| Thread store file | tickets: `src/store/thread.ts` | `src/store/threads.ts` (+ `thread.ts` re-export) | Both import paths work. |
+| `useThreadStore` shape | `{ open, openThreadRootId, openThread, closeThread }` + `useOpenThreadRootId()` | Same, plus `openThreadRoomId`, `version`, `closeThread(): boolean`, `useOpenThread()`. `openThread` collapses a reply id to its root, get-or-creates the SDK `Thread`, closes phone drawers; a room switch and logout close it. | Superset. |
+| `sourceKey` | `threadRootId ?? roomId` | Same. The store maps are keyed by `threadKey(roomId, rootId)` = `` `${roomId}|${rootId}` `` (`eventsByThread`, `canPaginateBackThread`, `isPaginatingThread`); `eventsByRoom` etc. are untouched. | Phase 1 maps stay as they were. |
+| `threadVersion` | on the timeline store | `useTimelineStore.threadVersion` **and** `useThreadStore.version` (mirrors); `version` bumps too | Phase 1 memo deps keep working. |
+| `paginateBack` | `useTimelineStore.paginateBack(source, limit)` | `paginateBack(roomId \| source, limit)` on the store, `paginateBack(source)` module export, `paginateBackThread(roomId, rootId, limit)` | Backwards compatible. |
+| `useThreadSummary` | `{ count, latestTs, participants, hasUnread, participated }`, participants newest first max 5, `count = max(server, sdk)` | Same + `rootId, roomId, latestEvent?, rootEvent?/root?`; redacted roots -> `null`. `participated` is true for the **root author** too (spec). | - |
+| `useRoomThreads` | `{ threads: ThreadInfo[], loading, error, refresh() }`, follows `next_batch` up to 3 pages | `{ threads, loading, error, refresh(), hasMore, loadMore() }`; first call loads one page (newest 30 by activity, `include=all` + `participated`), `loadMore()` pages older ones; `ThreadInfo = ThreadSummary` (`root` and `rootEvent` are the same object) | Explicit paging instead of 3 hidden requests. |
+| `replyTo` + `threadRoot` | tickets / AC-T2-3: reject, nothing sent | **Rejected**: `sendText` throws `ThreadReplyConflictError` before sending (quote replies inside threads are out of scope; every thread reply is the `is_falling_back: true` fallback shape) | Acceptance doc wins for the POC (an earlier draft of this row allowed it). |
+| Redacted thread replies | - | SDK v43 `makeRedacted` -> `moveAllRelatedToMainTimeline` moves a redacted reply (and its reactions/edits) into the room's live timeline and strips its thread markers. **Store-level guard (primary)**: the bridge records the id from `RoomEvent.Redaction` (still carries the thread id) in `timeline.ts` (`markRedactedThreadReply` / `isRedactedThreadReply`), and `eventsByRoom` snapshots + `useTimeline({ roomId })` skip it. Dev B's view-level guard in `useRoomEvents` stays as a second line. **Residual**: a reply redacted *before* this session loaded has no record and renders as "Message deleted" in the channel after a reload (server/SDK limitation until MSC3389). | Found by Dev B. |
+| `sendReadReceipt` | unchanged signature | `(roomId, event, { threadId? })` - the 3rd argument is optional and informational; the SDK derives `thread_id` (`'main'` or the root) from the event | Phase 1 callers unchanged. |
+| Thread-scoped typing | brief: `sendTyping` / `useTyping(source)` scoped to the thread | `sendTyping(roomId, typing, timeoutMs?, { threadRoot? })` and `useTyping(source)` accept the thread but are **room-wide** | Matrix has no thread-scoped typing (no spec field, nothing in Synapse). Documented, not faked. |
+| Unread (Phase 1 contract change) | PM: `unreadByRoom` main-only, `threadUnreadByRoom` | `RoomSummary.unread` / `unreadByRoom` = `room.getRoomUnreadNotificationCount()` (**main timeline only**); `RoomSummary.threadUnread` / `threadUnreadByRoom[roomId]` = `room.hasThreadUnreadNotification()`; `useThreadUnread(roomId)` reads the same | v43 `getUnreadNotificationCount()` adds every thread's count and a `main` receipt never clears those, so the channel badge would stick. Thread replies no longer count towards the channel badge (Discord semantics). |
+| What "unread" means for a thread | - | Server-computed per-thread notification counts (`unread_thread_notifications`, MSC3773 / v1.4; the SDK requests them in its sync filter). Follow the push rules like room unreads; cleared by a receipt with `thread_id` = root (`markThreadRead`), **not** by a main-timeline receipt. Verified: 3 bob/carol replies -> `getThreadUnreadNotificationCount(root) === 3` for alice; `markThreadRead` -> 0 after the next /sync. | Honest and server-backed; no client-side guessing. |
+| Phone thread layer | tickets: over the conversation **below the header**, conversation mounted + `inert`/`aria-hidden`; back: thread -> drawers -> minimise. Brief: full screen | Below the header as the tickets say (Dev A turns the header into back + "Thread"); `Conversation` stays mounted (scroll kept), `inert` + `aria-hidden`; z-index under the drawers (edge swipes still work); Android back: thread, then drawers, then minimise | Tickets are more specific than the brief. |
+| Desktop member panel | - | Not rendered while a thread is open, re-rendered on close; `useNavUiStore.membersOpen` untouched; pixel-identical when no thread is open | - |
+| Thread first page | - | The SDK's initial fetch is `/relations` **without a limit** = Synapse's default of 5 relation events (reactions and edits count), so a busy thread opened with 2-3 replies. `ensureThreadTimeline` waits for that fetch and tops up once (`paginateBack(30)`) when fewer than 20 replies are visible. | Found in verification. |
+| Thread local echo | - | SDK v43 `Room.addPendingEvent` (chronological ordering) only offers pending events to the room's own timeline sets, never to a thread's, so a reply's `~` echo would not show until the server echoed it. The bridge adds it to the thread on `LocalEchoUpdated` (`thread.addEvent`); the remote echo is merged, no duplicate. Verified. | Advisor-flagged, confirmed in the browser. |
+| `formatRelative` | PM: `just now` / `N min ago` / `N h ago` / `yesterday` / short date | `formatRelative(ts, now?)` in `src/lib/format.ts` (re-exported from utils): `just now` (<60 s), `N min ago`, `N h ago` (<24 h), `yesterday`, `N d ago` (<7 d), else `DD/MM/YYYY` | Pinned strings for Dev A's list and Dev B's summary row. |
+| Seed | brief: two threads in #general; tickets: one in #dev (carol root) | **Both** (docs/SEED_DATA.md "Threads"): `general.threadRoot` + `general.threadReply1..3`, `general.reacted` + `general.lateThreadReply1` (sent after alice's last receipt -> unread), `dev.threadRoot` + `dev.threadReply1..3`; carol joins #dev. Next `seed:reset` only. | Brief wins, tickets added. |
+| Sample script | tickets: `--as bob --room ... [--root $id] [--replies 3]` | `scripts/send-thread-sample.mjs`: `--room`, `--replies`, `--as` / `--reply-as` (round-robin senders), `--root-as`, `--root <id>` (reply to an existing root), `--body`, `--json` (default `seed/thread-sample.json`); validates the server bundle and `/threads` | Superset. |
+| ThreadView | Principal placeholder, Dev B replaces | Dev B's real panel landed in the same wave (ids per docs/PHASE3_ACCEPTANCE.md: `thread-panel`, `thread-root`, `thread-close` (**desktop only**; phone closes via Dev A's `header-back`), `thread-replies-divider`, `thread-message-list`, `thread-typing`, `thread-composer*`). **Reply rows inside the panel keep `message-<id>` ids** (the `thread-` prefix applies to the list, not to rows), so selectors must be scoped: `thread-message-list` vs `message-list`. | Found while pointing `verify:threads` at the real DOM. |
+| Escape | - | The shell does **not** bind Escape to the thread (Dev B's composer uses Escape to cancel reply/edit); `thread-close`, Android back and room switch close it | Avoids stealing Escape from the composer. |
+
+### Advisor consultations (Phase 3, Principal)
+
+| Topic | Outcome |
+|---|---|
+| Advisor agent verification (relayed by the coordinator; probe `docs/advisor/thread-probe.mjs`) | `is_falling_back` not `is_falling_back_to_thread`; `threadSupport: true` works; `room.getThreads()` only knows instantiated threads, use `createThreadsTimelineSets()` + `fetchRoomThreads()` (`/v1/rooms/{id}/threads`); thread history via `paginateEventTimeline(thread.liveTimeline, { backwards })` -> `/relations/{root}/m.thread?dir=b&recurse=true`; the client does **not** re-emit `ThreadEvent.*` (subscribe on the Room), `RoomEvent.Timeline` reaches the client with `timelineSet.thread` set and the Phase 1 bridge dropped exactly those; `getReplyTargetId` must ignore `is_falling_back`; the SDK omits `m.in_reply_to` on the first reply when no `Thread` exists -> `createThread` first; Synapse returns `unsigned.m.relations.m.thread` in /threads, /messages and /sync. All applied. |
+| `advisor` tool, completion review | Gaps found: re-run `verify:phone` after the phone `<main>` restructure (Phase 2 invariants with no thread open), ARCHITECTURE described the retired placeholder (fixed above; row-id scoping gotcha added), syntax-check `seed.ts` under Node type stripping (`node --check`), re-export `useOpenThreadRootId` / `ThreadInfo` from `hooks.ts` and `store/index.ts`. All done. |
+| `advisor` tool, plan review | Run three empirical checks first: thread local echo (missing in v43 -> bridge fix, do **not** switch to `pendingEventOrdering: Detached`), per-thread unread counts arrive, receipts now carry `thread_id` so `unread_notifications` becomes main-only (document as a Phase 1 contract change). Send path: `createThread` before the first send, fallback target = `thread.lastReply(ev => ev.isRelation('m.thread') && !ev.status)` (never a `~` id), `replyTo` + `threadRoot` -> `is_falling_back: false`, collapse reply ids to the root, pass `threadId` for reactions/edits/redactions of thread replies, `getReactions` from `event.getThread()?.timelineSet.relations`. Bridge: route `RoomEvent.TimelineReset` by `timelineSet.thread` (the Thread resets its timeline when the initial fetch lands), never cache `thread.liveTimeline`. Keep `isDisplayableEvent` unchanged; filter the root out of thread `events`. Seed: post the 1-reply thread after alice's final receipt. Shell: skip rendering the members aside, `--thread-w` token, phone z-index under the backdrop, `resetThreads()` on logout. All applied and verified (`npm run verify:threads`). |
 
 ## Phase 2 deltas (mobile + voice notes)
 
@@ -82,7 +123,7 @@ src/
     theme.css                  design tokens (the only CSS variables features may use) incl. --safe-*, --tap-target, --vvh
   styles/global.css            reset, scrollbars, utilities (.u-avatar, .u-btn, .u-input, ...), 100dvh, phone-only rules
   lib/
-    format.ts                  sanitizeHtml, linkify, formatTime, isSameDay, formatDayDivider, initialsOf, colorFor
+    format.ts                  sanitizeHtml, linkify, formatTime, isSameDay, formatDayDivider, initialsOf, colorFor; (Phase 3) formatRelative
     native.ts                  (Phase 2) isNativeApp, platform/getPlatform, initNative, tap/hapticTap, onAppStateChange
     audio/                     (Phase 2) voice-note primitives, no React, no Matrix
       encode.ts                Shared API: pickVoiceMimeType, encodeToOggOpus, decodeToPcm, computeWaveform, baseMimetype
@@ -100,14 +141,16 @@ src/
     session.ts                 useSessionStore
     rooms.ts                   useRoomStore + recomputeRooms + waitForRoom + onRoomSelected (Phase 2)
     layout.ts                  (Phase 2) useLayoutStore, useIsPhone, useViewport, detectIsPhone; stamps <html data-layout>, --vvh
-    timeline.ts                useTimelineStore + refreshTimeline + setTypingForRoom
-    bridge.ts                  bindClient/unbindClient: SDK events -> stores (debounced)
-    hooks.ts                   useRoomTimeline, useTyping, useMembers, useRoomSummary, useSelectedRoom, useMyUserId (+ re-exports useIsPhone, useViewport)
+    timeline.ts                useTimelineStore + refreshTimeline + setTypingForRoom; (Phase 3) TimelineSource, thread snapshots, paginateBack(source), ensureThreadTimeline
+    threads.ts                 (Phase 3) useThreadStore (open thread), useThreadSummary, useThreadRoot, useRoomThreads, useThreadUnread, useOpenThread(RootId)
+    thread.ts                  (Phase 3) re-export of threads.ts (docs/PHASE3_TICKETS.md name)
+    bridge.ts                  bindClient/unbindClient: SDK events -> stores (debounced); (Phase 3) thread timeline sets, per-room ThreadEvent.*, thread local echo
+    hooks.ts                   useRoomTimeline, useTyping, useMembers, useRoomSummary, useSelectedRoom, useMyUserId (+ re-exports useIsPhone, useViewport); (Phase 3) useTimeline(source) + thread hooks re-exported
     toast.ts                   useToastStore, showToast, withToast
     index.ts                   re-exports
   features/
     navigation/                (Dev A) index.ts exports SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel, useNavUiStore
-    conversation/              (Dev B) index.ts exports Conversation
+    conversation/              (Dev B) index.ts exports Conversation and (Phase 3) ThreadView (placeholder by the Principal; Dev B replaces the internals)
 capacitor.config.ts            (Phase 2) appId com.acme.matrixpoc, webDir dist, androidScheme http + cleartext, Keyboard native, StatusBar dark
 android/                       (Phase 2) generated by `cap add android` (Capacitor 7); committed minus build outputs; manifest has RECORD_AUDIO etc.
 ios/                           (Phase 2) generated by `cap add ios`; Info.plist has NSMicrophoneUsageDescription + ATS exception; Pods/ not committed
@@ -119,6 +162,8 @@ scripts/toolchain.mjs          (Phase 2) find JDK 21 + Android SDK, --setx, ~/.g
 scripts/cap-build-android.mjs  (Phase 2) vite build (VITE_HS_URL) + cap sync + gradlew assembleDebug -> APK path (npm run cap:build:android[:lan])
 scripts/send-voice-sample.mjs  (Phase 2) post a contract-shaped voice message via the API, validate it (npm run voice:sample)
 scripts/verify-phone-shell.mjs (Phase 2) Pixel 7 Playwright check + screenshots + voice round trip (npm run verify:phone)
+scripts/send-thread-sample.mjs (Phase 3) post a thread (root + replies, exact wire shape) via the API, validate the server bundle (npm run thread:sample)
+scripts/verify-thread-shell.mjs (Phase 3) desktop + Pixel 7 Playwright check of the thread core on :5183 + screenshots (npm run verify:threads)
 scripts/verify-scaffold.mjs    throwaway Playwright smoke (login + screenshot)
 homeserver/                    homeserver.yaml (single config, committed), docker-compose.yml, wsl/ (no-Docker fallback), data/* (ignored)
 docs/MOBILE.md                 (Phase 2) phone browser path, toolchain, APK, LAN proxy, iOS handoff, troubleshooting
@@ -167,7 +212,9 @@ layout store closes the drawer); space taps keep it open. Nothing phone-only exi
    = `{ baseUrl, userId, accessToken, deviceId }`) the store starts in `'syncing'`; otherwise `'logged-out'`.
 2. `login()`/`register()`/`restore()` -> `startClientFromSession()` creates the `MatrixClient`
    (`createClient` with `timelineSupport: true`, **no crypto**), calls
-   `startClient({ initialSyncLimit: 30, lazyLoadMembers: true, pendingEventOrdering: 'chronological', threadSupport: false })`,
+   `startClient({ initialSyncLimit: 30, lazyLoadMembers: true, pendingEventOrdering: 'chronological', threadSupport: true })`
+   (Phase 3: `threadSupport` makes the SDK partition `m.thread` replies into `Thread` models, add `thread_id` to receipts and
+   request `unread_thread_notifications`),
    then `bindClient()` subscribes the bridge, then `waitForPrepared()` resolves on `SyncState.Prepared`.
    Status becomes `'ready'` and the shell renders. The bridge does one full `recomputeRooms()` +
    `refreshTimelines(all rooms)` at PREPARED and again whenever the SDK goes ERROR -> SYNCING (catch-up).
@@ -205,7 +252,8 @@ layout store closes the drawer); space taps keep it open. Nothing phone-only exi
 | `orphanRooms` | `RoomSummary[]` | Joined rooms with no space and not DMs (shown under Home). |
 | `invites` | `RoomSummary[]` | Rooms I am invited to. |
 | `roomsById` | `Record<roomId, RoomSummary>` | Every joined/invited room. |
-| `unreadByRoom`, `highlightByRoom` | `Record<roomId, number>` | From `room.getUnreadNotificationCount()` (server-computed; updates after receipts sync back). |
+| `unreadByRoom`, `highlightByRoom` | `Record<roomId, number>` | From `room.getRoomUnreadNotificationCount()` - the **main timeline only** since Phase 3 (server-computed; updates after receipts sync back). Thread replies never count here. |
+| `threadUnreadByRoom` | `Record<roomId, boolean>` | (Phase 3) `room.hasThreadUnreadNotification()`: some thread in the room has unread notifications (server `unread_thread_notifications`, cleared by threaded receipts). The header "Threads" dot. Same value as `useThreadUnread(roomId)`. |
 | `selectedSpaceId` | `string \| 'home'` | `'home'` = DM view. |
 | `selectedRoomId` | `string \| null` | |
 | `lastRoomBySpace` | `Record<spaceId \| 'home', roomId>` | Persisted with the selection under localStorage `nav.selection`. |
@@ -221,7 +269,7 @@ Helpers: `recomputeRooms()` (bridge only), `resetRooms()`, `waitForRoom(roomId, 
 `RoomSummary`:
 ```ts
 { roomId, name, topic?, avatarUrl?, canonicalAlias?, isSpace, parentSpaceId?, order?, isDm, dmUserId?,
-  joinRule, membership, lastActiveTs, memberCount, unread, highlight }
+  joinRule, membership, lastActiveTs, memberCount, unread, highlight, threadUnread }
 ```
 `name` is the bare room name (`general`, not `#general`); for DMs it is the other user's display name.
 
@@ -255,17 +303,31 @@ tap keeps the drawer open). Features never close the drawer themselves after a r
 | `canPaginateBack` | `Record<roomId, boolean>` | `false` once the room start is reached (no backward pagination token). Missing = unknown, treat as `true`. |
 | `isPaginating` | `Record<roomId, boolean>` | |
 | `typingByRoom` | `Record<roomId, string[]>` | User ids typing, excluding me. |
-| `version` | `number` | Bumps on every timeline/typing commit. |
-| `paginateBack(roomId, limit=30)` | `Promise<void>` | `client.paginateEventTimeline(liveTimeline, { backwards: true, limit })`, then refreshes the snapshot. No-op while in flight or at the start. |
+| `version` | `number` | Bumps on every timeline/typing commit (and on thread commits). |
+| `threadVersion` | `number` | (Phase 3) Bumps on thread snapshot commits and Thread model changes (`ThreadEvent.New/Update/Delete`). |
+| `eventsByThread` | `Record<threadKey, MatrixEvent[]>` | (Phase 3) Copy of `room.getThread(rootId).liveTimeline.getEvents()`, oldest first, unfiltered (reactions/edits to replies included; the root is included once the start of the thread is reached). Key = `threadKey(roomId, rootId)` = `` `${roomId}|${rootId}` ``. |
+| `canPaginateBackThread`, `isPaginatingThread` | `Record<threadKey, boolean>` | (Phase 3) As the main ones; `canPaginateBackThread` is `true` (unknown) until the Thread's initial `/relations` fetch has run. |
+| `paginateBack(roomId \| source, limit=30)` | `Promise<void>` | Main: `client.paginateEventTimeline(liveTimeline, { backwards: true, limit })`, then refreshes the snapshot. Thread source: `paginateEventTimeline(thread.liveTimeline, ...)` = `/relations/{root}/m.thread?dir=b&recurse=true`. No-op while in flight or at the start. |
+| `paginateBackThread(roomId, rootId, limit=30)` | `Promise<void>` | (Phase 3) The thread branch, callable directly. |
 
-Helpers: `refreshTimeline(roomId)`, `refreshTimelines(ids)`, `ensureTimeline(roomId)`, `setTypingForRoom`, `resetTimelines`.
+Helpers: `refreshTimeline(roomId)`, `refreshTimelines(ids)`, `ensureTimeline(roomId)`, `setTypingForRoom`, `resetTimelines`; (Phase 3)
+`paginateBack(source, limit?)` (module export), `refreshThread(roomId, rootId)`, `refreshThreads(roomId, rootIds)`,
+`ensureThreadTimeline(roomId, rootId): Promise<Thread | null>` (get-or-create the SDK Thread, wait for its initial fetch, top the
+first page up to >= 20 visible replies), `bumpThreadVersion()`, `threadKey(roomId, rootId)`, `sourceKey(source)` = `threadRootId ?? roomId`.
+`type TimelineSource = { roomId: string; threadRootId?: string }`.
 
 ### Hooks (`src/store/hooks.ts`)
 
 | Hook | Returns | Notes |
 |---|---|---|
-| `useRoomTimeline(roomId)` | `{ events, allEvents, hasMore, isPaginating, version, paginateBack(limit?) }` | `events` = `allEvents.filter(isDisplayableEvent)` (messages + stickers, incl. redacted; no reactions/edits/state). Calls `ensureTimeline`. |
-| `useTyping(roomId)` | `string[]` | Display names of typing users (never me). |
+| `useTimeline(source)` | `{ events, allEvents, hasMore, isPaginating, version, paginateBack(limit?) }` | (Phase 3) `{ roomId }` = main timeline: `events` = `allEvents.filter(isMainTimelineEvent)` (messages + stickers, incl. redacted; no reactions/edits/state/**thread replies**). `{ roomId, threadRootId }` = that thread: `events` = the replies (`isDisplayableEvent`, root excluded), oldest first; mounting it calls `ensureThreadTimeline`. Same shape either way (`type Timeline = RoomTimeline`). |
+| `useRoomTimeline(roomId)` | same | Phase 1 name = `useTimeline({ roomId })`. Calls `ensureTimeline`. |
+| `useTyping(roomId \| source)` | `string[]` | Display names of typing users (never me). Room-wide for a thread source too (Matrix has no thread typing). |
+| `useThreadSummary(event)` | `ThreadSummary \| null` | (Phase 3) Summary row data for a root; `null` for messages without a thread. See "Threads". |
+| `useThreadRoot(roomId, rootId)` | `MatrixEvent \| undefined` | (Phase 3) Loaded timeline -> Thread model -> `/event`. |
+| `useRoomThreads(roomId)` | `{ threads, loading, error, refresh(), hasMore, loadMore() }` | (Phase 3) Thread list, newest activity first. |
+| `useThreadUnread(roomId)` | `boolean` | (Phase 3) = `threadUnreadByRoom[roomId]`. |
+| `useOpenThread()`, `useOpenThreadRootId()` | `{ roomId, threadRootId } \| null`, `string \| null` | (Phase 3) Selectors over `useThreadStore`. |
 | `useMembers(roomId)` | `{ joined: MemberInfo[], invited: MemberInfo[] }` | Sorted by power level desc then name; triggers `loadMembers`. `MemberInfo = { userId, name, avatarUrl, powerLevel, membership, presence }`. |
 | `useRoomSummary(roomId)` | `RoomSummary \| undefined` | |
 | `useSelectedRoom()` | `RoomSummary \| undefined` | |
@@ -275,16 +337,23 @@ Helpers: `refreshTimeline(roomId)`, `refreshTimelines(ids)`, `ensureTimeline(roo
 
 | Function | Signature | Semantics |
 |---|---|---|
-| `sendText` | `(roomId, body, opts?: { html?, replyTo?: MatrixEvent \| string, mentions?: string[] }) => Promise<eventId>` | `m.text`; `html` -> `formatted_body`; `replyTo` -> `m.relates_to.m.in_reply_to`; `mentions` -> `m.mentions.user_ids`. Local echo appears immediately. |
-| `editText` | `(roomId, targetEventId, body, html?) => Promise<eventId>` | Sends `m.replace` with `m.new_content` and `* ` fallback body. |
-| `redactEvent` | `(roomId, eventId, reason?) => Promise<void>` | Messages, reactions, anything. |
-| `sendReaction` | `(roomId, targetEventId, key) => Promise<eventId>` | `m.reaction` / `m.annotation`. |
-| `toggleReaction` | `(roomId, targetEventId, key) => Promise<void>` | Adds, or redacts my existing reaction with that key. |
+| `sendText` | `(roomId, body, opts?: { html?, replyTo?: MatrixEvent \| string, mentions?: string[], threadRoot?: string }) => Promise<eventId>` | `m.text`; `html` -> `formatted_body`; `replyTo` -> `m.relates_to.m.in_reply_to`; `mentions` -> `m.mentions.user_ids`. Local echo appears immediately. (Phase 3) `threadRoot` sends into that thread with the wire shape below (local echo in the thread, never in the main list); `replyTo` + `threadRoot` **throws `ThreadReplyConflictError`** before sending (AC-T2-3). |
+| `sendHtml` | `(roomId, body, html, opts?) => Promise<eventId>` | (Phase 3) `sendText` with `html`. |
+| `editText` | `(roomId, targetEventId, body, html?, opts?: { threadRoot? }) => Promise<eventId>` | Sends `m.replace` with `m.new_content` and `* ` fallback body. A thread reply's edit is routed through its thread (derived from the target when omitted). |
+| `redactEvent` | `(roomId, eventId, reason?) => Promise<void>` | Messages, reactions, anything. Thread replies are redacted through their thread (derived). |
+| `sendReaction` | `(roomId, targetEventId, key, opts?: { threadRoot? }) => Promise<eventId>` | `m.reaction` / `m.annotation`. Thread derived from the target when omitted. |
+| `toggleReaction` | `(roomId, targetEventId, key, opts?) => Promise<void>` | Adds, or redacts my existing reaction with that key. |
 | `uploadFile` | `(file: File) => Promise<{ mxc, mimetype, size, name, w?, h? }>` | Media upload; image dimensions measured in the browser. |
-| `sendFile` | `(roomId, file) => Promise<eventId>` | `m.image` for `image/*` (with `info.w/h`), else `m.file`. |
-| `sendTyping` | `(roomId, typing, timeoutMs=5000) => Promise<void>` | |
-| `sendReadReceipt` | `(roomId, event: MatrixEvent \| eventId) => Promise<void>` | `m.read`. Skips local echoes. |
-| `markRoomRead` | `(roomId) => Promise<void>` | Receipt for the newest sent event in the live timeline. |
+| `sendFile` | `(roomId, file, opts?: { threadRoot? }) => Promise<eventId>` | `m.image` for `image/*` (with `info.w/h`), else `m.file`. |
+| `sendTyping` | `(roomId, typing, timeoutMs=5000, opts?: { threadRoot? }) => Promise<void>` | Room-wide; `threadRoot` is accepted and ignored (no thread typing in Matrix). |
+| `sendReadReceipt` | `(roomId, event: MatrixEvent \| eventId, opts?: { threadId? }) => Promise<void>` | `m.read`. Skips local echoes. (Phase 3) carries `thread_id`: `'main'` for main-timeline events and thread roots, the root id for thread replies - derived from the event by the SDK; `threadId` is only used when the event is an id that is not loaded. |
+| `markRoomRead` | `(roomId) => Promise<void>` | Receipt for the newest sent event in the main live timeline (threads keep their own). |
+| `markThreadRead` | `(roomId, rootId) => Promise<void>` | (Phase 3) Threaded receipt on the newest loaded reply; clears that thread's unread count. |
+| `resolveThreadRoot` | `(roomId, eventId) => string` | (Phase 3) Reply id -> its root; roots / plain ids unchanged (threads never nest). |
+| `threadRootOf` | `(roomId, eventId) => string \| undefined` | (Phase 3) Root of a *reply* (wire relation), undefined for roots and plain messages. |
+| `ensureThread` | `(roomId, rootId) => Promise<Thread \| null>` | (Phase 3) Get-or-create the SDK `Thread` (fetches the root when not loaded; triggers its initial `/relations` fetch). |
+| `fetchRoomThreads` | `(roomId) => Promise<void>` | (Phase 3) `createThreadsTimelineSets()` + `fetchRoomThreads()` = `GET /v1/rooms/{id}/threads?include=all|participated` (newest 30), once per room. |
+| `hasMoreRoomThreads`, `loadMoreRoomThreads` | `(roomId) => boolean`, `(roomId, limit=30) => Promise<boolean>` | (Phase 3) Thread-list paging. |
 | `createChannel` | `({ spaceId, name, topic? }) => Promise<roomId>` | `preset: public_chat`, `visibility: private`, unencrypted, `m.space.parent` on the room, `m.space.child` (next `order`) on the space. |
 | `createSpace` | `({ name, topic? }) => Promise<spaceId>` | `m.space`, public preset, then `createChannel({ name: 'general' })`. |
 | `inviteUser` | `(roomId, userId) => Promise<void>` | Throws `MatrixError` (e.g. unknown user). |
@@ -294,8 +363,8 @@ Helpers: `refreshTimeline(roomId)`, `refreshTimelines(ids)`, `ensureTimeline(roo
 | `leaveRoom` | `(roomId) => Promise<void>` | |
 | `getJoinedMembers`, `getInvitedMembers` | `(roomId) => RoomMember[]` | Sync readers (lazy-loaded; see `loadMembers`). |
 | `loadMembers` | `(roomId) => Promise<void>` | `room.loadMembersIfNeeded()`; the store `version` bumps when they arrive. |
-| `getReactions` | `(roomId, eventId) => { key, count, mine, senders, myEventId? }[]` | From `timelineSet.relations`; safe in render. |
-| `fetchEvent` | `(roomId, eventId) => Promise<MatrixEvent \| undefined>` | Local timeline first, then `/rooms/{id}/event/{eventId}`. For reply quotes whose target is not loaded. |
+| `getReactions` | `(roomId, eventId) => { key, count, mine, senders, myEventId? }[]` | From `timelineSet.relations`; safe in render. (Phase 3) Reads the thread's relations when the target is a thread reply, so one call works in both panels. |
+| `fetchEvent` | `(roomId, eventId) => Promise<MatrixEvent \| undefined>` | Local timelines (main and threads) first, then `/rooms/{id}/event/{eventId}` (through the SDK event mapper). For reply quotes whose target is not loaded. |
 | `canRedactEvent` | `(roomId, event) => boolean` | `room.currentState.maySendRedactionForEvent`. |
 | `canEditEvent` | `(event) => boolean` | Own, non-redacted `m.room.message`. |
 | `myPowerLevel` | `(roomId) => number` | |
@@ -322,11 +391,14 @@ Firefox, `audio/wav` for the QA fixture); extension follows it (`.webm` / `.m4a`
 `displayNameOf(room, userId)`, `avatarUrlOf(room, userId, size=40)`, `memberAvatarUrl(member, size)`,
 `roomAvatarUrl(room, size)`, `roomTopic(room)`, `isEditEvent(e)`, `isReactionEvent(e)`, `isDisplayableEvent(e)`,
 `getReplyTargetId(e)`, `stripReplyFallback(body)`, `stripHtmlReplyFallback(html)`, `previewText(e, max)`,
-`isPendingEvent(e)`, and
+`isPendingEvent(e)`, (Phase 3) `isThreadReply(e)`, `isThreadRoot(e)`, `getThreadRootId(e)`, `getThreadRelation(e)`,
+`getThreadServerSummary(e) => { count, latestEvent?, participated } | null`, `isMainTimelineEvent(e)`, `formatRelative(ts)`, and
 
 ```ts
-getDisplayBody(event) => { text, html?, msgtype, isEdited, isRedacted, replyTo?, url?, info?, mentions, voice? }
+getDisplayBody(event) => { text, html?, msgtype, isEdited, isRedacted, replyTo?, url?, info?, mentions, voice?, threadRoot? }
 ```
+`replyTo` is **undefined for the thread fallback** (`m.in_reply_to` with `is_falling_back: true` - the previous reply, not a
+quote); `threadRoot` is set for thread replies.
 `text`/`html` already reflect the latest edit (the SDK swaps `getContent()` when the `m.replace` arrives) and have
 legacy reply fallbacks stripped. Sanitise `html` with `sanitizeHtml()` from `src/lib/format.ts` before rendering.
 `voice` (Phase 2) is `getVoiceMessage(event) ?? undefined` for `m.audio` events.
@@ -409,6 +481,65 @@ Features use `@media (hover: none)` or `:root[data-layout='phone']` for touch st
 `login`, `register`, `startClientFromSession`, `waitForPrepared`, `logout`, `mxcToHttp` (re-export).
 `HS_URL` comes from `VITE_HS_URL` (default `http://localhost:8008`).
 
+## Threads (Phase 3)
+
+Semantics: Matrix `m.thread` relation, Slack/Element behaviour, Discord presentation. Threads **do not nest**
+(every API collapses a reply id to its root), thread replies **never** appear in the main timeline (the SDK partitions
+them with `threadSupport: true`; `useRoomTimeline` filters again), the root stays in both. Typing is room-wide.
+
+### `useThreadStore` (`src/store/threads.ts`, also `src/store/thread.ts`)
+
+| Member | Type | Semantics |
+|---|---|---|
+| `open` | `{ roomId, rootId } \| null` | The open thread. |
+| `openThreadRootId`, `openThreadRoomId` | `string \| null` | Same, flattened. |
+| `version` | `number` | Bumps on every Thread model change (mirrors `useTimelineStore.threadVersion`). |
+| `openThread(rootId, roomId?)` | `void` | Collapses a reply id to its root, get-or-creates the SDK Thread (root fetched if needed), closes phone drawers, opens the panel. `roomId` defaults to the selected room. |
+| `closeThread()` | `boolean` | True when a thread was open. The store also closes on `selectedRoomId` change and on logout (`resetThreads`). |
+
+The shell reads it: desktop renders `<ThreadView roomId rootId />` in a 400 px (`--thread-w`) right column
+(`thread-panel-container`) **instead of** the member panel, which comes back on close; phone stacks it over the
+conversation below the channel header (the conversation stays mounted, `inert` + `aria-hidden`; drawers open on top).
+`app-shell[data-thread-open="true|false"]`. Android back: thread -> drawers -> minimise. `ThreadView` comes from
+`@/features/conversation` (Dev B owns it; the shell passes nothing but `roomId` and `rootId`). Testids are Dev B's per
+docs/PHASE3_ACCEPTANCE.md (`thread-panel`, `thread-root`, `thread-close` on desktop only, `thread-replies-divider`,
+`thread-message-list`, `thread-typing`, `thread-composer-input`, ...); reply rows inside the panel are `message-<id>` like
+main rows, so scope selectors to `thread-message-list`.
+
+### `ThreadSummary` (`useThreadSummary(event)`, `useRoomThreads(roomId).threads[]`, `getThreadSummary(roomId, rootId)`)
+
+```ts
+{ rootId, roomId, count, latestTs, latestEvent?, participants: string[], participated, hasUnread, rootEvent?, root? }
+```
+`count` = `max(thread.length, server count)` (the SDK counts my pending replies; only a redaction lowers it); `latestEvent` =
+the SDK's `replyToEvent` (last loaded reply, else the server bundle's `latest_event`); `participants` = distinct reply senders
+**newest first, max 5**, from the loaded replies (just `[latest sender]` before the thread is loaded); `participated` =
+`current_user_participated` latched on my own replies (true for the root author too); `hasUnread` =
+`room.getThreadUnreadNotificationCount(rootId) > 0`. `null` when the event has no thread (no SDK Thread and no
+`unsigned.m.relations.m.thread`), when `count` is 0 or the root is redacted. Re-renders on `threadVersion`, `version` and the room
+`version` (receipts).
+
+### Wire shapes
+
+Thread reply (`sendText/sendHtml/sendFile/sendVoiceMessage(..., { threadRoot })`; identical to Element):
+```json
+{ "msgtype": "m.text", "body": "...",
+  "m.relates_to": { "rel_type": "m.thread", "event_id": "$root", "is_falling_back": true,
+                    "m.in_reply_to": { "event_id": "$latest-sent-reply-or-root" } } }
+```
+There is no other thread shape: `replyTo` + `threadRoot` is rejected (`ThreadReplyConflictError`, AC-T2-3). Reactions and
+edits relate to their target as before (`m.annotation` / `m.replace`), sent with the SDK `threadId` so the echo lands in the thread.
+Read receipt: `POST /rooms/{id}/receipt/m.read/{eventId}` with body `{ "thread_id": "main" }` or `{ "thread_id": "$root" }` (the
+SDK derives it). Server bundle on a root (`/sync`, `/messages`, `/threads`, `/event`): `unsigned.m.relations.m.thread =
+{ count, current_user_participated, latest_event }`.
+
+### Scripts
+
+`npm run thread:sample [-- --room '#general:localhost' --replies 3 --as bob,carol --root $id]` posts a root (alice) + replies with
+the exact wire shape through the raw API, validates the bundle and `/threads`, writes `seed/thread-sample.json`.
+`npm run verify:threads` (dev server on :5183) posts a fresh thread and checks the whole core (partitioning, live replies, local
+echo, wire shape, reactions/edits in threads, unread + threaded receipt, desktop column, phone layer, back order).
+
 ## data-testid convention
 
 `data-testid`, kebab-case, `{area}-{element}`; dynamic suffix is the raw Matrix id (`channel-item-!abc:localhost`,
@@ -417,7 +548,8 @@ Features use `@media (hover: none)` or `:root[data-layout='phone']` for touch st
 `docs/PHASE2_ACCEPTANCE.md`); the Principal-owned ids are `login-form`, `login-username`, `login-password`,
 `login-submit`, `login-register-toggle`, `login-error`, `app-loading`, `app-shell` (+ `data-layout`), `current-user`,
 `logout-button`, `toast`, `empty-state`, and since Phase 2 `login-advanced-toggle`, `login-hs-url`, `login-hs-url-reset`,
-`login-hs-url-effective`, `nav-drawer` (+ `data-open`), `member-drawer` (+ `data-open`), `drawer-backdrop` (+ `data-open`).
+`login-hs-url-effective`, `nav-drawer` (+ `data-open`), `member-drawer` (+ `data-open`), `drawer-backdrop` (+ `data-open`),
+and since Phase 3 `thread-panel-container` and `app-shell[data-thread-open]` (the `thread-*` ids inside belong to `ThreadView`).
 App-owned localStorage keys: `matrix-poc.session`, `nav.selection`, `matrix-poc.hsUrl` (Phase 2).
 The placeholder feature components already use the registry ids (`space-rail`, `channel-item-*`,
 `message-list`, `composer-input`, ...); keep them when replacing internals.
@@ -450,6 +582,13 @@ npm run cap:build:android          # same with VITE_HS_URL from the env (web def
 npm run cap:sync | cap:copy:ios | cap:open:android | cap:open:ios
 npm run voice:sample               # bob posts a contract-shaped voice note to #dev via the API and validates it
 npm run dev -- --port 5183 && npm run verify:phone     # Pixel 7 Playwright check + docs/screenshots/phase2-shell-phone*.png
+```
+
+Phase 3:
+
+```
+npm run thread:sample              # alice root + 3 replies (bob/carol) in #dev via the API; validates; writes seed/thread-sample.json
+npm run dev -- --port 5183 && npm run verify:threads   # thread core check (desktop + Pixel 7) + docs/screenshots/phase3-thread-shell*.png
 ```
 
 ## matrix-js-sdk gotchas (v43) you must know
@@ -545,3 +684,45 @@ npm run dev -- --port 5183 && npm run verify:phone     # Pixel 7 Playwright chec
   SDK probes `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports` once per `startClient`; Synapse answers
   404 and Chromium logs "Failed to load resource: ... 404". QA's no-console-errors assertions must allow that
   one URL (`scripts/verify-phone-shell.mjs` shows how: record 404 responses and whitelist `msc4143`).
+
+## Thread gotchas (Phase 3, matrix-js-sdk v43 + Synapse 1.162)
+
+- **`threadSupport` changes every timeline.** `m.thread` replies are partitioned out of `room.getLiveTimeline()` into
+  `room.getThread(rootId)` (a `Thread` with its own `EventTimelineSet`); reactions/edits/redactions follow their parent
+  (a reaction to a reply lives in the thread set, a reaction to the root in the main set). `initialSyncLimit: 30` still
+  counts the partitioned replies, so rooms with threads show fewer main rows before the first `paginateBack`.
+- **Thread models appear lazily.** A root in the sync window with `unsigned.m.relations.m.thread` gets a `Thread`
+  immediately (and an initial `/relations` fetch); a message nobody replied to has none until `ensureThread` /
+  `openThread` creates it (`room.createThread`). `room.getThreads()` only lists instantiated threads; `fetchRoomThreads`
+  (`/v1/rooms/{id}/threads`) instantiates the newest 30 by activity.
+- **The initial thread fetch is tiny.** The SDK's first `/relations` request has no `limit`, Synapse defaults to **5
+  relation events** (reactions and edits included) -> `ensureThreadTimeline` tops up to >= 20 visible replies. Until the
+  fetch runs `thread.liveTimeline` is replaced (`resetLiveTimeline`), so never cache it; the store recomputes
+  `canPaginateBackThread` on every refresh. The root is prepended to the thread timeline when the start is reached
+  (`useTimeline` filters it out of `events`, it is still in `allEvents`).
+- **Thread local echo is not the SDK's job in v43.** `Room.addPendingEvent` (chronological ordering) only offers pending
+  events to the room's timeline sets, and the main set refuses thread replies (`canContain`), so a `~` reply would be
+  invisible until the server echo. The bridge adds it to the thread on `LocalEchoUpdated`; `handleRemoteEcho` merges the
+  `$` id (verified: one row, no duplicate). Do **not** switch to `pendingEventOrdering: Detached` (Phase 1 local echo
+  rows would vanish from `getLiveTimeline()`).
+- **Events.** The client re-emits `RoomEvent.Timeline` / `TimelineReset` from thread timeline sets
+  (`data.timeline.getTimelineSet().thread` / the second argument's `.thread`), but **not** `ThreadEvent.*` - the bridge
+  subscribes to `ThreadEvent.New/Update/Delete` on every `Room` (bind time + `ClientEvent.Room`). Sync adds replies
+  with `emit=false` and one `ThreadEvent.Update`, so `NewReply` is not a reliable "new reply" signal.
+- **Redacting a thread reply moves it into the main timeline** (`makeRedacted` -> `moveAllRelatedToMainTimeline`, thread
+  markers stripped). `RoomEvent.Redaction` still carries the thread id, so the bridge records the id and the main snapshots
+  skip it (`isRedactedThreadReply(roomId, id)`); session-only - replies redacted before this session loaded show as
+  "Message deleted" in the channel after a reload.
+- **`m.in_reply_to` on thread replies is a fallback**, not a quote (`is_falling_back: true`). `getReplyTargetId` /
+  `getDisplayBody().replyTo` ignore it; render replies flat. The SDK's own `sendMessage(roomId, threadId, ...)` omits
+  `m.in_reply_to` when it has no `Thread` yet, which is why `sendText` builds the relation itself after `ensureThread`.
+- **Receipts and unread.** Every `m.read` now carries `thread_id` (`'main'` or the root). `room.getUnreadNotificationCount()`
+  **sums thread counts** in v43 and a `main` receipt never clears those -> `unreadByRoom` uses
+  `getRoomUnreadNotificationCount()`; threads use `getThreadUnreadNotificationCount(root)` / `hasThreadUnreadNotification()`
+  (`unread_thread_notifications` in /sync, requested by the SDK's filter because Synapse advertises v1.4). An
+  **unthreaded** receipt (no `thread_id`, e.g. the seed's) clears everything.
+- **`current_user_participated` includes the root author** (spec), so alice "participated" in a thread under her own
+  message with no reply of hers.
+- **`/relations` order is newest first**; the SDK inserts by timestamp. A reply arriving while the initial fetch is in
+  flight is replayed afterwards (`replayEvents`).
+- **No thread-scoped typing** exists in Matrix/Synapse; `useTyping({ roomId, threadRootId })` is the room list.

@@ -1,7 +1,8 @@
 /**
  * Reply quote block above a message (DEV-B-6). The target is looked up in the loaded timeline and
  * fetched from the server when it is not loaded (`fetchEvent`), then cached for the session.
- * Clicking the quote asks the list to scroll to and flash the target.
+ * Clicking the quote asks the list to scroll to and flash the target. `uiKey` is the source key of the
+ * list that should do the scrolling (room id, or thread root id inside the panel).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
@@ -48,7 +49,7 @@ function useReplyTarget(roomId: string, eventId: string): TargetPreview | undefi
   return local ?? fetched ?? previewCache.get(eventId);
 }
 
-export function ReplyQuote({ roomId, eventId }: { roomId: string; eventId: string }) {
+export function ReplyQuote({ roomId, eventId, uiKey }: { roomId: string; eventId: string; uiKey: string }) {
   const target = useReplyTarget(roomId, eventId);
   const jumpTo = useConversationUi((s) => s.jumpTo);
   const room = getClientOrNull()?.getRoom(roomId) ?? null;
@@ -60,7 +61,7 @@ export function ReplyQuote({ roomId, eventId }: { roomId: string; eventId: strin
       className={styles.quote}
       data-testid="message-reply-quote"
       title="Jump to the replied message"
-      onClick={() => jumpTo(roomId, eventId)}
+      onClick={() => jumpTo(uiKey, eventId)}
     >
       <span className={styles.spine} aria-hidden="true" />
       <span className={styles.author} data-testid="message-reply-quote-author" style={{ color: colorFor(target?.sender ?? eventId) }}>

@@ -38,7 +38,7 @@ import {
 } from './fixtures/matrix-api.ts';
 import { resolveRoom, userId, type RoomKey, type UserKey } from './fixtures/seed.ts';
 import { messageList, row, settledEventId } from './fixtures/ui.ts';
-import { computed, denyMicrophone, expectTapTarget, openNavDrawer } from './fixtures/mobile.ts';
+import { computed, denyMicrophone, expectTapTarget, openNavDrawer, tapRoom } from './fixtures/mobile.ts';
 
 const ALICE = userId('alice');
 const BOB = userId('bob');
@@ -88,7 +88,19 @@ const input = (page: Page): Locator => page.getByTestId('composer-input');
 async function openRoom(page: Page, roomKey: RoomKey, user: UserKey = 'alice'): Promise<string> {
   const roomId = await resolveRoom(roomKey);
   await loginAs(page, user, { selection: { spaceId: R.acme, roomId } });
-  await expect(page.getByTestId('channel-header-name')).toContainText(roomKey);
+
+  // The pre-seeded `nav.selection` can lose a race on a slow initial sync: the room store validates
+  // the stored selection against the rooms it knows, and if this room has not arrived in the first
+  // `/sync` batch yet it falls back to the space's first channel (#general). Phase 3 makes that
+  // window wider — `threadSupport: true` asks Synapse for per-thread unread counts, and #general now
+  // carries hundreds of thread replies — so the selection is *verified* and redone through the UI
+  // rather than trusted. Seen once in the Wave 8 final `mobile` run on AC-V1-1 (header read
+  // "general"); AC-V1-2, which calls this same helper, passed in the same run.
+  const header = page.getByTestId('channel-header-name');
+  if (!((await header.textContent()) ?? '').includes(roomKey)) {
+    await tapRoom(page, roomId, 'channel');
+  }
+  await expect(header).toContainText(roomKey);
   await expect(messageList(page)).toBeVisible();
   return roomId;
 }
@@ -679,12 +691,21 @@ test.describe('cross-client (AC-V2-5, P1)', () => {
   test.use({ viewport: { width: 1280, height: 720 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 });
 
   test('AC-V2-5 — a note alice sent renders and plays for bob on desktop', async ({ page }) => {
-    // Use alice's newest voice note in #dev; post one if this is the first run on this homeserver.
-    let target = (await alice.messages(R.dev, 60)).find(
+    // Alice's newest *voice* note in #dev, but only when it is still inside the initial sync window
+    // bob will get. Phase 3 made that caveat necessary: #dev now absorbs the Principal's thread
+    // tooling (`npm run thread:sample`, the 40-reply pagination fixtures), so a note from earlier in
+    // the session can be hundreds of events back — bob's first render then has no row for it at all
+    // and the criterion fails for a seed-window reason, not a product one (QA-17 gate triage).
+    // A note must also carry `org.matrix.msc3245.voice`: a plain `m.audio` renders as `message-file`
+    // by design (AC-V4-3), and this suite posts those too.
+    const WINDOW = 25;
+    const recent = await alice.messages(R.dev, WINDOW);
+    let target = recent.find(
       (e: MatrixEventJson) =>
         e.sender === ALICE &&
         (e.content as { msgtype?: string }).msgtype === 'm.audio' &&
-        !!(e.content as { url?: string }).url,
+        !!(e.content as { url?: string }).url &&
+        !!(e.content as Record<string, unknown>)['org.matrix.msc3245.voice'],
     );
     if (!target) {
       const sent = await alice.sendVoice(R.dev, { durationMs: 2500 });

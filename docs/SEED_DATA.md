@@ -143,3 +143,15 @@ Reaction pills in #general: #1 🎉 x3, #11 👍 x2 (includes alice's own, so hi
 4. Sequential sends; retry on 429 honouring `retry_after_ms`. Homeserver `rc_*` limits are raised (see PLAN risks) so this should be rare.
 5. Writes `seed/seed-output.json` (gitignored) for QA, shape: `{ users: { alice: "@alice:localhost", ... }, rooms: { "acme-hq", general, random, dev, gaming, lobby, "dm-alice-bob", "dm-alice-carol" }, events: { "general.first" (#1), "general.last" (#40), "general.replyTarget" (#6), "general.reply" (#7), "general.bold" (#8), "general.reacted" (#11), "general.image" (#17), "general.edited" (#18), "general.link" (#22), "general.mention" (#28), "general.code" (#31) } }` where every value is the room ID / event ID string.
 6. Reaction keys must come from the client's hardcoded picker set: `👍 ❤️ 😂 🎉 🔥 👀`.
+
+## Threads (Phase 3; takes effect on the next `npm run seed:reset`)
+
+Replies carry the spec relation `m.relates_to: { rel_type: 'm.thread', event_id: <root>, is_falling_back: true, 'm.in_reply_to': { event_id: <previous reply, or the root> } }` and never appear in the main timeline.
+
+| Room | Root (sender) | Replies | `seed-output.json` keys |
+|---|---|---|---|
+| #general | new message after #36 (alice): "What should we demo first on Friday? ..." | bob, carol, dave (3) | `general.threadRoot`, `general.threadReply1..3` |
+| #general | #11 "Lunch today? Thinking tacos." (bob, `general.reacted`) | carol (1), sent **after** alice's final receipt | `general.lateThreadReply1` |
+| #dev | new message before "Ship it." (carol): "Which Node 24 features ..." | bob, alice, carol (3) | `dev.threadRoot`, `dev.threadReply1..3` |
+
+carol joins #dev for this. Expected state for alice: the #general tacos thread is **unread** (header "Threads" dot in #general; the channel badge stays 0 because thread replies no longer count towards it), the other two threads are read (she participated in #dev; the #general demo thread predates her final receipt). The main-timeline numbering above (#1-#40) is unchanged: the two new roots are extra rows, replies are not rows.

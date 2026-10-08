@@ -1,8 +1,12 @@
 /**
  * Typing indicator under the composer (DEV-B-7). Names come from `useTyping`, which resolves the
  * `m.typing` user ids against room members and never includes me.
+ *
+ * Phase 3: typing is **room-scoped** in Matrix (there is no thread-scoped typing in the spec or in
+ * Synapse), so the thread panel renders this same room-wide list under the id `thread-typing`
+ * (AC-T6-7, docs/PHASE3_PLAN.md "Typing"). The id is renamed rather than prefixed, hence the prop.
  */
-import { useTyping } from '@/store/hooks.ts';
+import { useTyping, type TimelineSource } from '@/store/hooks.ts';
 import styles from './TypingIndicator.module.css';
 
 function phrase(names: string[]): string {
@@ -12,7 +16,13 @@ function phrase(names: string[]): string {
   return 'Several people are typing...';
 }
 
-export function TypingIndicator({ roomId }: { roomId: string }) {
+export function TypingIndicator({
+  roomId,
+  testId = 'typing-indicator',
+}: {
+  roomId: string | TimelineSource;
+  testId?: string;
+}) {
   const names = useTyping(roomId);
   return (
     <div className={styles.bar}>
@@ -23,7 +33,7 @@ export function TypingIndicator({ roomId }: { roomId: string }) {
             <i />
             <i />
           </span>
-          <span className={styles.text} data-testid="typing-indicator" aria-live="polite">
+          <span className={styles.text} data-testid={testId} aria-live="polite">
             {phrase(names)}
           </span>
         </>
