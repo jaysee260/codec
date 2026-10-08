@@ -151,7 +151,7 @@ Conventions as docs/ACCEPTANCE.md. **Prefix rule**: inside `thread-panel`, every
 |---|---|
 | AC-T9-1 | When I edit my reply in the panel, then the row shows `message-edited`, the `m.replace` event's `m.new_content` has no `m.relates_to`, and the room timeline is unchanged. |
 | AC-T9-2 | When I react to a reply in the panel, then `reaction-{key}` appears in that row with `data-mine="true"`; bob's reaction via API shows within 3 s. |
-| AC-T9-3 | When I delete my reply, then its row shows `message-redacted` and the divider/summary count drops by 1. |
+| AC-T9-3 | When I delete my reply, then it disappears from the panel and the divider/summary counts drop by 1 (ruling G-2). If Dev B ships a cheap client-side tombstone, the row shows `message-redacted` instead and the counts still drop. |
 | AC-T9-4 | When I record from `thread-composer-mic` and send, then a `voice-message` row appears in the panel and the event has the Phase 2 voice contract plus the thread `m.relates_to`. |
 | AC-T9-5 | When I attach a PNG via `thread-composer-attach`, then `message-image` appears in the panel and the event carries the thread relation. |
 
@@ -169,3 +169,9 @@ Conventions as docs/ACCEPTANCE.md. **Prefix rule**: inside `thread-panel`, every
 | AC-T11-1 | `e2e/smoke.spec.ts` step 11 walks desktop demo steps 2-7 (bob via API in place of the script) with a screenshot per sub-step in `e2e/results/demo/11-*`. |
 | AC-T11-2 | `e2e/mobile-smoke.spec.ts` step 11 walks phone demo steps 2-6 with screenshots in `e2e/demo-mobile/11-*`. |
 | AC-T11-3 | Both projects are green (known fresh-seed skips only) at the end of Wave 8; recorded in docs/STATUS.md. |
+
+## Rulings (PM, 2026-10-08)
+| # | Subject | Ruling |
+|---|---|---|
+| G-1 | AC-A4-2 (docs/ACCEPTANCE.md) said `#dev` has three members with carol absent; PRIN-12 seeds a carol-authored thread root in `#dev`, so carol joins that room on the next `seed:reset`. | Not a defect in either ticket. AC-A4-2 derives the expected membership from the server (`GET /rooms/{dev}/joined_members`), as QA already implemented; the criterion text is updated. Seed authors keep the rule: any seed step in a room adds its author to that room's members, and membership criteria never hard-code a count. |
+| G-2 | BUG-7 / AC-T9-3: Synapse strips `m.relates_to` from a redacted event and no longer returns it from `/relations/{root}/m.thread`, so after a reload (or when the SDK re-fetches the thread) a redacted reply cannot be placed in the panel without a client-side memory of its thread. | AC-T9-3 is reworded: the redacted reply **disappears from the panel** and the divider/summary counts drop by one. **Condition**: if Dev B reports a cheap tombstone (e.g. keeping the redacted event in the thread timeline set for the current session only), the row shows `message-redacted` instead and the counts still drop; either outcome passes. The room timeline keeps AC-B9's tombstone behaviour. QA re-runs AC-T9-3 after Dev B's answer. |

@@ -47,7 +47,8 @@
   min-width: 8px;
 }
 
-.toggle {
+.toggle,
+.threads {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
@@ -57,12 +58,39 @@
   color: var(--text-muted);
   transition: color 0.12s ease-out;
 }
-.toggle:hover {
+.toggle:hover,
+.threads:hover {
   color: var(--text-normal);
   background: var(--bg-hover);
 }
 .toggleActive {
   color: var(--text-heading);
+}
+
+/* ---------------------------------------------------------------------------
+ * Threads button + unread dot (DEV-A-17). `position: relative` is what anchors
+ * `header-threads-unread` to the button (the desktop `.header` is not positioned, so without it the
+ * dot would be placed against the viewport).
+ * ------------------------------------------------------------------------- */
+.threads {
+  position: relative;
+}
+.threadsActive {
+  color: var(--text-heading);
+  background: var(--bg-active);
+}
+
+.threadsDot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--bg-chat);
+  box-sizing: content-box;
+  pointer-events: none;
 }
 
 /* ---------------------------------------------------------------------------
@@ -100,6 +128,8 @@
  * covers whichever button it overlaps. See "Requests to Principal" in the Dev A report.
  */
 :root[data-layout='phone'] .menu,
+:root[data-layout='phone'] .back,
+:root[data-layout='phone'] .threads,
 :root[data-layout='phone'] .toggle {
   position: relative;
   z-index: 25;
@@ -112,8 +142,16 @@
   color: var(--text-normal);
 }
 :root[data-layout='phone'] .menu:active,
+:root[data-layout='phone'] .back:active,
+:root[data-layout='phone'] .threads:active,
 :root[data-layout='phone'] .toggle:active {
   background: var(--bg-active);
+}
+
+/* The dot follows the icon, not the (larger) tap target. */
+:root[data-layout='phone'] .threadsDot {
+  top: 9px;
+  right: 9px;
 }
 
 /* Unread dot on the menu button (DEV-A-16). */
@@ -145,9 +183,50 @@
   min-width: 0;
 }
 
+/* ---------------------------------------------------------------------------
+ * Phone header while a thread is open (DEV-A-18). Phone-only by construction: the JSX branch is
+ * guarded by `useIsPhone()`, so these classes never reach a desktop DOM (AC-T8-3) - the same
+ * pattern as `.menuDot` / Dialog's `.cardSheet`.
+ *
+ * Two stacked lines must fit the 56 px bar (AC-T8-1 re-asserts the height), so the title is
+ * 15 px / 1.2 and the room line 12 px / 1.2 = 33 px of text in a 56 px box.
+ * ------------------------------------------------------------------------- */
+.back {
+  /* Desktop never renders this; the phone block above gives it the 44 px target and z-index 25. */
+  display: grid;
+  place-items: center;
+}
+
+.threadTitles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  /* Same raised band as the buttons: the bar itself stays under the drawer scrim. */
+  position: relative;
+  z-index: 25;
+}
+
+.threadTitle {
+  color: var(--text-heading);
+  font-weight: 700;
+  font-size: var(--font-size-message);
+  line-height: 1.2;
+}
+
+.threadRoom {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
 /* Touch devices get no hover reveal (and no sticky hover after a tap). */
 @media (hover: none) {
-  .toggle:hover {
+  .toggle:hover,
+  .threads:hover {
     color: inherit;
     background: none;
   }

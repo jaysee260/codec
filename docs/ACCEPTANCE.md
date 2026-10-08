@@ -94,7 +94,7 @@ Every criterion is testable by Playwright against the seed in `docs/SEED_DATA.md
 | ID | Given / When / Then |
 |---|---|
 | AC-A4-1 | Given `general` open, then `member-list` lists `member-item-@alice:localhost`, bob, carol, dave with display names, and `member-count` reads `4`. |
-| AC-A4-2 | Given `dev` open, then carol is absent and `member-count` reads `3`. |
+| AC-A4-2 | Given `dev` open, then `member-list` and `member-count` match the room's joined members as read from the server (`/joined_members`), whatever the seed version (originally alice, bob, dave with carol absent; since the Phase 3 seed, PRIN-12, carol joins `#dev` as the seeded thread-root author). PM ruling G-1, docs/PHASE3_ACCEPTANCE.md. |
 | AC-A4-3 | When I click `member-toggle`, then `member-list` hides; click again shows it. |
 | AC-A4-4 | Given a user is invited but not joined, then they appear under `member-section-invited`. |
 

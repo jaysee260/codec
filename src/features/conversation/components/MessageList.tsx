@@ -120,6 +120,8 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // `load()` only records a pin when the list really was scrolled away from the bottom, so a pin here
+    // always means "the reader is reading history, keep that row still" (BUG-6).
     const pin = anchor.current;
     if (pin) {
       const row = pin.eventId ? el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`) : null;
@@ -148,12 +150,28 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     const el = containerRef.current;
     if (!el) return;
     const first = el.querySelector<HTMLElement>('[data-event-id]');
-    anchor.current = {
-      eventId: first?.dataset.eventId ?? '',
-      offsetTop: first?.offsetTop ?? 0,
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-    };
+    /*
+     * Pin only when there is a row to pin *and* the list is genuinely scrolled away from the bottom
+     * (BUG-6). A thread's first pages land in a list still shorter than the viewport, so the top
+     * sentinel is in view while we are sitting at the bottom: pinning there and restoring
+     * `scrollTop + moved` afterwards would walk the panel off the newest reply, and with an empty
+     * snapshot it would restore an offset for a row that does not exist.
+     *
+     * The test is live geometry, not `stick.current`: that ref is updated by React's `onScroll`, which
+     * runs a frame *after* a programmatic `scrollTop = 0` (what AC-B3-2 / AC-T6-4 do), while the
+     * IntersectionObserver can fire first - so the ref is stale here and would wrongly report "at the
+     * bottom" for a list the test has just scrolled to the top.
+     */
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    anchor.current =
+      first && !nearBottom
+        ? {
+            eventId: first.dataset.eventId ?? '',
+            offsetTop: first.offsetTop,
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+          }
+        : null;
     void paginateBack(30);
   }, [paginateBack]);
 

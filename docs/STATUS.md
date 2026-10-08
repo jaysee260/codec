@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-07 (Phase 3 planned, every ticket `todo`; see the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-08 (Phase 3 Waves 7-8 done except DEV-A-17/18 in progress; dry run and rulings in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -157,54 +157,55 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 
 # Phase 3 - Threads
 
-Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tickets: docs/PHASE3_TICKETS.md. Planned 2026-10-07 by PM (advisor consults 1-2 recorded in the plan). P0 = the desktop and phone demo scripts. Waves: 7 Principal core (PRIN-8 first, QA gate right after), 8 devs + QA in parallel, 9 dry run + interop check.
+Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tickets: docs/PHASE3_TICKETS.md. Planned 2026-10-07 by PM (advisor consults 1-3 recorded in the plan); Waves 7-8 and the dry run below as of 2026-10-08 (working tree, uncommitted). P0 = the desktop and phone demo scripts. Waves: 7 Principal core (PRIN-8 first, QA gate right after), 8 devs + QA in parallel, 9 dry run + interop check. PM rulings G-1 (AC-A4-2 membership from the server) and G-2 (BUG-7, redacted reply disappears) are in docs/PHASE3_ACCEPTANCE.md "Rulings".
 
 ## Wave 7 - Principal
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| PRIN-8 `threadSupport: true`, bridge thread events, badge rule (`unreadByRoom` main-only), reply/display hygiene | P0 | todo | Principal | Lands first; QA-17 gate runs on it |
-| PRIN-9 Timeline source, `threadRoot` sends, thread pagination, `useThreadSummary`, `useRoomThreads`, `useThreadStore` | P0 | todo | Principal | Names subject to ARCHITECTURE "Phase 3 deltas" |
-| PRIN-10 Thread panel container (desktop column swap, phone full-screen, Android back) | P0 | todo | Principal | |
-| PRIN-11 `scripts/send-thread-sample.mjs` (`npm run thread:sample`) + ARCHITECTURE deltas | P0 | todo | Principal | Demo steps 4-5 use it |
-| PRIN-12 Seed threads in `#dev` | P1 | todo | Principal | Applies on the next `seed:reset`; nobody resets now |
+| PRIN-8 `threadSupport: true`, bridge thread events, badge rule (`unreadByRoom` main-only), reply/display hygiene | P0 | done | Principal | `npm run verify:threads` 51/51; Phase 1 regression (shell + smoke) 11 pass / 4 fresh-seed skips / 0 fail; QA-17 gate green (below) |
+| PRIN-9 Timeline source, `threadRoot` sends, thread pagination, `useThreadSummary`, `useRoomThreads`, `useThreadStore` | P0 | done | Principal | Names per ARCHITECTURE "Phase 3 deltas"; BUG-5 (`replyTo` + `threadRoot` must reject) open against it |
+| PRIN-10 Thread panel container (desktop column swap, phone overlay, Android back) | P0 | done | Principal | |
+| PRIN-11 `scripts/send-thread-sample.mjs` (`npm run thread:sample`) + ARCHITECTURE deltas | P0 | done | Principal | |
+| PRIN-12 Seed threads in `#dev` | P1 | done | Principal | Applies on the next `seed:reset`; carol joins `#dev` as the seeded root author (ruling G-1) |
 
 ## Wave 8 - Dev A (navigation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-A-17 `header-threads` + unread dot + Threads list (popover / sheet) | P0 | todo | Dev A | |
-| DEV-A-18 Phone header while a thread is open (`header-back`, `Thread` title) | P0 | todo | Dev A | |
+| DEV-A-17 `header-threads` + unread dot + Threads list (popover / sheet) | P0 | in-progress | Dev A | Replacement engineer wiring the header now; the original wrote `ThreadList.tsx` but never mounted it. AC-T7 not built in the QA pass |
+| DEV-A-18 Phone header while a thread is open (`header-back`, `Thread` title) | P0 | in-progress | Dev A | Same engineer; AC-T8 not built in the QA pass |
 | DEV-A-19 Threads list polish | P2 | todo | Dev A | Not scheduled before the demo |
 
 ## Wave 8 - Dev B (conversation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-B-18 `ThreadSummary` row under thread roots | P0 | todo | Dev B | |
-| DEV-B-19 "Reply in thread" action (toolbar + long-press sheet) | P0 | todo | Dev B | |
-| DEV-B-20 `ThreadView` (root, divider, list, composer, typing, receipts) | P0 | todo | Dev B | |
-| DEV-B-21 Main-timeline and panel hygiene | P0 | todo | Dev B | |
-| DEV-B-22 In-thread edits, reactions, delete, voice notes, uploads | P1 | todo | Dev B | |
+| DEV-B-18 `ThreadSummary` row under thread roots | P0 | done | Dev B | AC-T4 green |
+| DEV-B-19 "Reply in thread" action (toolbar + long-press sheet) | P0 | done | Dev B | AC-T5 green |
+| DEV-B-20 `ThreadView` (root, divider, list, composer, typing, receipts) | P0 | done | Dev B | BUG-6 open (opens not at the bottom / drift while paging, AC-T6-4) |
+| DEV-B-21 Main-timeline and panel hygiene | P0 | done | Dev B | |
+| DEV-B-22 In-thread edits, reactions, delete, voice notes, uploads | P1 | done | Dev B | BUG-7 ruled (G-2): redacted reply disappears from the panel unless a cheap tombstone is reported |
 
 ## Wave 8 - QA
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| QA-14 API helpers (`sendThreadReply`, `getThreads`, `getRelations`, threaded receipts) + fixtures + config | P0 | todo | QA | Main-only receipt selection in `readReceiptOf`/`unreadFor` lands before the QA-17 gate |
-| QA-15 `e2e/threads.spec.ts` (desktop) | P0 | todo | QA | |
-| QA-16 `e2e/mobile-threads.spec.ts` (phone) | P0 | todo | QA | |
-| QA-17 Regression gate after PRIN-8 + demo step 11 in both smoke specs | P0 | todo | QA | Needs PRIN-8 and the QA-14 fixture half; gate result goes here before Wave 8 UI is accepted |
-| QA-18 docs/BUGS.md Phase 3 section | P1 | todo | QA | |
+| QA-14 API helpers (`sendThreadReply`, `getThreads`, `getRelations`, threaded receipts) + fixtures + config | P0 | done | QA | Main-only receipt selection in `readReceiptOf`/`unreadFor`; `requireThreadUi` skips with `not-built` |
+| QA-15 `e2e/threads.spec.ts` (desktop) | P0 | done | QA | 43 tests; thread criteria 33 pass, BUG-5/6/7 logged |
+| QA-16 `e2e/mobile-threads.spec.ts` (phone) | P0 | done | QA | 14 tests; 8 pass / 6 not-built (AC-T7/T8 pending Dev A) |
+| QA-17 Regression gate after PRIN-8 + demo step 11 in both smoke specs | P0 | done | QA | Gate green (below); `npm run test:e2e:threads` added |
+| QA-18 docs/BUGS.md Phase 3 section | P1 | done | QA | BUG-5, BUG-6, BUG-7 |
 
-## Wave 9 dry run
+## Phase 3 dry run (2026-10-08, dirty homeserver, Dev A header work still in progress)
 | Item | Result |
 |---|---|
-| Regression gate after PRIN-8 (`desktop` + `mobile` projects) | not yet run |
-| `desktop` project incl. `threads.spec.ts` and smoke step 11 | not yet run |
-| `mobile` project incl. `mobile-threads.spec.ts` and phone smoke step 11 | not yet run |
-| Element Web interop (thread from alice visible as a thread for bob) | not yet checked (manual) |
-| Open bugs | - |
+| QA-17 regression gate after PRIN-8 (`threadSupport: true`) | `desktop` **87 pass / 1 fail / 8 skip**, `mobile` **58 / 0 / 0**: the flip did not regress Phase 1/2 (the one fail is the BUG-4 login-time tail, environment). |
+| Final `desktop` project (Phase 1 + `threads.spec.ts` + smoke step 11) | **114 pass / 3 fail / 13 skip / 11 did-not-run**. The did-not-run block is the serial smoke cascade after BUG-4 (login over 10 s under suite load); passes alone. |
+| Final `mobile` project (Phase 2 + `mobile-threads.spec.ts` + phone smoke step 11) | **65 pass / 2 fail / 7 skip**; both fails were flakes, hardened and re-verified (`voice.spec.ts` 18/18, `mobile-threads.spec.ts` 8 pass / 6 not-built). |
+| Thread criteria | **33 pass**; AC-T7 / AC-T8 not built yet (Dev A); 2 real bugs: **BUG-6** (thread opens not at the bottom, drift while paging back, S2, Dev B) and **BUG-7** (redacted reply row, ruled G-2). BUG-5 (`replyTo` + `threadRoot` not rejected, S2, Principal) open. |
+| Element Web interop (thread from alice visible as a thread for bob) | not yet checked (manual, Wave 9) |
+| Open bugs | BUG-4 (environment), BUG-5, BUG-6; BUG-7 closed by ruling unless Dev B ships a tombstone. |
 
 ## Requests to Principal (Phase 3)
 | # | From | Request | Status |
 |---|---|---|---|
-| 10 | PM | Shared API per docs/PHASE3_TICKETS.md (`TimelineSource`, `useTimeline`, `threadRoot` sends, `useThreadSummary`, `useRoomThreads`, `useThreadStore`, `threadUnreadByRoom`, thread-aware relations) | todo |
-| 11 | PM | Shell `data-thread-open` + `ThreadView` mounting per docs/PHASE3_ACCEPTANCE.md | todo |
-| 12 | PM | `thread:sample` script line in `package.json` | todo |
+| 10 | PM | Shared API per docs/PHASE3_TICKETS.md (`TimelineSource`, `useTimeline`, `threadRoot` sends, `useThreadSummary`, `useRoomThreads`, `useThreadStore`, `threadUnreadByRoom`, thread-aware relations) | done (PRIN-8/9; deltas in docs/ARCHITECTURE.md) |
+| 11 | PM | Shell `data-thread-open` + `ThreadView` mounting per docs/PHASE3_ACCEPTANCE.md | done (PRIN-10) |
+| 12 | PM | `thread:sample` script line in `package.json` | done (PRIN-11) |

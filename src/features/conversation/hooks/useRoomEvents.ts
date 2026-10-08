@@ -19,6 +19,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import type { MatrixEvent } from 'matrix-js-sdk';
+import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { useTimeline, type TimelineSource } from '@/store/hooks.ts';
 import { getReplyTargetId, isThreadReply } from '@/lib/matrix/utils.ts';
 import { isSameDay } from '@/lib/format.ts';
@@ -26,37 +27,40 @@ import { isSameDay } from '@/lib/format.ts';
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// Redacted thread replies (the "guard beyond the store filter", DEV-B-21)
+// Redacted thread replies: the "Message deleted" tombstone (BUG-7 / AC-T9-3)
 // ---------------------------------------------------------------------------
 /**
- * Ids this session has seen inside a thread, per room.
+ * Ids this session has rendered inside each thread, keyed by `roomId|rootId`.
  *
- * Why this exists: redacting a message strips its `content`, including `m.relates_to`, so the server
- * stops listing it under `/relations/{root}/m.thread` and matrix-js-sdk deliberately **moves the
- * redacted event out of the thread and into the room's live timeline**
- * (`MatrixEvent.makeRedacted` -> `moveAllRelatedToMainTimeline`, "This will change if MSC3389 is
- * merged"). Verified in `__dev__/redact-probe.mjs`: after the redaction the event is in
- * `room.getLiveTimeline()` and in `eventsByRoom`, and **every** thread marker is gone - no wire
- * relation, `threadRootId` null, `getThread()` undefined, `unsigned` only `age` / `membership` /
- * `redacted_because`. Without this guard, deleting a reply from the thread panel adds a stray
- * "Message deleted" row to the channel (the plan calls a reply in the channel S1).
+ * Why: redacting a message strips its `content`, including `m.relates_to`, so Synapse stops listing it
+ * under `/relations/{root}/m.thread` and matrix-js-sdk **moves the redacted event out of the thread**
+ * (`MatrixEvent.makeRedacted` -> `moveAllRelatedToMainTimeline` -> `moveToMainTimeline`, which calls
+ * `thread.timelineSet.removeEvent(id)` and `setThread(undefined)`; the comment there says it changes
+ * if MSC3389 lands). The reply therefore disappears from `thread.liveTimeline` and from our snapshot,
+ * and the panel row vanishes under the reader's cursor instead of showing the Phase 1 `message-redacted`
+ * placeholder the room timeline shows for a deleted message (AC-B9, AC-T9-3). Proven in
+ * `__dev__/redact-probe.mjs`: after the redaction the event is gone from `thread.events`, carries no
+ * thread marker at all, and the server's `/relations` no longer returns it.
  *
- * Since the event itself carries no evidence any more, the only signal is that we saw it in a thread
- * before. The set only ever grows with ids that really were thread replies, so a redacted
- * *main-timeline* message can never be hidden by mistake (AC-B9 keeps working).
+ * The event object itself is still alive - the SDK put it in the room's live timeline - so the panel can
+ * read it back with `room.findEventById` and render it in place. Nothing is mutated and nothing is
+ * fetched: this is a read of an event the SDK already holds, re-inserted in timestamp order.
  *
- * Limit: a reply redacted before this session loaded (or in a thread never opened here) has no
- * record, so it still shows as "Message deleted" in the channel after a reload - see the Request to
- * Principal, where the bridge's `onRedaction(event, room, threadId)` has the authoritative signal at
- * the moment the redaction arrives.
+ * Only **redacted** events are ever restored, so a reply that leaves the snapshot for any other reason
+ * (the SDK resets a thread's timeline when its initial `/relations` fetch lands) is not resurrected - it
+ * comes back on its own, and `present` dedupes it if both happen at once.
+ *
+ * Session-only, like the core's `markRedactedThreadReply` guard that keeps the same event out of the
+ * channel: a reply redacted before this client loaded was never rendered here, so there is nothing to
+ * tombstone and the row is simply absent. Recorded as the residual in docs/BUGS.md.
  */
-const seenThreadReplies = new Map<string, Set<string>>();
+const seenThreadReplyIds = new Map<string, Set<string>>();
 
-function rememberThreadReplies(roomId: string, events: MatrixEvent[]): void {
-  let ids = seenThreadReplies.get(roomId);
+function rememberThreadReplies(key: string, events: MatrixEvent[]): void {
+  let ids = seenThreadReplyIds.get(key);
   if (!ids) {
     ids = new Set();
-    seenThreadReplies.set(roomId, ids);
+    seenThreadReplyIds.set(key, ids);
   }
   for (const event of events) {
     const id = event.getId();
@@ -64,11 +68,21 @@ function rememberThreadReplies(roomId: string, events: MatrixEvent[]): void {
   }
 }
 
-/** True for an event the SDK moved into the main timeline because it was redacted inside a thread. */
-function isRedactedThreadReply(roomId: string, event: MatrixEvent): boolean {
-  if (!event.isRedacted()) return false;
-  const id = event.getId();
-  return !!id && !!seenThreadReplies.get(roomId)?.has(id);
+/** Re-insert replies the SDK moved out of the thread because they were redacted, in timestamp order. */
+function withRedactedTombstones(roomId: string, key: string, events: MatrixEvent[]): MatrixEvent[] {
+  const seen = seenThreadReplyIds.get(key);
+  if (!seen?.size) return events;
+  const present = new Set(events.map((e) => e.getId()));
+  let restored: MatrixEvent[] | null = null;
+  const room = getClientOrNull()?.getRoom(roomId);
+  if (!room) return events;
+  for (const id of seen) {
+    if (present.has(id)) continue;
+    const event = room.findEventById(id);
+    if (event?.isRedacted()) (restored ??= []).push(event);
+  }
+  if (!restored) return events;
+  return [...events, ...restored].sort((a, b) => a.getTs() - b.getTs());
 }
 
 export type TimelineItem =
@@ -114,17 +128,22 @@ export function useRoomEvents(source: string | TimelineSource): RoomEvents {
   const threadRootId = typeof source === 'string' ? undefined : source.threadRootId;
   const timelineSource = useMemo<TimelineSource>(() => ({ roomId, threadRootId }), [roomId, threadRootId]);
   const { events, hasMore, isPaginating, version, paginateBack } = useTimeline(timelineSource);
+  const key = threadRootId ? `${roomId}|${threadRootId}` : roomId;
 
-  // Keep a record of which ids belong to a thread, so a later redaction cannot smuggle one of them
-  // back into the channel (see `seenThreadReplies` above).
+  // Record which replies the panel has rendered, so a later redaction can be tombstoned rather than
+  // silently dropping the row (see `seenThreadReplyIds` above).
   useEffect(() => {
-    if (threadRootId) rememberThreadReplies(roomId, events);
-  }, [roomId, threadRootId, events]);
+    if (threadRootId) rememberThreadReplies(key, events);
+  }, [key, threadRootId, events]);
 
   // `version` is in the deps on purpose: edits/redactions mutate events in place (see ARCHITECTURE.md).
+  // The channel's own guard against redacted thread replies lives in the core (`timeline.ts`
+  // `markRedactedThreadReply`, fed by the bridge's `RoomEvent.Redaction`, which still carries the
+  // thread id), so `eventsByRoom` never offers them here; `isThreadReply` stays as the belt-and-braces
+  // filter DEV-B-21 asks for.
   const rows = useMemo(
-    () => (threadRootId ? events : events.filter((e) => !isThreadReply(e) && !isRedactedThreadReply(roomId, e))),
-    [events, roomId, threadRootId, version],
+    () => (threadRootId ? withRedactedTombstones(roomId, key, events) : events.filter((e) => !isThreadReply(e))),
+    [events, roomId, key, threadRootId, version],
   );
   const items = useMemo(() => buildTimelineItems(rows), [rows, version]);
   return { items, events: rows, hasMore, isPaginating, version, paginateBack };

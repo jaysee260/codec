@@ -22,22 +22,25 @@
  * reads `room.getThreads()` live on `threadVersion`. Redacted roots are filtered here: the hook does
  * not drop them (docs/PHASE3_PLAN.md "the list hides redacted roots").
  *
+ * Times and the `N replies` wording come from `@/lib/format.ts` (`formatRelative`) and the local
+ * `replyCountText` below - the pinned strings Dev B's summary row uses too (docs/BUGS.md D-2).
+ *
  * testids: thread-list, thread-list-close, thread-list-empty, thread-list-item-{rootId},
  *          thread-list-item-author, thread-list-item-snippet, thread-list-item-count,
- *          thread-list-item-time, thread-list-item-avatars
+ *          thread-list-item-time, thread-list-item-avatars, thread-list-backdrop (phone scrim;
+ *          `drawer-backdrop` belongs to the Shell and only shows while a drawer is open)
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
-import { colorFor, initialsOf } from '@/lib/format.ts';
+import { colorFor, formatRelative, initialsOf } from '@/lib/format.ts';
 import { avatarUrlOf, displayNameOf, previewText } from '@/lib/matrix/utils.ts';
 import { hapticTap } from '@/lib/native.ts';
 import { useIsPhone } from '@/store/hooks.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useRoomThreads, useThreadStore, type ThreadSummary } from '@/store/threads.ts';
-import { formatRelative, replyCountText } from '../relativeTime.ts';
 import styles from './ThreadList.module.css';
 
 /** Popover geometry (desktop). Kept in sync with `.popover` in the stylesheet. */
@@ -47,6 +50,17 @@ const VIEWPORT_MARGIN = 8;
 const LOAD_MORE_SLACK = 64;
 /** Max participant avatars per item (registry: "up to 3 avatars"). */
 const MAX_AVATARS = 3;
+
+/**
+ * `1 reply` / `N replies` for `thread-list-item-count` (AC-T7-2) - the strings pinned in
+ * docs/PHASE3_PLAN.md. Dev B inlines the same two words for `thread-replies-divider` /
+ * `thread-summary-count`; `@/lib/format.ts` is the Principal's file and only `formatRelative` was
+ * asked for there (docs/BUGS.md D-2), so each owner keeps this one-liner rather than importing
+ * across a feature boundary.
+ */
+function replyCountText(count: number): string {
+  return count === 1 ? '1 reply' : `${count} replies`;
+}
 
 export interface ThreadListProps {
   roomId: string;
@@ -148,10 +162,14 @@ export function ThreadList({ roomId, anchor, onClose }: ThreadListProps) {
     nodes[next]?.focus();
   }, []);
 
+  // Unconditional hook call (`isPhone` is stable within a mount, but a rotation / resize across the
+  // phone breakpoint must not change the hook order). The sheet ignores the style.
+  const popoverStyle = usePopoverStyle(isPhone ? null : anchor);
+
   const card = (
     <div
       className={`${styles.card} ${isPhone ? styles.sheet : styles.popover}`}
-      style={isPhone ? undefined : usePopoverStyle(anchor)}
+      style={isPhone ? undefined : popoverStyle}
       data-testid="thread-list"
       data-variant={isPhone ? 'sheet' : 'popover'}
       data-loading={loading ? 'true' : 'false'}
@@ -206,6 +224,9 @@ export function ThreadList({ roomId, anchor, onClose }: ThreadListProps) {
     isPhone ? (
       <div
         className={styles.backdrop}
+        /* Its own testid: `drawer-backdrop` is the Shell's (it only shows while a *drawer* is open),
+         * the same split Dev B's `message-action-sheet-backdrop` uses. */
+        data-testid="thread-list-backdrop"
         /* `mousedown` + `click` like Dialog: `pointerdown` would dismiss the sheet at touch-start and
          * the synthesized click would land on whatever is underneath (a ghost tap). */
         onMouseDown={(e) => {

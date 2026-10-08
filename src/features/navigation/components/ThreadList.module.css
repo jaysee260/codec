@@ -1,0 +1,350 @@
+/*
+ * DEV-A-17 Threads list (`thread-list`). One stylesheet, two presentations, selected by the class
+ * the component applies next to `data-variant` (`.popover` / `.sheet`), so the attribute QA asserts
+ * and the geometry can never disagree - the same rule as Dialog.module.css (AC-M5-2/4).
+ *
+ * Both are rendered in a portal on document.body, so nothing here is scoped by the shell grid.
+ * z-index 100 matches Dialog's backdrop: above the phone header's raised buttons (25), the shell's
+ * drawer backdrop (20) / drawers (30), the phone thread layer (10) and the action sheet (55/56).
+ */
+
+/* ---------------------------------------------------------------------------
+ * Shared card
+ * ------------------------------------------------------------------------- */
+.card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-modal);
+  box-shadow: var(--shadow-elevation);
+  color: var(--text-normal);
+}
+.card:focus {
+  outline: none;
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-heading);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: color 0.12s ease-out;
+}
+.close:hover {
+  color: var(--text-heading);
+  background: var(--bg-hover);
+}
+
+/* The only scrolling box: `onScroll` here drives `loadMore()` at the bottom (AC-T7-2). */
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+}
+
+.status {
+  padding: 12px 12px 14px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 28px 20px 32px;
+  text-align: center;
+}
+.emptyTitle {
+  color: var(--text-heading);
+  font-size: var(--font-size-message);
+  font-weight: 600;
+}
+.emptyText {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.3;
+}
+
+/* ---------------------------------------------------------------------------
+ * Items
+ * ------------------------------------------------------------------------- */
+.item {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: inherit;
+  transition: background 0.1s ease-out;
+}
+.item:hover {
+  background: var(--bg-hover);
+}
+.item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* DEV-A-19: the thread that is open in the panel (`data-selected="true"`). */
+.itemSelected {
+  background: var(--bg-active);
+}
+
+.rootAvatar {
+  margin-top: 2px;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.author {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-heading);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+/* Unread dot on the row (the header button carries its own, `header-threads-unread`). */
+.unread {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  align-self: center;
+}
+
+/* `previewText(root)` - at most two lines (registry: "root previewText (<= 2 lines)"). */
+.snippet {
+  color: var(--text-normal);
+  font-size: var(--font-size-sm);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.count {
+  color: var(--text-link);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Up to 3 participant avatars, overlapped like the summary row's stack. */
+.avatars {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.participant {
+  border: 2px solid var(--bg-modal);
+  box-sizing: content-box;
+  margin-left: -6px;
+}
+.participant:first-child {
+  margin-left: 0;
+}
+.item:hover .participant {
+  border-color: var(--bg-hover);
+}
+.itemSelected .participant {
+  border-color: var(--bg-active);
+}
+
+/* ---------------------------------------------------------------------------
+ * Desktop popover (AC-T7-2 `data-variant="popover"`)
+ *
+ * `position: fixed` + inline top/right/width/max-height from the anchor's `getBoundingClientRect()`
+ * (see the component header: the header is a stacking context, so an in-header absolute popover
+ * would be trapped at z-index 1).
+ * ------------------------------------------------------------------------- */
+.popover {
+  position: fixed;
+  z-index: 100;
+  width: 380px;
+  max-height: 70vh;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  animation: thread-list-pop 0.12s ease-out;
+}
+
+@keyframes thread-list-pop {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Phone bottom sheet (AC-T7-2 `data-variant="sheet"`), geometry copied from Dialog's sheet so the
+ * two phone surfaces match: full width, bottom edge flush with the viewport bottom + --safe-bottom,
+ * grab handle, slide-up.
+ * ------------------------------------------------------------------------- */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: flex-end;
+  animation: thread-list-fade 0.12s ease-out;
+}
+
+@keyframes thread-list-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet {
+  position: relative;
+  width: 100%;
+  max-height: 80%;
+  /* Room for the grab handle above the header. */
+  padding-top: 8px;
+  padding-bottom: var(--safe-bottom);
+  border-radius: var(--radius) var(--radius) 0 0;
+  animation: thread-list-slide-up 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes thread-list-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover,
+  .backdrop,
+  .sheet {
+    animation: none;
+  }
+}
+
+/* Decorative grab handle (the backdrop and `thread-list-close` close the sheet; dragging is out of scope). */
+.handle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-active);
+  pointer-events: none;
+}
+
+/* 44 px tap targets inside the sheet (AC-T7-2 asserts `thread-list-item-*` itself, AC-M5-1 the rest). */
+:root[data-layout='phone'] .header {
+  padding: 8px 4px 8px 16px;
+}
+:root[data-layout='phone'] .title {
+  font-size: var(--font-size-message);
+  text-transform: none;
+  letter-spacing: 0;
+}
+:root[data-layout='phone'] .close {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  color: var(--text-normal);
+}
+:root[data-layout='phone'] .close:active {
+  background: var(--bg-active);
+}
+:root[data-layout='phone'] .scroller {
+  padding: 4px 8px 8px;
+}
+:root[data-layout='phone'] .item {
+  min-height: var(--tap-target);
+  padding: 10px 8px;
+  gap: 12px;
+}
+:root[data-layout='phone'] .snippet,
+:root[data-layout='phone'] .author {
+  font-size: var(--font-size-message);
+}
+
+/* Touch devices get no hover reveal (and no sticky hover after a tap). */
+@media (hover: none) {
+  .item:hover {
+    background: none;
+  }
+  .item:hover .participant {
+    border-color: var(--bg-modal);
+  }
+  .close:hover {
+    color: var(--text-normal);
+    background: none;
+  }
+}

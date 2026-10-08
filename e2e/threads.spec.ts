@@ -822,10 +822,12 @@ test.describe('AC-T6 ThreadView', () => {
     if (idsAtOpen.length < replyIds.length) {
       // Anchor drift: the topmost rendered row must not move while older replies are prepended.
       const anchorId = idsAtOpen[0]!;
-      const anchorBefore = (await threadRow(page, anchorId).boundingBox())!.y;
-      await threadMessageList(page).evaluate((el) => {
+      // Baseline is taken *after* the scroll, in the same evaluate (mirrors AC-B3-2 in
+      // conversation.spec.ts): scrolling to the top is the action under test, not the jump.
+      const anchorBefore = await threadMessageList(page).evaluate((el, id) => {
         el.scrollTop = 0;
-      });
+        return el.querySelector(`[data-testid="message-${id}"]`)!.getBoundingClientRect().top;
+      }, anchorId);
       await expect(page.getByTestId('thread-timeline-loading')).toBeVisible({ timeout: 5_000 });
       await expect
         .poll(async () => (await threadRowIds(page)).length, { timeout: 15_000 })
