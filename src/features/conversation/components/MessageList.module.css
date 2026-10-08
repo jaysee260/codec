@@ -16,6 +16,12 @@
   overflow-y: scroll;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  /*
+   * Chrome's native scroll anchoring also adjusts `scrollTop` when content is inserted above the
+   * viewport, which races the explicit anchoring in MessageList.tsx and makes the correction
+   * non-deterministic (AC-B3-2 / AC-T6-4). One owner of the scroll position, not two.
+   */
+  overflow-anchor: none;
 }
 
 /* Pagination trigger; the IntersectionObserver watches this. */

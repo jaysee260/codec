@@ -4,12 +4,14 @@
  * Scroll rules:
  * - on source change: jump to the bottom and re-arm pagination;
  * - new events: only follow the bottom when the user is within 40 px of it ("stick to bottom");
- * - backwards pagination: pin the top-most row before the request and restore `scrollTop` by however
- *   far *that row* moved once the taller content lands, so the row the user was reading stays put
- *   (`paginateBack` replaces the events array wholesale). The row's own offset is the anchor rather
- *   than the container's `scrollHeight` delta, because a page of history can also re-render the
- *   pinned row itself: an older message from the same sender turns its group header off, which makes
- *   the container grow by less than the content above the row did;
+ * - backwards pagination: pin the top-most row before the request and then, for a short window, keep
+ *   nudging `scrollTop` by however far *that row* has drifted from where it was, so the row the user
+ *   was reading stays put while the taller content settles (`paginateBack` replaces the events array
+ *   wholesale). The correction is relative and repeated rather than a single "restore the captured
+ *   scrollTop plus the delta": a short page leaves the top sentinel in view, so a second page lands
+ *   while the first correction is still settling and any captured base is stale by then. Measuring the
+ *   row live also removes the need to reason about its own `margin-top`, which flips with
+ *   `message-group-start` when an older message from the same sender arrives above it;
  * - a reply-quote jump scrolls to the target, paginating back until it is loaded, then flashes it.
  *
  * Phase 3: the same component renders a channel (`source = { roomId }`) and the replies inside a
@@ -44,14 +46,20 @@ const FLASH_MS = 2600;
 
 /** Scroll position pinned across a backwards pagination. */
 interface ScrollAnchor {
-  /** The row to keep still; empty when the list had no rows yet. */
+  /** The row to keep still. */
   eventId: string;
-  /** Its `offsetTop` before the request. */
-  offsetTop: number;
-  scrollTop: number;
-  /** Fallback for when the pinned row is gone from the new snapshot (timeline reset). */
-  scrollHeight: number;
+  /** Where its border box sat in the viewport when the pagination started - the thing to restore. */
+  viewportTop: number;
+  /** Keep correcting until this timestamp (`performance.now()` scale). */
+  until: number;
 }
+
+/**
+ * How long after a pagination the anchor keeps correcting itself. Long enough to cover a second page
+ * landing back-to-back (the top sentinel is still in view right after a short page, so `usePagination`
+ * fires again) and anything that mounts a frame or two late inside the prepended rows.
+ */
+const ANCHOR_WINDOW_MS = 600;
 
 export interface MessageListProps {
   source: TimelineSource;
@@ -80,6 +88,10 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   hasMoreRef.current = hasMore;
   /** Nonce of the jump currently being resolved; a newer jump supersedes it. */
   const jumpRunRef = useRef(0);
+  /** Frame handle of the live anchor re-check. */
+  const rafRef = useRef(0);
+  /** The scrollTop we last set ourselves, so `onScroll` can tell our own nudges from the reader's. */
+  const correctedTo = useRef(0);
 
   const [armed, setArmed] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -116,31 +128,72 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     return () => clearTimeout(timer);
   }, [key]);
 
+  /**
+   * Put the pinned row back where it was. Measured live and applied as a *relative* `scrollTop` nudge,
+   * never as "restore the scrollTop I captured plus how far the row moved".
+   *
+   * The captured-base version is what drifted (AC-B3-2, 23 px): a short page leaves the top sentinel in
+   * view, so a second `paginateBack` lands while the first correction is still settling, and the second
+   * restore computes its target from a base that is already stale. It also had to reason about the
+   * pinned row's own `margin-top`, which flips with `message-group-start` when an older message from the
+   * same sender arrives above it. Reading "where is this row now vs where should it be" needs neither:
+   * whatever happened in between - another page, a group-start flip, a day divider appearing or
+   * disappearing, a child mounting late - the error is measured and cancelled.
+   */
+  const applyAnchor = useCallback((): void => {
+    const el = containerRef.current;
+    const pin = anchor.current;
+    if (!el || !pin) return;
+    const row = el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`);
+    if (!row) {
+      anchor.current = null; // the pinned row is gone (timeline reset); nothing to hold on to
+      return;
+    }
+    const delta = row.getBoundingClientRect().top - pin.viewportTop;
+    if (Math.abs(delta) > 0.5) {
+      el.scrollTop += delta;
+      correctedTo.current = el.scrollTop;
+    }
+    if (performance.now() >= pin.until) anchor.current = null;
+  }, []);
+
+  /** Re-check every frame while the pin is live, so a layout change React never commits is caught too. */
+  const watchAnchor = useCallback((): void => {
+    if (rafRef.current) return;
+    const step = (): void => {
+      rafRef.current = 0;
+      applyAnchor();
+      if (anchor.current) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+  }, [applyAnchor]);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+  }, []);
+
   // Keep the viewport stable across every timeline commit.
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     // `load()` only records a pin when the list really was scrolled away from the bottom, so a pin here
     // always means "the reader is reading history, keep that row still" (BUG-6).
-    const pin = anchor.current;
-    if (pin) {
-      const row = pin.eventId ? el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`) : null;
-      // How far the pinned row moved down; fall back to the container delta if it is gone.
-      const moved = row ? row.offsetTop - pin.offsetTop : el.scrollHeight - pin.scrollHeight;
-      if (moved > 0) {
-        el.scrollTop = pin.scrollTop + moved;
-        anchor.current = null;
-      } else if (!isPaginating) {
-        anchor.current = null; // the request came back without new rows
-      }
+    if (anchor.current) {
+      applyAnchor();
       return;
     }
     if (stick.current) el.scrollTop = el.scrollHeight;
-  }, [items, isPaginating, version]);
+  }, [items, isPaginating, version, applyAnchor]);
 
   const onScroll = (): void => {
     const el = containerRef.current;
     if (!el) return;
+    // A scroll we did not cause while a pin is live means the reader took over: drop the pin rather
+    // than fight them for the rest of the correction window.
+    if (anchor.current && Math.abs(el.scrollTop - correctedTo.current) > 2) anchor.current = null;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     stick.current = near;
     setAtBottom(near);
@@ -163,16 +216,27 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
      * bottom" for a list the test has just scrolled to the top.
      */
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-    anchor.current =
-      first && !nearBottom
-        ? {
-            eventId: first.dataset.eventId ?? '',
-            offsetTop: first.offsetTop,
-            scrollTop: el.scrollTop,
-            scrollHeight: el.scrollHeight,
-          }
-        : null;
+    if (nearBottom) {
+      anchor.current = null;
+    } else {
+      const live = anchor.current;
+      // A second page right after a short one: keep holding the row we already promised to hold, and
+      // just extend the window. Re-pinning to the new top row is what let the first row slip (AC-B3-2).
+      if (live && el.querySelector(`[data-event-id="${live.eventId}"]`)) {
+        live.until = performance.now() + ANCHOR_WINDOW_MS;
+      } else if (first?.dataset.eventId) {
+        anchor.current = {
+          eventId: first.dataset.eventId,
+          viewportTop: first.getBoundingClientRect().top,
+          until: performance.now() + ANCHOR_WINDOW_MS,
+        };
+      } else {
+        anchor.current = null;
+      }
+    }
+    correctedTo.current = el.scrollTop;
     void paginateBack(30);
+    watchAnchor();
   }, [paginateBack]);
 
   usePagination({
