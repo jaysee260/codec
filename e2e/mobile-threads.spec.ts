@@ -35,7 +35,6 @@ import {
   openMemberDrawer,
   pageScroll,
   settleAnimations,
-  tapBackdrop,
   tapRoom,
 } from './fixtures/mobile.ts';
 import {
@@ -359,7 +358,11 @@ test.describe('AC-T7 the Threads button and bottom-sheet list on phone', () => {
     await expect(threadList(page)).toBeHidden();
 
     await openThreadsList(page, true);
-    await tapBackdrop(page);
+    // The Threads sheet has its own scrim (`thread-list-backdrop`); the shell's `drawer-backdrop`
+    // belongs to the nav/member drawers and stays hidden while the sheet is up.
+    const sheetBackdrop = page.getByTestId('thread-list-backdrop');
+    await expect(sheetBackdrop).toBeVisible();
+    await sheetBackdrop.tap({ position: { x: 10, y: 10 } });
     await expect(threadList(page)).toBeHidden();
 
     // "Opening it closes any drawer and vice versa": only one of the two can ever be on screen.
