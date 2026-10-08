@@ -501,6 +501,14 @@ test.describe('demo script (QA-3 smoke)', () => {
     );
     test.skip(!demoThreadRootId, 'demo step 11b needs the thread step 11a created');
 
+    // The Threads dot is room-wide: clear every leftover unread thread first with an *unthreaded*
+    // m.read on the newest event (earlier runs leave unread threads behind on a dirty seed), so
+    // the only unread thread after bob's reply is the demo one and opening it clears the dot.
+    const newest = await aliceApi.lastMessage(R.general);
+    if (newest) await aliceApi.receipt(R.general, newest.event_id);
+    await expect.poll(async () => (await aliceApi.unreadFor(R.general)).count, { timeout: 15_000 }).toBe(0);
+    await expect(page.getByTestId('header-threads-unread')).toHaveCount(0, { timeout: 15_000 });
+
     // --- demo row 5 (second half): bob replies again while the panel is closed -> the dot appears
     await bob.sendThreadReply(R.general, demoThreadRootId, '[demo] Bringing the guacamole');
     await expect(page.getByTestId('header-threads-unread')).toBeVisible({ timeout: 10_000 });

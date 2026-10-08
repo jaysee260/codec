@@ -824,17 +824,24 @@ test.describe('AC-T6 ThreadView', () => {
       const anchorId = idsAtOpen[0]!;
       // Baseline is taken *after* the scroll, in the same evaluate (mirrors AC-B3-2 in
       // conversation.spec.ts): scrolling to the top is the action under test, not the jump.
+      // Arm the loading-indicator watch *before* the scroll: the page request can complete within
+      // one frame on a warm homeserver, so a check started afterwards misses the flash.
+      const sawLoading = page
+        .getByTestId('thread-timeline-loading')
+        .waitFor({ state: 'visible', timeout: 8_000 })
+        .then(() => true)
+        .catch(() => false);
       const anchorBefore = await threadMessageList(page).evaluate((el, id) => {
         el.scrollTop = 0;
         return el.querySelector(`[data-testid="message-${id}"]`)!.getBoundingClientRect().top;
       }, anchorId);
-      await expect(page.getByTestId('thread-timeline-loading')).toBeVisible({ timeout: 5_000 });
       await expect
         .poll(async () => (await threadRowIds(page)).length, { timeout: 15_000 })
         .toBeGreaterThan(idsAtOpen.length);
       const anchorAfter = (await threadRow(page, anchorId).boundingBox())!.y;
       annotate('anchor-drift', `${Math.abs(anchorAfter - anchorBefore).toFixed(1)} px`);
       expect(Math.abs(anchorAfter - anchorBefore), 'anchor drift <= 5 px (AC-B3-2 rule)').toBeLessThanOrEqual(5);
+      expect(await sawLoading, 'thread-timeline-loading must be shown while the page request is in flight').toBe(true);
     }
 
     await paginateThreadToTop(page, async () => (await threadRowIds(page)).length >= replyIds.length, 15);
