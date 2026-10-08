@@ -157,7 +157,7 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 
 # Phase 3 - Threads
 
-Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tickets: docs/PHASE3_TICKETS.md. Planned 2026-10-07 by PM (advisor consults 1-3 recorded in the plan); Waves 7-8 and the dry run below as of 2026-10-08 (working tree, uncommitted). P0 = the desktop and phone demo scripts. Waves: 7 Principal core (PRIN-8 first, QA gate right after), 8 devs + QA in parallel, 9 dry run + interop check. PM rulings G-1 (AC-A4-2 membership from the server) and G-2 (BUG-7, redacted reply disappears) are in docs/PHASE3_ACCEPTANCE.md "Rulings".
+Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tickets: docs/PHASE3_TICKETS.md. Planned 2026-10-07 by PM (advisor consults 1-3 recorded in the plan); Waves 7-8 and the dry run below as of 2026-10-08 (working tree, uncommitted). P0 = the desktop and phone demo scripts. Waves: 7 Principal core (PRIN-8 first, QA gate right after), 8 devs + QA in parallel, 9 dry run + interop check. PM rulings G-1 (AC-A4-2 membership from the server) and G-2 (BUG-7; outcome: Dev B's tombstone fix, AC-T9-3 unmodified) are in docs/PHASE3_ACCEPTANCE.md "Rulings".
 
 ## Wave 7 - Principal
 | Ticket | P | Status | Owner | Notes |
@@ -180,9 +180,9 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 |---|---|---|---|---|
 | DEV-B-18 `ThreadSummary` row under thread roots | P0 | done | Dev B | AC-T4 green |
 | DEV-B-19 "Reply in thread" action (toolbar + long-press sheet) | P0 | done | Dev B | AC-T5 green |
-| DEV-B-20 `ThreadView` (root, divider, list, composer, typing, receipts) | P0 | done | Dev B | BUG-6 open (opens not at the bottom / drift while paging, AC-T6-4) |
+| DEV-B-20 `ThreadView` (root, divider, list, composer, typing, receipts) | P0 | done | Dev B | BUG-6 re-filed as a test defect (baseline taken before `scrollTop = 0`; real drift 0.4 px; spec fixed, AC-T6-4 passes). Latent defect fixed: `usePagination` pinned while the list was shorter than the viewport and walked the panel off the newest reply; it now pins only when live geometry says the list is away from the bottom |
 | DEV-B-21 Main-timeline and panel hygiene | P0 | done | Dev B | |
-| DEV-B-22 In-thread edits, reactions, delete, voice notes, uploads | P1 | done | Dev B | BUG-7 ruled (G-2): redacted reply disappears from the panel unless a cheap tombstone is reported |
+| DEV-B-22 In-thread edits, reactions, delete, voice notes, uploads | P1 | done | Dev B | BUG-7 fixed: read-only tombstone in `useRoomEvents`; AC-T9-3 passes unmodified. Residual: a reply redacted before the client loaded has no row |
 
 ## Wave 8 - QA
 | Ticket | P | Status | Owner | Notes |
@@ -199,9 +199,9 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 | QA-17 regression gate after PRIN-8 (`threadSupport: true`) | `desktop` **87 pass / 1 fail / 8 skip**, `mobile` **58 / 0 / 0**: the flip did not regress Phase 1/2 (the one fail is the BUG-4 login-time tail, environment). |
 | Final `desktop` project (Phase 1 + `threads.spec.ts` + smoke step 11) | **114 pass / 3 fail / 13 skip / 11 did-not-run**. The did-not-run block is the serial smoke cascade after BUG-4 (login over 10 s under suite load); passes alone. |
 | Final `mobile` project (Phase 2 + `mobile-threads.spec.ts` + phone smoke step 11) | **65 pass / 2 fail / 7 skip**; both fails were flakes, hardened and re-verified (`voice.spec.ts` 18/18, `mobile-threads.spec.ts` 8 pass / 6 not-built). |
-| Thread criteria | **33 pass**; AC-T7 / AC-T8 not built yet (Dev A); 2 real bugs: **BUG-6** (thread opens not at the bottom, drift while paging back, S2, Dev B) and **BUG-7** (redacted reply row, ruled G-2). BUG-5 (`replyTo` + `threadRoot` not rejected, S2, Principal) open. |
+| Thread criteria | **33 pass**; AC-T7 / AC-T8 not built yet (Dev A). **BUG-6** re-filed as a test defect (spec fixed, AC-T6-4 passes; a latent `usePagination` pin bug fixed alongside). **BUG-7** fixed (tombstone; AC-T9-3 passes). BUG-5 (`replyTo` + `threadRoot` not rejected, S2, Principal) open. |
 | Element Web interop (thread from alice visible as a thread for bob) | not yet checked (manual, Wave 9) |
-| Open bugs | BUG-4 (environment), BUG-5, BUG-6; BUG-7 closed by ruling unless Dev B ships a tombstone. |
+| Open bugs | BUG-4 (environment), BUG-5. BUG-6 (test defect) and BUG-7 fixed. |
 
 ## Requests to Principal (Phase 3)
 | # | From | Request | Status |
