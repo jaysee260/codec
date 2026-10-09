@@ -12,6 +12,10 @@ c['enable_registration_without_verification']=True
 c['presence']={'enabled':True}
 c['suppress_key_server_warning']=True
 c['enable_authenticated_media']=False
+c['url_preview_enabled']=True
+c['url_preview_ip_range_blacklist']=['127.0.0.0/8','10.0.0.0/8','172.16.0.0/12','192.168.0.0/16','100.64.0.0/10','192.0.0.0/24','169.254.0.0/16','192.88.99.0/24','198.18.0.0/15','192.0.2.0/24','198.51.100.0/24','203.0.113.0/24','224.0.0.0/4','::1/128','fe80::/10','fc00::/7','2001:db8::/32','ff00::/8','fec0::/10']
+c['url_preview_accept_language']=['en-US','en']
+c['max_spider_size']='10M'
 big={'per_second':1000,'burst_count':10000}
 for k in ['rc_message','rc_registration','rc_login','rc_joins','rc_invites','rc_admin_redaction','rc_3pid_validation','rc_room_creation']:
     if k=='rc_login':
