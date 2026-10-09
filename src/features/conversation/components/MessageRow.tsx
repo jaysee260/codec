@@ -83,7 +83,10 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
   const reactions = getReactions(roomId, eventId);
   const pending = isPendingEvent(event);
   const failed = event.status === EventStatus.NOT_SENT;
-  const canEdit = !pending && canEditEvent(event);
+  // Phase 4: editing a GIF is out of scope (there is no text to change and an edit would not touch the
+  // `dev.matrixpoc.gif` field), so `message-action-edit` is absent on GIF rows (AC-G8-2). Reacting,
+  // replying, threading and deleting work exactly as for any other message.
+  const canEdit = !pending && !body.gif && canEditEvent(event);
   const canDelete = !pending && !body.isRedacted && canRedactEvent(roomId, event);
   // Non-null only for a thread root with at least one reply, and never inside the panel.
   const threadSummary = useThreadSummary(inThread ? null : event);

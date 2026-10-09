@@ -1,0 +1,60 @@
+/*
+ * Placement for Dev A's picker panel (DEV-B-23 / DEV-B-26). The panel's own size and look live in
+ * src/features/gif/components/GifPicker.module.css; this file only decides *where* it is.
+ *
+ * Division of labour, matching Dev A's stylesheet comments:
+ *   popover  the panel has no `position` of its own (420 x 420, `max-width: 100%`) - anchored here.
+ *   sheet    the panel positions *itself* (`position: fixed; bottom: 0; z-index: 101`) - all this
+ *            file contributes is the backdrop behind it, so `gif-sheet` is a layout-free wrapper
+ *            (`display: contents`) that exists purely to hold the ref the outside-click test uses.
+ */
+
+/* --- desktop popover ------------------------------------------------------- */
+/*
+ * `.composer` is `position: relative` with `padding: 0 16px 24px`, so `left: 0` lines the panel's left
+ * edge up with the `composer` element's own left edge and `bottom: 100%` puts the wrapper's bottom
+ * edge on the composer's top edge (AC-G6-2: left-aligned, bottom within 8 px). The 6 px breathing
+ * space is a `margin-bottom` so the measured gap stays well inside that tolerance.
+ *
+ * No width, height or max-height here on purpose - the panel is 420 x 420 and must stay that size.
+ * z-index 45 is above the message list's sticky date pill (5) and the mention popup (40), and below
+ * the reaction picker (60), the delete dialog (80) and the toasts (1000).
+ */
+.popover {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 6px;
+  z-index: 45;
+  max-width: 100%;
+}
+
+/* --- phone bottom sheet ---------------------------------------------------- */
+.sheet {
+  display: contents;
+}
+
+/*
+ * Portalled to <body>, so these are viewport coordinates. z-index 100 sits directly under Dev A's
+ * sheet (101) and above the drawers (30), the phone header's raised buttons (25) and the message
+ * action sheet (55/56); the toasts (1000) still win, which is what AC-G7-2 needs.
+ */
+/* `bottom` is set inline from the sheet's measured height - see the comment in GifPickerMount.tsx. */
+.backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  background: var(--bg-overlay);
+  animation: gif-fade 0.15s ease-out;
+}
+@keyframes gif-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

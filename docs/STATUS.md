@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-08 (Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-09 (Phase 4 planned, all tickets todo, see the Phase 4 block at the end; Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -213,3 +213,56 @@ Plan: docs/PHASE3_PLAN.md · Criteria/testids: docs/PHASE3_ACCEPTANCE.md · Tick
 | 10 | PM | Shared API per docs/PHASE3_TICKETS.md (`TimelineSource`, `useTimeline`, `threadRoot` sends, `useThreadSummary`, `useRoomThreads`, `useThreadStore`, `threadUnreadByRoom`, thread-aware relations) | done (PRIN-8/9; deltas in docs/ARCHITECTURE.md) |
 | 11 | PM | Shell `data-thread-open` + `ThreadView` mounting per docs/PHASE3_ACCEPTANCE.md | done (PRIN-10) |
 | 12 | PM | `thread:sample` script line in `package.json` | done (PRIN-11) |
+
+---
+
+# Phase 4 - GIF picker
+
+Plan: docs/PHASE4_PLAN.md · Criteria/testids: docs/PHASE4_ACCEPTANCE.md · Tickets: docs/PHASE4_TICKETS.md. Planned 2026-10-09 by PM (advisor consults 1-4 recorded in the plan; the orchestrator's **hot-link** decision supersedes the brief's re-upload: Klipy forbids re-hosting or proxying its media). P0 = the desktop and phone demo scripts. Provider `mock` keyless; `klipy` once the stakeholder pastes a key (user-only steps in the plan). Waves: 10 Principal core (PRIN-13 first), 11 devs + QA in parallel, 12 dry run + Element link/preview check + APK with the key.
+
+## Wave 10 - Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PRIN-13 `src/lib/gif/` abstraction, resolver, mock provider, fixture generator (`public/gif-fixtures/`) | P0 | in-progress | Principal | Lands first: Dev A's grid and QA's fixture checks need the mock data |
+| PRIN-14 `klipy` provider (path-segment key, search/trending, mapping, errors, abort) | P0 | in-progress | Principal | No live probe without a key; mapping kept in one function |
+| PRIN-15 `sendGif`, `getGifContent` (host allow list), image host allow list (CSP / Capacitor) | P0 | in-progress | Principal | AC-G3-5 has a manual Android WebView check |
+| PRIN-16 `scripts/send-gif-sample.mjs` (`npm run gif:sample`), `.env.example`, MOBILE + ARCHITECTURE deltas | P1 | in-progress | Principal | |
+
+## Wave 11 - Dev A (GIF picker, `src/features/gif/**`)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-20 `GifPicker`: popover + sheet, search (300 ms debounce), trending, grid, states, attribution | P0 | done | Dev A | AC-G4 green (desktop 16/16 incl. keyboard, phone 6/6). BUG-8 (Phase 4: mock titles drifted from the contract) fixed by the mock-2/mock-3 rename |
+| DEV-A-21 Keyboard navigation, selection, focus trap | P0 | done | Dev A | AC-G5 green |
+| DEV-A-22 Load more, mp4 previews, aspect reservation | P1 | todo | Dev A | |
+| DEV-A-23 Picker polish | P2 | todo | Dev A | Not scheduled before the demo |
+
+## Wave 11 - Dev B (conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-23 Slash commands (`/gif`, `/giphy`), `composer-gif`, mounting the picker | P0 | in-progress | Dev B | Any other `/text` must still send as text (S1 if swallowed) |
+| DEV-B-24 Send flow: `gif-pending`, `sendGif`, error toast, one in flight | P0 | in-progress | Dev B | |
+| DEV-B-25 `GifMessage` rendering: badge, offscreen unmount, reduced motion, fallback | P0 | in-progress | Dev B | Image bytes come straight from `static.klipy.com` (or own origin under `mock`) |
+| DEV-B-26 Thread composer + phone integration | P1 | in-progress | Dev B | |
+
+## Wave 11 - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-19 Stubs (Klipy API + CDN), quota guard, provider override, `sendGifMessage`, fixture checks | P0 | done | QA | Quota guard in the shared fixture; BUG-9 (S3) filed: Klipy numeric ids above 2^53, fixed by using `slug` as `GifResult.id` |
+| QA-20 `e2e/gif.spec.ts` (desktop) | P0 | done | QA | `e2e/gif.spec.ts` desktop **16/16** |
+| QA-21 `e2e/mobile-gif.spec.ts` (phone) | P0 | done | QA | `e2e/mobile-gif.spec.ts` phone **6/6** |
+| QA-22 Demo step 12 in both smoke specs + final runs | P0 | done | QA | Smoke step 12 passes in both `smoke.spec.ts` and `mobile-smoke.spec.ts` |
+| QA-23 docs/BUGS.md Phase 4 section | P1 | todo | QA | |
+
+## Phase 4 dry run
+| Item | Result |
+|---|---|
+| `desktop` / `mobile` projects incl. `gif.spec.ts`, `mobile-gif.spec.ts`, smoke step 12 | Partial: `gif.spec.ts` 16/16, `mobile-gif.spec.ts` 6/6, smoke step 12 green in both projects; full-project runs pending the PRIN and DEV-B confirmations. Bugs: BUG-8 (Phase 4, title drift, fixed), BUG-9 (S3, slug ids, fixed) |
+| Stakeholder's Klipy key tried by hand (search, trending, send, Element link + URL preview) | pending the key |
+| APK rebuilt with the key | pending the key |
+| Manual criteria (AC-G3-5 WebView image load, AC-G9-2 Android back) | not yet run |
+
+## Requests to Principal (Phase 4)
+| # | From | Request | Status |
+|---|---|---|---|
+| 13 | PM | Shared API per docs/PHASE4_TICKETS.md (`src/lib/gif/`, `sendGif`, `getGifContent`, `window.__poc.gif`, image host allow list, fixtures) | todo |
+| 14 | PM | `gif:fixtures`, `gif:sample` script lines in `package.json`; `.env.example` `VITE_GIF_API_KEY` | todo |

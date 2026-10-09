@@ -25,6 +25,21 @@
  *
  * Reply/edit/focus state is keyed by `sourceKey(source)`, so an edit started in the panel fills the
  * panel's composer and the channel's banner stays closed (AC-T6-9).
+ *
+ * Phase 4 adds the GIF picker (DEV-B-23 / DEV-B-24). Two triggers, one target:
+ *
+ *  - `composer-gif` next to the paperclip toggles the picker open on trending;
+ *  - a draft matching `/gif` or `/giphy` (optionally followed by a query) is a **slash command**:
+ *    Enter / `composer-send` does not send it, it opens the picker pre-searched and clears the draft
+ *    (AC-G6-3). Anything else starting with `/` is an ordinary message (AC-G6-4).
+ *
+ * Which composer owns the picker lives in `useGifPicker` rather than here, because the picker's test
+ * ids are never prefixed: only one may exist on the page, so opening it from the thread panel closes
+ * the channel's instance (AC-G6-6). `GifPickerMount` positions it and owns dismissal.
+ *
+ * `onPick` sends straight away - `gif-pending` ("Sending GIF...") replaces nothing and disables
+ * `composer-gif` until the event is acked or fails, so there is at most one GIF in flight per
+ * composer (AC-G7-3), and the caret goes back into the input afterwards (AC-G7-1).
  */
 import {
   useCallback,
@@ -36,24 +51,41 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from 'react';
-import { Mic, SendHorizontal, X } from 'lucide-react';
-import { canEditEvent, editText, sendFile, sendText } from '@/lib/matrix/actions.ts';
+import { ImagePlay, Mic, SendHorizontal, X } from 'lucide-react';
+import { canEditEvent, editText, sendFile, sendGif, sendText } from '@/lib/matrix/actions.ts';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
-import { displayNameOf, getDisplayBody, isPendingEvent } from '@/lib/matrix/utils.ts';
+import { displayNameOf, getDisplayBody, isGifEvent, isPendingEvent } from '@/lib/matrix/utils.ts';
+import type { GifResult } from '@/lib/gif';
 import { sourceKey, useIsPhone, useMyUserId, useRoomSummary, useThreadStore, useTimeline, type TimelineSource } from '@/store/hooks.ts';
 import { withToast } from '@/store/toast.ts';
 import { useConversationUi, useEditingId, useFocusTick, useReplyTargetId } from '../hooks/useConversationUi.ts';
+import { useGifPickerFor, useGifPickerStore } from '../hooks/useGifPicker.ts';
 import { useMentions, type MentionOption } from '../hooks/useMentions.ts';
 import { useTypingNotifier } from '../hooks/useTypingNotifier.ts';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.ts';
 import { makeTid, type Tid } from '../tid.ts';
 import { AttachButton } from './AttachButton.tsx';
+import { GifPickerMount } from './GifPickerMount.tsx';
 import { MentionAutocomplete } from './MentionAutocomplete.tsx';
 import { UploadProgress } from './UploadProgress.tsx';
 import { VoiceErrorBanner, VoiceRecorderBar } from './VoiceRecorderBar.tsx';
 import styles from './Composer.module.css';
 
 const MAX_HEIGHT = 340;
+
+/**
+ * The GIF slash command (AC-G6-3 / AC-G6-4). The whole draft must be the command, case-insensitively,
+ * followed by the end of the text or whitespace + the query: `/gif`, `/GIPHY tacos`, `/gif  a b` all
+ * match; `/gifs tacos`, `/giffy`, `/ gif tacos` and `/slap bob` do not and are sent as plain text.
+ * `[\s\S]` rather than `.` so a multi-line draft starting with `/gif` is still recognised.
+ */
+const GIF_COMMAND = /^\/(?:gif|giphy)(?:\s+([\s\S]*))?$/i;
+
+/** The query a draft asks the picker for, or null when the draft is not a GIF command. */
+export function gifCommandQuery(draft: string): string | null {
+  const match = GIF_COMMAND.exec(draft.trim());
+  return match ? (match[1] ?? '').trim() : null;
+}
 
 export interface ComposerProps {
   source: TimelineSource;
@@ -84,7 +116,14 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
   const [uploads, setUploads] = useState<string[]>([]);
   /** Last edit target the input was seeded from; see the edit block below. */
   const [editSeed, setEditSeed] = useState<string | undefined>(undefined);
+  /** True from a pick until `sendGif` resolves or rejects: `gif-pending` + `composer-gif` disabled. */
+  const [gifPending, setGifPending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const gifButtonRef = useRef<HTMLButtonElement>(null);
+
+  const gifPicker = useGifPickerFor(key);
+  const openGifPicker = useGifPickerStore((s) => s.openFor);
+  const closeGifPicker = useGifPickerStore((s) => s.close);
 
   const typing = useTypingNotifier(roomId);
   const mentions = useMentions(roomId);
@@ -102,11 +141,20 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
   );
 
   // --- source change ---------------------------------------------------------
+  // Closing the picker here covers both AC-G6-7 (a room switch remounts this composer with a new key)
+  // and half of AC-G6-6 (the thread panel mounting its composer closes a channel-opened picker).
   useEffect(() => {
     setText('');
+    setGifPending(false);
     mentions.reset();
     clearTargets(key);
+    closeGifPicker();
     inputRef.current?.focus();
+    // Unmounting (the thread panel closing, a logout) must not leave the singleton pointing at a
+    // composer that no longer exists - nothing would render it and nothing would close it.
+    return () => {
+      if (useGifPickerStore.getState().open?.key === key) closeGifPicker();
+    };
     // Intentionally only on source change; the helpers are stable store actions.
   }, [key]);
 
@@ -151,7 +199,9 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
   const lastOwnEditableId = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i]!;
-      if (event.getSender() === myUserId && !isPendingEvent(event) && canEditEvent(event)) return event.getId();
+      // GIFs are not editable (AC-G8-2), so ArrowUp skips them exactly as the toolbar hides the action.
+      if (event.getSender() === myUserId && !isPendingEvent(event) && canEditEvent(event) && !isGifEvent(event))
+        return event.getId();
     }
     return undefined;
   }, [events, myUserId]);
@@ -172,9 +222,47 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
     [roomId, threadRoot],
   );
 
+  /** Open the picker for this composer and park the caret for when it closes again. */
+  const openPicker = useCallback(
+    (query: string): void => {
+      openGifPicker(key, query);
+    },
+    [openGifPicker, key],
+  );
+
+  const onPickGif = useCallback(
+    (gif: GifResult): void => {
+      // Close first: the picker is gone in the same commit the chip appears, so the pick never looks
+      // like it did nothing while the request is in flight (AC-G7-1).
+      closeGifPicker();
+      setGifPending(true);
+      inputRef.current?.focus();
+      void withToast(() => sendGif(roomId, gif, { threadRoot }), 'Could not send GIF').finally(() => {
+        setGifPending(false);
+        inputRef.current?.focus();
+      });
+    },
+    [closeGifPicker, roomId, threadRoot],
+  );
+
   const submit = (): void => {
     const body = text.trim();
     if (!body) return;
+
+    // `/gif` / `/giphy` is consumed, never sent (AC-G6-3). Not while editing an existing message: the
+    // draft there is that message's text, and "/gif ..." may well be what it legitimately says.
+    if (!editingId) {
+      const query = gifCommandQuery(body);
+      if (query !== null) {
+        if (gifPending) return; // one GIF in flight per composer (AC-G7-3)
+        setText('');
+        typing.stop();
+        mentions.reset();
+        openPicker(query);
+        return;
+      }
+    }
+
     const extra = mentions.contentFor(body);
 
     if (editingId) {
@@ -238,6 +326,17 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
           return;
         }
       }
+    }
+
+    // The picker is checked before the reply / edit / thread branches so Escape dismisses only the
+    // overlay: a reply banner opened before the picker is still there afterwards (AC-G6-5). In
+    // practice `gif-search` has the focus while it is open and `GifPickerMount`'s document listener
+    // gets there first; this is the path for a composer that somehow kept the caret.
+    if (e.key === 'Escape' && gifPicker) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeGifPicker();
+      return;
     }
 
     if (e.key === 'Escape') {
@@ -308,7 +407,29 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
         />
       )}
 
+      {gifPicker && (
+        <GifPickerMount
+          // A fresh mount per open, so re-opening re-runs the search and resets the selection.
+          key={gifPicker.nonce}
+          initialQuery={gifPicker.initialQuery}
+          variant={isPhone ? 'sheet' : 'popover'}
+          trigger={gifButtonRef}
+          onPick={onPickGif}
+          onClose={() => {
+            closeGifPicker();
+            inputRef.current?.focus();
+          }}
+        />
+      )}
+
       <UploadProgress names={uploads} />
+
+      {gifPending && (
+        <div className={styles.gifPending} data-testid={tid('gif-pending')} role="status">
+          <ImagePlay size={14} className={styles.gifPendingIcon} aria-hidden="true" />
+          <span>Sending GIF...</span>
+        </div>
+      )}
 
       {editingId && (
         <div className={styles.banner} data-testid={tid('composer-edit-banner')}>
@@ -350,6 +471,34 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
       ) : (
         <div className={`${styles.box} ${attached ? styles.boxAttached : ''}`}>
           <AttachButton tid={tid} onFiles={uploadFiles} />
+          {/*
+           * A toggle: clicking it while the picker is open closes it (AC-G6-2). `GifPickerMount`
+           * excludes this button from its outside-click test, so the mousedown does not close the
+           * picker before this click can read `gifPicker` and decide.
+           */}
+          <button
+            ref={gifButtonRef}
+            type="button"
+            className={styles.gif}
+            data-testid={tid('composer-gif')}
+            data-open={gifPicker ? 'true' : 'false'}
+            title="Send a GIF"
+            aria-label="Send a GIF"
+            aria-haspopup="dialog"
+            aria-expanded={gifPicker ? true : false}
+            disabled={gifPending}
+            onClick={() => {
+              if (gifPicker) {
+                closeGifPicker();
+                inputRef.current?.focus();
+                return;
+              }
+              typing.stop();
+              openPicker('');
+            }}
+          >
+            <ImagePlay size={20} aria-hidden="true" />
+          </button>
           <textarea
             ref={inputRef}
             className={styles.input}

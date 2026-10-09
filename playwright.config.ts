@@ -12,8 +12,11 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * | project | device | specs | outputDir |
  * |---|---|---|---|
- * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation`, `smoke`) + Phase 3 `threads` | `e2e/results/desktop` |
- * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` | `e2e/results/mobile` |
+ * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
+ * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` | `e2e/results/mobile` |
+ *
+ * Phase 4 (QA-19/20): `gif.spec.ts` likewise needs no entry in `desktop`, and `mobile-gif.spec.ts`
+ * is listed in **both** regexes for the same reason `mobile-threads.spec.ts` is — see below.
  *
  * Phase 3 (QA-14): `threads.spec.ts` needs no entry — `desktop` takes everything the `testIgnore`
  * does not name — but `mobile-threads.spec.ts` is listed in **both** regexes on purpose: added to
@@ -66,13 +69,13 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(voice|mobile-nav|mobile-smoke|mobile-threads)\.spec\.ts$/,
+      testIgnore: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
       outputDir: './e2e/results/desktop',
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile',
-      testMatch: /(voice|mobile-nav|mobile-smoke|mobile-threads)\.spec\.ts$/,
+      testMatch: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
       outputDir: './e2e/results/mobile',
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },

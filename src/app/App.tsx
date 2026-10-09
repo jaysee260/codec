@@ -10,7 +10,7 @@
  */
 import { useEffect } from 'react';
 import { useSessionStore } from '@/store/session.ts';
-import { useLayoutStore } from '@/store/layout.ts';
+import { runBackHandlers, useLayoutStore } from '@/store/layout.ts';
 import { useThreadStore } from '@/store/threads.ts';
 import { initNative } from '@/lib/native.ts';
 import { LoginScreen } from './LoginScreen.tsx';
@@ -26,9 +26,9 @@ export function App() {
     if (import.meta.env.DEV) installDevHooks();
     void initNative({
       onKeyboard: (height) => useLayoutStore.getState().setKeyboardHeight(height),
-      // Android back: close an open thread first, else an open drawer; otherwise initNative minimises the app
-      // (docs/PHASE3_TICKETS.md PRIN-10: thread -> sheets/drawers -> minimizeApp).
-      onBackButton: () => useThreadStore.getState().closeThread() || useLayoutStore.getState().closeDrawers(),
+      // Android back: registered feature handlers first (Phase 4: the GIF sheet), then an open thread, else an open
+      // drawer; otherwise initNative minimises the app (docs/PHASE3_TICKETS.md PRIN-10: thread -> sheets/drawers -> minimizeApp).
+      onBackButton: () => runBackHandlers() || useThreadStore.getState().closeThread() || useLayoutStore.getState().closeDrawers(),
     });
     void useSessionStore.getState().restore();
   }, []);

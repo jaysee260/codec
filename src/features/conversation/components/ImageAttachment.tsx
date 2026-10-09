@@ -12,7 +12,11 @@ import styles from './ImageAttachment.module.css';
 const MAX_W = 400;
 const MAX_H = 300;
 
-function fitted(w: number | undefined, h: number | undefined): { width: number; height: number } {
+/**
+ * Scale `w x h` into the 400 x 300 media box, never upscaling. Shared with `GifMessage` (Phase 4) so an
+ * inline GIF and an `m.image` thumbnail of the same dimensions occupy exactly the same space.
+ */
+export function fitted(w: number | undefined, h: number | undefined): { width: number; height: number } {
   if (!w || !h) return { width: MAX_W, height: Math.round((MAX_W * 3) / 4) };
   const scale = Math.min(1, MAX_W / w, MAX_H / h);
   return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };

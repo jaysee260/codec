@@ -30,9 +30,11 @@ import {
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events.js';
 import { getClient, getClientOrNull } from './client.ts';
 import { serverNameOf } from './config.ts';
-import { getThreadRelation, isThreadReply } from './utils.ts';
+import { getThreadRelation, isGifEvent, isThreadReply } from './utils.ts';
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { containerMimeType, voiceFileName } from '../audio/mime.ts';
+import { buildGifContent } from '../gif/message.ts';
+import type { GifResult } from '../gif/types.ts';
 
 const HTML_FORMAT = 'org.matrix.custom.html';
 /** Room version 11 keeps explicit creator power levels (100). v12 (Synapse >= 1.162 default) makes creators
@@ -394,6 +396,22 @@ export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMe
 }
 
 // ---------------------------------------------------------------------------
+// GIFs (Phase 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a picked GIF (`GifResult` from `getGifProvider().search()/trending()`). Nothing is uploaded: Klipy's
+ * integration terms forbid re-hosting its media, so the message is `m.text` with body "<title> <url>" (Element
+ * shows the link and unfurls it with URL previews) plus the structured `dev.matrixpoc.gif` field this client
+ * renders inline (`getGifContent(event)` / `getDisplayBody(event).gif`). Exact shape: `src/lib/gif/message.ts`.
+ * `threadRoot` sends it into a thread like every other send. Resolves with the event id.
+ */
+export async function sendGif(roomId: string, gif: GifResult, opts: ThreadOptions = {}): Promise<string> {
+  const content: Record<string, unknown> = { ...buildGifContent(gif) };
+  return sendRoomMessage(roomId, content, opts.threadRoot);
+}
+
+// ---------------------------------------------------------------------------
 // Typing & receipts
 // ---------------------------------------------------------------------------
 
@@ -656,7 +674,8 @@ export function canRedactEvent(roomId: string, event: MatrixEvent): boolean {
 /** Only the original sender can edit a message. */
 export function canEditEvent(event: MatrixEvent): boolean {
   const me = getClientOrNull()?.getUserId();
-  return !!me && event.getSender() === me && !event.isRedacted() && event.getType() === EventType.RoomMessage;
+  // Phase 4: GIF messages are not editable (docs/PHASE4_ACCEPTANCE.md; `message-action-edit` hidden on GIF rows).
+  return !!me && event.getSender() === me && !event.isRedacted() && event.getType() === EventType.RoomMessage && !isGifEvent(event);
 }
 
 /** Current user's power level in a room (0 when unknown). */

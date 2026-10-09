@@ -19,6 +19,28 @@ import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { BODIES, DISPLAY_NAMES, NAMES, eventId, resolveRoom, uniqueName, userId } from './fixtures/seed.ts';
 import { annotate, childRoomIds, ensureUnread, noteSeedDrift, revokePendingInvite } from './fixtures/state.ts';
 import {
+  composerGif,
+  expectGifPlaying,
+  expectGridIds,
+  gifAttribution,
+  gifHeading,
+  gifPending,
+  gifPicker,
+  gifRowById,
+  gifSearch,
+  GIF_PROVIDER_STORAGE_KEY,
+  guardGifNetwork,
+  MOCK_IDS,
+  mockSearch,
+  openGifPicker,
+  openGifPickerBySlash,
+  pickGif,
+  queryMatching,
+  searchInPicker,
+  selectedGifId,
+  sendGifMessage,
+} from './fixtures/gif.ts';
+import {
   atBottom,
   byName,
   channelItem,
@@ -33,6 +55,8 @@ import {
   row,
   rowByText,
   scrollListToBottom,
+  scrollListToTop,
+  settledEventId,
   spaceItem,
   stepShot,
   typeAndSend,
@@ -64,6 +88,12 @@ let snacksEventId = '';
 let memesName = '';
 /** The thread root step 11a creates, reused by step 11b (Phase 3 demo rows 2-7). */
 let demoThreadRootId = '';
+
+/** The app's origin, as the mock GIF provider builds its fixture URLs from `location.origin`. */
+const ORIGIN = 'http://localhost:5173';
+/** Demo rows 2 and 5 queries, derived so a fixture-catalogue change cannot break the demo step. */
+const DEMO_QUERY = queryMatching(3, ['tacos', 'taco', 'cat', 'party']) ?? 'cat';
+const SECOND_QUERY = queryMatching(2, ['party', 'cat', 'taco']) ?? 'party';
 
 test.describe('demo script (QA-3 smoke)', () => {
   test.beforeAll(async ({ browser }) => {
@@ -545,5 +575,115 @@ test.describe('demo script (QA-3 smoke)', () => {
     await expect(page.getByTestId('thread-replies-divider')).toHaveText('4 replies', { timeout: 10_000 });
     await expect(page.getByTestId('header-threads-unread')).toHaveCount(0, { timeout: 10_000 });
     await stepShot(page, 11, 'reopened-from-list');
+  });
+  test('step 12 — the GIF picker: /gif, arrows, the badge, offscreen, trending, bob posts one (demo 2-7)', async () => {
+    test.setTimeout(120_000);
+
+    // Phase 4 demo rows 2-7. The plan walks them in #general; this step uses **#dev** instead, so the
+    // GIF traffic stays in the room the GIF suites own and #general's demo history stays clean.
+    // Forced onto `mock` at runtime (`getGifProvider()` re-reads localStorage on every call) so the
+    // step is deterministic even when a Klipy key is sitting in .env, and guarded so no image request
+    // can leave the machine (AC-G11-3).
+    const guard = guardGifNetwork(page);
+    await page.evaluate((key) => {
+      try {
+        window.localStorage.setItem(key, 'mock');
+      } catch {
+        /* private mode */
+      }
+    }, GIF_PROVIDER_STORAGE_KEY);
+
+    await openSpace(page, R.acme);
+    await channelItem(page, R.dev).click();
+    await expect(messageList(page)).toBeVisible();
+    await scrollListToBottom(page);
+
+    if ((await composerGif(page).count()) === 0) {
+      annotate('not-built', 'demo step 12: `composer-gif` is not built yet (DEV-B-23)');
+      test.skip(true, 'demo step 12: the GIF button is not built yet');
+    }
+
+    // --- demo row 2: `/gif <q>`, Enter -> a pre-searched picker, composer cleared
+    await openGifPickerBySlash(page, `/gif ${DEMO_QUERY}`);
+    await expect(gifPicker(page)).toHaveAttribute('data-variant', 'popover');
+    await expect(gifPicker(page)).toHaveAttribute('data-provider', 'mock');
+    await expect(gifSearch(page)).toHaveValue(DEMO_QUERY);
+    await expect(gifHeading(page)).toHaveText(`Results for "${DEMO_QUERY}"`);
+    await expectGridIds(page, mockSearch(DEMO_QUERY).map((g) => g.id));
+    await expect(gifAttribution(page)).toBeVisible();
+    await expect(composer(page)).toHaveValue('');
+    await stepShot(page, 12, 'picker-prefilled');
+
+    // --- demo row 3: two ArrowRights, Enter -> the picker closes, the chip shows, the GIF lands
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    // The demo text assumes three results; the selection clamps when the catalogue has fewer, so the
+    // assertion follows whatever is actually selected rather than a hard-coded id.
+    const picked = await selectedGifId(page);
+    expect(picked, 'a tile is selected before Enter').toBeTruthy();
+    await page.keyboard.press('Enter');
+    await expect(gifPicker(page)).toBeHidden();
+
+    const firstRow = gifRowById(page, picked!);
+    await expect(firstRow.first()).toBeVisible({ timeout: 15_000 });
+    await expect(gifPending(page), 'the Sending GIF... chip clears once the event is acked').toBeHidden({
+      timeout: 10_000,
+    });
+    const firstGifRow = row(page, await settledEventId(firstRow.first()));
+    await expectGifPlaying(firstGifRow);
+    await expect(firstGifRow.getByTestId('message-gif-badge')).toHaveText('GIF');
+    await stepShot(page, 12, 'gif-sent');
+
+    // --- demo row 4: scrolled out of view the image unmounts, scrolled back it animates again
+    await scrollListToTop(page);
+    const offscreen = await expect
+      .poll(() => firstGifRow.getByTestId('message-gif').getAttribute('data-state'), { timeout: 8_000 })
+      .toBe('offscreen')
+      .then(() => true)
+      .catch(() => false);
+    if (offscreen) {
+      await expect(firstGifRow.getByTestId('message-gif-placeholder')).toBeVisible();
+      await stepShot(page, 12, 'gif-offscreen');
+    } else {
+      annotate(
+        'note',
+        'demo step 12 row 4: the row stayed inside the IntersectionObserver margin after scrolling to the top of the loaded window, so the placeholder was not observed here (AC-G8-3 covers it in gif.spec.ts).',
+      );
+    }
+    await scrollListToBottom(page);
+    await expectGifPlaying(firstGifRow);
+    await stepShot(page, 12, 'gif-back-in-view');
+
+    // --- demo row 5: the GIF button opens Trending; typing updates the results live
+    await openGifPicker(page);
+    await expect(gifHeading(page)).toHaveText('Trending');
+    await expectGridIds(page, MOCK_IDS);
+    await stepShot(page, 12, 'trending');
+
+    await searchInPicker(page, SECOND_QUERY);
+    const secondHits = mockSearch(SECOND_QUERY);
+    await expectGridIds(page, secondHits.map((g) => g.id));
+    await stepShot(page, 12, 'search-results');
+
+    // --- demo row 6: clicking a tile sends it, same as row 3
+    const chosen = secondHits[0];
+    await pickGif(page, chosen.id);
+    const secondRow = gifRowById(page, chosen.id);
+    await expect(secondRow.first()).toBeVisible({ timeout: 15_000 });
+    await expectGifPlaying(row(page, await settledEventId(secondRow.first())));
+    await stepShot(page, 12, 'second-gif-sent');
+
+    // --- demo row 7: `npm run gif:sample` — bob posts one and it arrives live, animating
+    const bobGif = await sendGifMessage(bob, R.dev, {
+      id: MOCK_IDS[MOCK_IDS.length - 1],
+      origin: ORIGIN,
+    });
+    const bobRow = row(page, bobGif.eventId);
+    await expect(bobRow).toBeVisible({ timeout: 20_000 });
+    await expectGifPlaying(bobRow);
+    await expect(bobRow.getByTestId('message-gif-badge')).toHaveText('GIF');
+    await stepShot(page, 12, 'bob-gif');
+
+    guard.assertClean();
   });
 });

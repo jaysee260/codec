@@ -44,6 +44,8 @@ export {
   useIsPhone,
   useViewport,
   detectIsPhone,
+  registerBackHandler,
+  runBackHandlers,
   PHONE_MEDIA_QUERY,
   COARSE_PHONE_MEDIA_QUERY,
   type LayoutState,

@@ -1,0 +1,128 @@
+/*
+ * Inline GIF row (DEV-B-25). The figure owns the fitted box (px width + aspect-ratio set inline from
+ * the event's own w/h), so the image, the placeholder and the play overlay are interchangeable without
+ * moving a single pixel of the timeline - which is what the message list's scroll anchor relies on.
+ */
+.figure {
+  position: relative;
+  display: block;
+  margin: 4px 0 0;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+  line-height: 0;
+}
+
+/* No image, no reserved box: the fallback is a one-line link that sizes itself. */
+.figureFallback {
+  width: auto;
+  aspect-ratio: auto;
+  background: transparent;
+  overflow: visible;
+  line-height: inherit;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg-input);
+}
+
+/* Offscreen / paused: the same box, empty, so scrollHeight never changes. */
+.placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  background: var(--bg-input);
+}
+
+.badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-overlay, rgb(0 0 0 / 65%));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Reduced motion: click to animate. Centred over the placeholder, >= 44 px for the phone rule. */
+.play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+.play::before {
+  content: '';
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-overlay, rgb(0 0 0 / 55%));
+}
+.play > * {
+  position: relative;
+}
+.play:hover::before {
+  background: var(--accent);
+}
+
+/* --- fallback (CDN down, offline, 404) ------------------------------------- */
+.fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-link);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-message);
+}
+.fallback:hover {
+  background: var(--bg-hover);
+}
+
+.fallbackBadge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-active);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.fallbackTitle {
+  min-width: 0;
+}
+
+/* Phone: never wider than the row (DEV-B-15 / AC-V6-5). */
+@media (hover: none) {
+  .figure {
+    max-width: 100%;
+  }
+}
+:global(:root[data-layout='phone']) .figure {
+  max-width: 100%;
+}

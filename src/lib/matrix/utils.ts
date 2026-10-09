@@ -14,6 +14,8 @@ import { localpartOf } from './config.ts';
 import { mxcToHttp } from './mxc.ts';
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { isAudioMimeType } from '../audio/mime.ts';
+import { parseGifContent } from '../gif/message.ts';
+import type { GifMessage } from '../gif/types.ts';
 
 export { mxcToHttp } from './mxc.ts';
 export { formatTime, formatFullTime, formatDayDivider, formatRelative, isSameDay, initialsOf, colorFor } from '../format.ts';
@@ -214,6 +216,8 @@ export interface DisplayBody {
   voice?: VoiceMessageInfo;
   /** Phase 3: root event id when this message is a thread reply (`m.relates_to.rel_type === 'm.thread'`). */
   threadRoot?: string;
+  /** Phase 4: present for GIF messages (`dev.matrixpoc.gif` validated). Render `<img src={gif.url}>`, not `text`. */
+  gif?: GifMessage;
 }
 
 interface MessageContent {
@@ -292,6 +296,27 @@ export function formatDuration(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// ---------------------------------------------------------------------------
+// GIFs (Phase 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parsed `dev.matrixpoc.gif` field of a GIF message (sent by `sendGif`), or null for anything else, for redacted
+ * events, and for fields that fail validation (non-https / unknown host, missing or > 2000 px dimensions):
+ * those fall back to the plain text row ("<title> <url>", auto-linked). Wire shape: `src/lib/gif/message.ts`.
+ */
+export function getGifContent(event: MatrixEvent): GifMessage | null {
+  if (event.getType() !== EventType.RoomMessage || event.isRedacted()) return null;
+  const content = event.getContent<MessageContent>();
+  if (content.msgtype !== MsgType.Text) return null;
+  return parseGifContent(content);
+}
+
+/** True when the event renders as an inline animated GIF (`getGifContent(event) !== null`). */
+export function isGifEvent(event: MatrixEvent): boolean {
+  return getGifContent(event) !== null;
+}
+
 /**
  * What to render for a message event, with edits already applied (the SDK swaps `getContent()`
  * to the latest `m.new_content` once the replacement event has been seen).
@@ -308,6 +333,7 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
     html = replyTo ? stripHtmlReplyFallback(content.formatted_body) : content.formatted_body;
   }
   const voice = !isRedacted && msgtype === MsgType.Audio ? (getVoiceMessage(event) ?? undefined) : undefined;
+  const gif = !isRedacted && msgtype === MsgType.Text ? (parseGifContent(content) ?? undefined) : undefined;
   return {
     text: voice?.isVoice && !text ? 'Voice message' : text,
     html,
@@ -320,6 +346,7 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
     mentions: content['m.mentions']?.user_ids ?? [],
     voice,
     threadRoot: getThreadRelation(event)?.event_id,
+    gif,
   };
 }
 
@@ -327,6 +354,7 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
 export function previewText(event: MatrixEvent, max = 120): string {
   const body = getDisplayBody(event);
   if (body.isRedacted) return 'Message deleted';
+  if (body.gif) return `[gif] ${body.gif.title}`;
   if (body.msgtype === MsgType.Image) return `[image] ${body.text}`;
   if (body.msgtype === MsgType.File) return `[file] ${body.text}`;
   if (body.msgtype === MsgType.Audio) {

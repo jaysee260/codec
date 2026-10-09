@@ -3,6 +3,7 @@
 Vite + React 18 + TypeScript + matrix-js-sdk + zustand. Local Synapse (Docker, or WSL1 where Docker cannot run). No E2EE, no calls.
 Phase 2 adds a phone layout, voice notes (MSC3245) and Capacitor 7 wrappers for Android and iOS.
 Phase 3 adds threads (Matrix `m.thread`, Slack/Element semantics, Discord-style panel); `npm run thread:sample` posts one to #dev through the API and `npm run verify:threads` checks the core on port 5183 (`docs/ARCHITECTURE.md` "Phase 3 deltas").
+Phase 4 adds a Slack-style GIF picker backed by [Klipy](https://docs.klipy.com/) (`VITE_GIF_API_KEY` in `.env`; without a key a built-in mock with 8 local fixture GIFs runs the whole flow); GIFs are hot-linked (`m.text` + `dev.matrixpoc.gif`), never uploaded; `npm run gif:sample` posts one to #dev and `npm run verify:gif` checks the core without a browser (`docs/ARCHITECTURE.md` "Phase 4 deltas").
 
 ## Quickstart (5 commands)
 

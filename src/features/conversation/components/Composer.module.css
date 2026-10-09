@@ -51,6 +51,49 @@
   background: var(--bg-hover);
 }
 
+/*
+ * GIF trigger (DEV-B-23), between `composer-attach` and the input. Same 24 px glyph box and the same
+ * 10 px vertical margin as the paperclip, so the row still measures 44 px and the composer's height is
+ * byte-identical to Phase 1/2 (AC-G6-1).
+ */
+.gif {
+  width: 24px;
+  height: 24px;
+  margin: 10px 8px 10px 0;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+.gif:hover:not(:disabled) {
+  color: var(--text-heading);
+}
+.gif[data-open='true'] {
+  color: var(--accent);
+}
+.gif:disabled {
+  opacity: 0.5;
+}
+
+/* "Sending GIF..." chip, in the banner stack above the input box (AC-G7-1). */
+.gifPending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-bottom: 2px;
+  background: var(--bg-sidebar);
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.gifPendingIcon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .input {
   flex: 1;
   min-width: 0;
@@ -131,6 +174,25 @@
     width: 32px;
     height: 32px;
   }
+  /* 44 px tap target (AC-V6-1 / AC-G6-1), glyph-only like the paperclip. */
+  .gif {
+    width: var(--tap-target);
+    height: var(--tap-target);
+    margin: 0 0 0 -2px;
+  }
+  .gif svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+:global(:root[data-layout='phone']) .gif {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  margin: 0 0 0 -2px;
+}
+:global(:root[data-layout='phone']) .gif svg {
+  width: 24px;
+  height: 24px;
 }
 :global(:root[data-layout='phone']) .composer {
   padding: 0 8px calc(var(--safe-bottom) + 8px);

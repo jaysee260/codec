@@ -6,6 +6,10 @@
  *   markup and only inserts text through `textContent`, so nothing escapes the sanitiser.
  * - plain bodies are linkified and keep their line breaks (`white-space: pre-wrap`).
  * - `m.image` / `m.file` / stickers render attachments; redacted events render the deleted placeholder.
+ * - Phase 4: a validated `dev.matrixpoc.gif` field wins over **every** text branch - `body.gif` is only
+ *   ever set for `m.text`, so it is checked before the html and plain-text ones. The row shows the
+ *   animated GIF instead of the "<title> <url>" body that field duplicates, which is what keeps other
+ *   clients (and the server's URL preview) working off exactly the same event. See `GifMessage.tsx`.
  *
  * `message-body` contains the message text and nothing else: the `(edited)` marker is a sibling so
  * reading the body's text gives exactly what the sender wrote (AC-B1-4).
@@ -15,6 +19,7 @@ import { MsgType, type Room } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { displayNameOf, type DisplayBody } from '@/lib/matrix/utils.ts';
 import { linkify, sanitizeHtml } from '@/lib/format.ts';
+import { GifMessage } from './GifMessage.tsx';
 import { ImageAttachment, FileAttachment } from './ImageAttachment.tsx';
 import { VoiceMessage } from './VoiceMessage.tsx';
 import styles from './MessageBody.module.css';
@@ -68,18 +73,27 @@ export function MessageBody({ roomId, body }: { roomId: string; body: DisplayBod
   // non-null for voice notes *and* plain audio files. An m.audio without media falls through to the
   // file row.
   const voice = body.voice;
+  const gif = body.gif;
   const isImage = body.msgtype === MsgType.Image || body.msgtype === 'm.sticker';
   const isFile = body.msgtype === MsgType.File || body.msgtype === MsgType.Video || body.msgtype === MsgType.Audio;
   const emojiOnly =
-    !body.html && !isImage && !isFile && body.text.length <= 24 && PICTOGRAPHIC.test(body.text) && EMOJI_ONLY.test(body.text);
+    !gif &&
+    !body.html &&
+    !isImage &&
+    !isFile &&
+    body.text.length <= 24 &&
+    PICTOGRAPHIC.test(body.text) &&
+    EMOJI_ONLY.test(body.text);
 
   return (
     <div className={styles.line}>
       <div
-        className={`${styles.body} ${isImage || isFile ? styles.blockBody : styles.inlineBody} ${emojiOnly ? styles.jumbo : ''}`}
+        className={`${styles.body} ${gif || isImage || isFile ? styles.blockBody : styles.inlineBody} ${emojiOnly ? styles.jumbo : ''}`}
         data-testid="message-body"
       >
-        {voice ? (
+        {gif ? (
+          <GifMessage gif={gif} />
+        ) : voice ? (
           <VoiceMessage voice={voice} />
         ) : isImage ? (
           <ImageAttachment body={body} />

@@ -23,6 +23,7 @@ npm run test:e2e                                            # both projects
 npm run test:e2e:desktop                                    # Phase 1 suite only
 npm run test:e2e:mobile                                     # Phase 2 phone suites only
 npm run test:e2e:threads                                    # Phase 3 thread specs (both projects)
+npm run test:e2e:gif                                        # Phase 4 GIF specs (both projects)
 npm run test:android-build                                  # APK build + manifest checks
 npx playwright test e2e/conversation.spec.ts -g "AC-B3-2" --project=desktop
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile
@@ -242,6 +243,60 @@ with the registry composer, `thread-root`, `thread-replies-divider`, `thread-mes
 | D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. **Closed** (Dev A, 2026-10-08): `relativeTime.ts` deleted, `ThreadList.tsx` imports `formatRelative` from `@/lib/format.ts`; one implementation of the pinned strings. |
 | D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
 
+## Phase 4 (GIF picker)
+
+Wave 11 QA pass (QA-19 / QA-20) against `e2e/gif.spec.ts` (desktop, 16 tests) and
+`e2e/mobile-gif.spec.ts` (phone, 6 tests) on a **dirty** homeserver, plus demo step 12 in both smoke
+specs. Everything runs in **#dev** — never #general — and every test sends its own messages and
+asserts on ids it created, so nothing here needs a fresh seed.
+
+```
+npm run test:e2e:gif                                           # both GIF specs, both projects
+npx playwright test e2e/gif.spec.ts --project=desktop -g "AC-G3-1"
+npx playwright test e2e/mobile-gif.spec.ts --project=mobile -g "AC-G9-1"
+npx playwright test e2e/smoke.spec.ts --project=desktop        # demo step 12 needs steps 1-11 first
+npm run gif:fixtures                                           # regenerate public/gif-fixtures/
+npm run gif:sample -- --id mock-7                              # bob posts a GIF (demo row 7)
+```
+
+**Result: no S1 or S2 product defect.** Both projects are green with **no skips**
+(desktop 16/16, phone 6/6, desktop smoke step 12 and phone smoke step 12 both pass). Every criterion
+this pass can judge from a browser — the picker, both variants, the slash commands, keyboard
+navigation, the send flow, the wire contract, the host allow list, the thread path, the `klipy` code
+path against stubs including 404 and 429 — behaves as specified. The three rows below are
+**contract/documentation divergences**, not broken behaviour; the fourth block is the quota guard.
+
+**Quota guard (AC-G11-3).** Every GIF test installs `guardGifNetwork` (`e2e/fixtures/gif.ts`) before
+any stub. An unstubbed request to `api.klipy.com` **fails the test** — a Klipy test key allows 100
+requests an hour, so a leaking suite would spend the stakeholder's quota. Requests to
+`static.klipy.com` are *served* from the local fixture bytes rather than failed, because the
+`klipy` criteria must post real messages whose `url` is on the Klipy CDN (AC-G3-2) and every later
+test that opens #dev then renders those rows; failing on that would make each klipy test poison every
+test after it. Either way nothing leaves the machine. No run in this pass recorded a violation.
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-10 | AC-G4-2, AC-G5-3, AC-G8-1, docs/PHASE4_PLAN.md desktop demo row 3 | S2 | web-desktop + android-device | no | PM + Principal (PRIN-13) | 1. `grep "title: '" src/lib/gif/mock-fixtures.ts`. 2. Compare with the "Mock provider fixture contract" table in docs/PHASE4_ACCEPTANCE.md. 3. In the app under `mock`, type `/gif tacos` and press Enter. 4. Press ArrowRight twice, then Enter — the keystrokes the stakeholder's demo script prescribes. | Per the acceptance table and the demo script: `tacos` matches **three** fixtures (`mock-1` Tacos dance, `mock-2` Tacos Tuesday, `mock-3` Tacos party), so two ArrowRights move the selection to `mock-3` and Enter sends "Tacos party". AC-G4-2 names `mock-1`, `-mock-2`, `-mock-3` explicitly; AC-G5-3 says "ArrowRight twice then Enter sends `mock-3`". | `src/lib/gif/mock-fixtures.ts` titles `mock-2` **"Taco Tuesday"** (no "s") and `mock-3` **"Party time"**, so a case-insensitive substring match on `tacos` returns **one** fixture, `mock-1`. Both ArrowRights clamp at index 0 and Enter sends "Tacos dance". The feature is correct — the *search* is a faithful substring match and the picker's clamping is right (AC-G5-1) — but the document, the criteria and the stakeholder's scripted keystrokes describe a catalogue the code does not have. Either `mock-2`/`mock-3` are renamed to "Tacos Tuesday"/"Tacos party" (what the doc, AC-G4-2, AC-G5-3 and the demo script all assume) or those three criteria and demo row 3 are rewritten. Note the two files were realigned repeatedly during Wave 11 and this is the residue; QA's own suite is unaffected, because it **derives** every mock expectation from `mock-fixtures.ts` at run time (`e2e/fixtures/gif.ts` module header) and reports the mismatch as a `catalogue-drift` annotation on AC-G1-3 rather than as a red test. | the `catalogue-drift` annotation on `[desktop] AC-G1-3`; `e2e/results/demo/12-picker-prefilled.png` shows the one-result grid the demo actually gets | **Fixed and verified 2026-10-09.** Ruled by the orchestrator: the rename stands — `mock-2` becomes "Tacos Tuesday" and `mock-3` "Tacos party", so `tacos` matches `mock-1..3` and demo row 3 lands on `mock-3` as written. The Principal is landing it (`mock-fixtures.ts` + `npm run gif:fixtures`); the doc and all four criteria then need no edit. Landed by the Principal and re-verified by QA: `mock-2` = "Tacos Tuesday", `mock-3` = "Tacos party", so `tacos` and `taco` now match `mock-1..3`, `party` -> `mock-3, mock-4`, `cat` -> `mock-5, mock-6`, `dance` -> `mock-1` — exactly the acceptance table. AC-G4-2 and AC-G5-3 are satisfiable as written, and desktop demo step 12 now derives `tacos` for demo row 2, so two ArrowRights land on `mock-3` as the script narrates. The `catalogue-drift` annotation on AC-G1-3 is gone (verified: annotations empty). |
+| BUG-9 | AC-G2-1, AC-G2-2 | S3 | web-desktop | no | Principal (PRIN-14) | 1. Stub `api.klipy.com` with two items whose ids are `9041071659142944` and `9041071659142945` (both 16-digit Klipy-shaped numbers above `Number.MAX_SAFE_INTEGER` = 9007199254740991). 2. Open the picker under `klipy`. 3. Inspect the two tiles. | Two tiles with distinct `gif-item-{id}` test ids and distinct `previewUrl`s. | **Both tiles carry `data-testid="gif-item-9041071659142944"` and both load `.../9041071659142944/sm.webp`** — their `<img alt>`, title and reserved dimensions are correct, so only the identity is wrong. Cause: Klipy ids arrive as JSON **numbers**, and `JSON.parse` rounds anything above 2^53 to the nearest double, so the two ids collapse onto one before `mapKlipyItem` stringifies them (`String(item.id)`). Consequences if a real Klipy id ever exceeds 2^53: duplicate React keys, a tile that previews the wrong GIF, and a `dev.matrixpoc.gif.id` that does not round-trip. The acceptance example id (`8041071659142944`) is *below* the limit, which is why nothing else caught it; ids beginning with 9 would not be. Fix if it is judged worth it: read ids as strings off the wire (a `JSON.parse` reviver, or ask Klipy whether ids are bounded). Found while writing the phone klipy test; QA's stub ids are now pinned below the limit with a comment. | `e2e/results/mobile/mobile-gif-GIF-sheet-—-kli-31e14-nd-a-pick-sends-the-CDN-url-mobile/` (the strict-mode violation lists both `<img>` elements with the same `src`) | **Fixed and verified 2026-10-09.** Ruled by the orchestrator: a Klipy `GifResult.id` becomes the item's **`slug`** instead of `String(item.id)`, which removes the limit entirely — a slug is already a string, so nothing passes through a double. Landed in `mapKlipyItem` (`item.slug` first, `String(item.id)` only when there is no slug) and re-verified by QA. QA's stub now pins `slug === String(spec.id)` (`klipyItem` / `klipyResultId` in `e2e/fixtures/gif.ts`), so every id assertion — tile test ids and the `dev.matrixpoc.gif.id` on the wire — pins the same string under either mapping and the suite needs no flag day. |
+
+### Contract divergences for the Principal (not defects)
+
+| # | Subject | Divergence | Suggested resolution |
+|---|---|---|---|
+| 1 | `customer_id` on every Klipy request | AC-G2-1 now requires each request to carry "a `customer_id` (stable across reloads in the same browser, `matrix-poc.gifCustomerId`)", and `provider.ts` exports `getGifCustomerId()` which generates and persists exactly that uuid — but `getGifProvider()` calls `createKlipyProvider({ apiKey, baseUrl })` **without** `customerId`, and `klipy.ts` only sets the parameter `if (options.customerId)`. So no `customer_id` is ever sent. docs/PHASE4_PLAN.md "Out of scope" explicitly lists "recent/favourite GIFs and Klipy's `customer_id`", so the **code follows the plan and the acceptance criterion is the odd one out**. | **Resolved and verified 2026-10-09.** Ruled by the orchestrator: `customer_id` **is** sent on every Klipy request, so AC-G2-1 stands and `getGifProvider()` gains `customerId: getGifCustomerId()` (falling back to `undefined`) — the Principal is landing it, and docs/PHASE4_PLAN.md "Out of scope" needs its `customer_id` clause struck. QA asserts the key path segment, `q`, `page`, `per_page` and `content_filter` and **not** `customer_id`, so the suite is green either way; the presence assertion is now in AC-G2-1 (the trending request carries a non-empty `customer_id`, and the following search carries the **same** value, so it is persisted rather than regenerated per call). The value itself is a random uuid and is deliberately not pinned. |
+| 2 | `GifResult` / `GifPage` field names | docs/PHASE4_TICKETS.md's Shared API table promises `{ url, w, h, previewMime }` and `GifPage { items, hasNext }`; the shipped `types.ts` has `{ fullUrl, fullW, fullH, previewMimetype }` and `GifPage { results, nextPage, hasNext }`. The tickets already say names are "subject to the Principal's ARCHITECTURE deltas", and the **wire** shape (which is what the tickets protect) matches the acceptance contract exactly. | Informational only — the ticket table wants a refresh, or docs/ARCHITECTURE.md "Phase 4 deltas" wants writing (it does not exist yet, which is why this is listed at all: AC-G10-2 requires that section). No code change. |
+
+### Phase 4 criteria this pass cannot judge — stakeholder checklist
+
+| AC | Why | Who |
+|---|---|---|
+| AC-G3-5 (a `static.klipy.com` `<img>` loads in the Android WebView, no CSP / sanitizer / Capacitor block) | Needs the APK on a real device with internet. The browser half is covered: the `klipy` criteria render `<img src="https://static.klipy.com/...">` from the stub and the image decodes (`naturalWidth > 0`), so nothing in the dev build blocks the host. | stakeholder, `android-device` |
+| AC-G9-2, Android-back half (back closes the GIF sheet before the drawers) | `@capacitor/app` back-button events are not dispatched in Chromium, so the `mobile` project cannot press it. The backdrop and `gif-close` halves are asserted. Same limitation as Phase 2's AC-M-back and Phase 3's AC-T3-5. | stakeholder, `android-device` |
+| The real Klipy key (AC-G2-* against the live service) | No key exists yet; the whole `klipy` path is tested against `page.route` stubs written from the verified response shape. The live run is the stakeholder's (docs/PHASE4_PLAN.md "User-only steps"). If the live mapping is wrong it will be wrong in exactly one function, `mapKlipyItem`. | stakeholder, after pasting a key |
+| AC-G8-3 (a GIF row far out of view unmounts its `<img>` into a sized `message-gif-placeholder`, remounts with no layout shift) | **Not covered by a dedicated test this pass** — a DEV-B-25 P1 half, not in the QA-19 brief. It is not unverified, though: `GifMessage` implements it (an IntersectionObserver with a 200 px margin and the four `data-state` values), `expectGifPlaying` in every pick assertion depends on a row *leaving* `offscreen` when scrolled in, and desktop demo step 12 row 4 asserts the placeholder whenever the row genuinely leaves the margin. What is missing is the layout-shift measurement (`message-list.scrollHeight` unchanged +/- 2 px) under a forced 20-message scroll. | QA, if it is promoted to P0 |
+| AC-G8-4 (reduced motion shows `stillUrl` plus `message-gif-play`; clicking play animates) | **Not covered by a dedicated test this pass** — the other DEV-B-25 P1 half, not in the QA-19 brief. The ingredients are all verified elsewhere: AC-G1-3 asserts every `<id>.png` still frame is served, and the contract test asserts `stillUrl` reaches the wire. What is missing is a `page.emulateMedia({ reducedMotion: 'reduce' })` test of the `paused` -> `playing` transition. | QA, if it is promoted to P0 |
+| Element interop (the GIF body shows as a link and the server unfurls it) | Needs a second client by hand. The wire half is asserted: `msgtype` is `m.text` and the url is the last whitespace-separated token of `body`, which is what makes Element linkify and unfurl it. | stakeholder, manual |
+
 ## Not bugs — criteria that cannot be judged on a dirty homeserver
 
 These are skipped with an actionable reason by `e2e/fixtures/fresh.ts`, not failed. They need
@@ -263,6 +318,31 @@ seed-sensitive.
 ## Fixture-side defects found and fixed in this suite (no dev action)
 
 Recorded so the same trap is not re-introduced.
+
+### Phase 4 (QA-19 / QA-20)
+
+Six QA-side defects found and fixed while bringing the two GIF specs green. 1-3 are the interesting
+ones: each produced a red test that *looked* like a product bug.
+
+| # | Symptom | Cause | Fix |
+|---|---|---|---|
+| 1 | **Every "the GIF renders" assertion red** with `settledEventId` reading `data-testid` `"message-list"` forever. | The row locator was `page.locator('[data-testid^="message-"]').filter({ has: ... })`. That prefix also matches `message-list` itself, which *contains* every GIF tile, so the filter resolved to the list rather than to a row. | `gifRowById(page, id)` in `e2e/fixtures/gif.ts`: scoped inside `message-list` (or `thread-message-list`) and keyed on `getByTestId(/^message-[$~]/)`, so only real rows, local echoes included, can match. |
+| 2 | **`message-gif-img` "element(s) not found"** right after a successful pick, while `message-gif` was present with the correct `data-gif-id`. | Not a product bug — `GifMessage` deliberately starts `offscreen` and mounts the `<img>` only while an IntersectionObserver reports the row as intersecting (+200 px), rendering `message-gif-placeholder` otherwise (the behaviour AC-G8-3 *requires*). Playwright's `toBeVisible()` does not mean "inside the viewport", so a just-sent row below the fold legitimately had no image. | `expectGifPlaying(row)` in `e2e/fixtures/gif.ts` scrolls the row into view, waits for `data-state="playing"`, then returns the `<img>`. Used by every pick assertion in both specs and both smoke steps. |
+| 3 | **A `mock` test failed the quota guard** with `GET https://static.klipy.com/ii/8041071659142944/hd.gif`. | Self-inflicted and unavoidable: the `klipy` criteria must post real messages whose `url` is on the Klipy CDN (AC-G3-2), and #dev is dirty, so every later test that opens the room renders those rows and the browser fetches those images. The guard was right; treating it as a violation was not. | `guardGifNetwork` now **serves** `static.klipy.com` from the local fixture bytes and records it as `cdnFallbacks`; only unstubbed `api.klipy.com` (the actual quota) fails a test. Nothing leaves the machine either way, which is what AC-G11-3 protects. |
+| 4 | **`AC-G6-3` (aliases) red** — `rowByText(page, '/gif')` found 4 rows where it expected 0. | A *substring* match on a dirty room: the AC-G6-4 test legitimately leaves `/gifs ...`, `/giffy` and `/ gif ...` rows behind, and all of them contain "/gif". The suite's own dirty-seed contract forbids exactly this. | The assertion became the dirty-seed-safe form already used elsewhere: snapshot `message-$*` row count before, assert it unchanged after three opens and three Escapes. |
+| 5 | **The phone klipy test hit a strict-mode violation**, two tiles sharing one id. | QA's own stub ids (`9041071659142944` / `...945`) sat above `Number.MAX_SAFE_INTEGER`, so `JSON.parse` collapsed them. A test-data defect that exposed a real client limit — filed as BUG-9. | Phone stub ids pinned below 2^53 with a comment explaining why. |
+| 6 | **Two phone tests skipped** as `not-built: message-gif`, though the renderer was built. | The `requireGifUi` probe posted its GIF event into **#dev** but, in touch mode, never navigated there — the phone opens #general by default and the probe only waited for `message-list`, so it looked for the row in the wrong room. | The probe now calls `tapRoom(probe, dev)` on touch and `openChannel` on desktop, so both layouts look in the room the event was posted to. |
+
+Two further notes, neither a defect:
+
+- **`AC-G8-1`'s "the body text is not rendered as text".** Asserting `message-body` absent is wrong —
+  the criterion's own wording ("`message-body` is not a link") allows the element to exist. The test
+  asserts what the criterion means instead: no `<a>` inside `message-body`, and the row's `innerText`
+  does not contain the GIF url.
+- **Build churn during the pass.** Three runs showed failures that passed on re-run in isolation
+  (once `app-shell` never mounted at all). Dev A and Dev B were saving files into the dev server this
+  suite shares, so a run can catch a half-saved module. Both specs were confirmed green on a run where
+  `npx tsc --noEmit` reported zero `src/` errors; that is the gate to re-use before trusting a red.
 
 ### Phase 3 (QA-14 .. QA-18)
 

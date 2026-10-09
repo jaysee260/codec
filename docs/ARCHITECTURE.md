@@ -2,8 +2,40 @@
 
 This document is the contract between the Principal-owned core (`src/lib`, `src/store`, `src/app`,
 `seed`, `scripts`, `homeserver`, and since Phase 2 `capacitor.config.ts`, `android/`, `ios/`) and the
-feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md`
-"Shared API", **this file wins**; the differences are listed first.
+feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md` /
+`docs/PHASE4_TICKETS.md` "Shared API", **this file wins**; the differences are listed first.
+
+## Phase 4 deltas (GIF picker)
+
+What the Phase 4 brief, docs/PHASE4_PLAN.md and docs/PHASE4_ACCEPTANCE.md say versus what is shipped, and why. The full
+API is in "GIFs (Phase 4)" below. The **wire shape** (`dev.matrixpoc.gif`) and the **mock fixture contract** are exactly the
+acceptance doc's; only module/function names differ.
+
+| Topic | Brief / plan / acceptance say | What is actually shipped | Why |
+|---|---|---|---|
+| Sending | brief: fetch the GIF bytes, `uploadMedia`, send `m.image` with `info.mimetype: 'image/gif'`, magic-byte check, CORS relay in `lan-proxy.mjs`; `isAnimatedGifEvent()` | **No upload, no relay.** `sendGif()` sends `m.text` `{ body: "<title> <url>", 'dev.matrixpoc.gif': {...} }` (shape below); the timeline hot-links the GIF from `static.klipy.com`; `getGifContent(event)` / `isGifEvent(event)` replace `isAnimatedGifEvent` | Orchestrator decision 2026-10-09 after the Advisor's finding: Klipy's integration terms forbid storing, mirroring, re-hosting or proxying its media and routing requests through partner servers without written approval (docs.klipy.com/integration-requirements). User-attached GIF files via the paperclip stay `m.image` (unchanged, render static: see the Synapse gotcha). |
+| Provider API names | acceptance: `searchGifs(q)` / `trendingGifs({ page, limit })` -> `{ items, hasNext }`, `GifResult { url, w, h, ... }`, `window.__poc.gif` | brief's names: `getGifProvider().search(q, opts)` / `.trending(opts)` -> `GifPage { results, nextPage, hasNext }`, `GifResult { fullUrl, fullW, fullH, previewUrl, previewMimetype, previewW, previewH, stillUrl?, ... }`; `searchGifs` / `trendingGifs` exist as one-liners; dev hook is `window.__matrixPoc.gif` (the existing hook object) | The brief fixed the names before the acceptance was written; both are exported so either reads correctly. `hasNext` is `nextPage !== null`. |
+| Module layout | plan: `src/lib/gif/config.ts`, `index.ts` resolver, `providers/klipy.ts`, `providers/mock.ts` | `src/lib/gif/{types,config,message,mock-fixtures,mock,klipy,provider,index}.ts` (flat; `provider.ts` is the resolver, `index.ts` the barrel) | Brief's layout; every module except `provider.ts` is pure (no env, no DOM) so Node scripts import them. |
+| Mock fixtures | brief: 12 fixtures `mock-1..12`, 2-4 frames, < 50 KB; acceptance: 8 fixtures, 2 frames, <= 3 KB, + PNG stills | **Acceptance wins**: 8 fixtures `mock-1..8`, 2-3 frames, <= 3 KB, `<id>.png` stills; titles/dimensions in the table below | QA's criteria assert "exactly 8 in this order" and the demo queries. |
+| Reserved mock queries | acceptance: `nothing-here` -> `[]`, `__error__` rejects with `Error('mock: simulated failure')`; orchestrator: `__empty__`, `GifProviderError({ kind: 'network' })` | `nothing-here` **and** `__empty__` -> `[]`; `__error__` rejects with `GifProviderError('network', 'mock: simulated failure')` (an `Error` with that message) | Satisfies both. |
+| `stillUrl` for mock | orchestrator note: omitted for mock | **Emitted** (`<origin>/gif-fixtures/<id>.png`) | AC-G3-1 asserts "`stillUrl` the png"; coordinator confirmed. |
+| Send variant | orchestrator: `fullUrl` = `md.gif` first; acceptance: `hd`, else `md`, else `sm` | `GIF_SEND_VARIANT = 'hd'` (`src/lib/gif/config.ts`), fallback md -> sm | AC-G2-2 / AC-G3-2 assert hd dimensions. One constant to flip. |
+| Content rating | brief: `rating` option default `pg` | Klipy has `content_filter` off / low / medium / high, not ratings: `opts.rating` maps g -> high, pg -> medium, pg-13 -> low, r -> off; default `GIF_CONTENT_RATING = 'medium'` | Verified against the docs. |
+| `customer_id` | plan: out of scope; AC-G2-1 lists `q&page&per_page&content_filter` | **Sent on every Klipy request**: `getGifProvider()` passes `getGifCustomerId()` (random UUID in localStorage `matrix-poc.gifCustomerId`, generated on first use) as `customer_id` | Coordinator ruling after QA's report; the PM drops it from the out-of-scope list. |
+| Klipy result id | acceptance AC-G2-2: `id = String(item.id)` | `id = item.slug` (`'hello-hi-662'`), `String(item.id)` only when there is no slug | BUG-9: Klipy ids are numbers above 2^53 that collapse in `JSON.parse`, so stringifying them is neither unique nor safe in testids; the slug is. |
+| Mock titles | acceptance table: `Taco Tuesday`, `Party time` (and "`tacos` -> exactly [mock-1]") | `Tacos Tuesday`, `Tacos party`: `tacos` / `taco` -> [mock-1, mock-2, mock-3], `party` -> [mock-3, mock-4] | BUG-8 ruling (the demo expects three tacos results). Files do not embed titles; no regeneration needed. |
+| 429 handling | brief: retry once honouring `Retry-After`; plan: any non-2xx -> `gif-error` | Retry **once** (`Retry-After` seconds / HTTP date, else 1 s), a second 429 rejects with `GifProviderError('rate-limit', status 429)`; 5xx/network reject at once with `status` | Both; QA's 429 stub sees two requests ~1 s apart. |
+| Provider override | plan/acceptance: `localStorage['matrix-poc.gifProvider']` wins over keys | Shipped as specified: `setGifProvider('klipy' \| 'mock' \| null)` (alias `setGifProviderOverride`); `'klipy'` with no key -> every call rejects `GifProviderError('auth')` | QA flips per test on the running dev server. |
+| Android back for the sheet | acceptance AC-G9-2: back closes the sheet before drawers | `registerBackHandler(fn) => unregister` + `runBackHandlers()` in `src/store/layout.ts`; `App.tsx` runs `runBackHandlers() \|\| closeThread() \|\| closeDrawers()` | New seam; handlers run newest first, return true to consume. |
+| Demo script room | acceptance AC-G10-1: `gif:sample` defaults to `#general` | Defaults to **`#dev:localhost`** (`--room '#general:localhost'` for the demo) | Team rule: scripts never post in #general (coordinator). |
+| Thumbnails | brief: "render the full download URL for `image/gif`" | Moot for picked GIFs (no mxc). Still true for user-attached GIFs: `/thumbnail` is a static PNG, `&animated=true` gives animated WebP (Synapse 1.162, verified) | Recorded under "GIFs (Phase 4)". |
+
+### Advisor consultations (Phase 4, Principal)
+
+| Topic | Outcome |
+|---|---|
+| Advisor agent (Klipy + Synapse verification; sources docs.klipy.com `llms-full.txt`, live curl, `docs/advisor/gif-thumb-probe.mjs`) | Auth = path segment, endpoints/params/response shape as in "Klipy facts"; CORS `*` on api.klipy.com (preflight OK) and static*.klipy.com; Test key 100 req/h, 429 undocumented; attribution: `Search KLIPY` placeholder required, `Powered by KLIPY` optional; **integration terms forbid re-hosting / proxying / reordering** -> escalated, orchestrator chose hot-linking; Synapse: `/download` unchanged bytes, `/thumbnail` static PNG, `?animated=true` animated WebP, upload cap 50 MB. Independently re-verified by the Principal (curl: API 404 `{"result":false,"errors":{"message":["The provided API key is invalid."]}}` for a bad key with `access-control-allow-origin: *`; CDN GIF/WebP `access-control-allow-origin: *`, `cache-control: public, max-age=86400`). |
+| `advisor` tool, plan review | Keep every gif module except `provider.ts` Node-loadable (relative `.ts` imports, no `import.meta.env` at top level) so the scripts import the real builder; mock `fullUrl` must be absolute; validate `previewUrl`/`stillUrl` with the same allow list; Klipy ids via `String()`; clamp `per_page` 8..50; 404 + `result:false` = auth; `signal` option for debounce; add `*.gif binary` to `.gitattributes`; `verify:gif` without a browser (raw API, one message to #dev). All applied. |
 
 ## Phase 3 deltas (threads)
 
@@ -125,6 +157,15 @@ src/
   lib/
     format.ts                  sanitizeHtml, linkify, formatTime, isSameDay, formatDayDivider, initialsOf, colorFor; (Phase 3) formatRelative
     native.ts                  (Phase 2) isNativeApp, platform/getPlatform, initNative, tap/hapticTap, onAppStateChange
+    gif/                       (Phase 4) GIF picker backend, no React, no Matrix; all but provider.ts are Node-loadable
+      types.ts                 GifResult, GifPage, GifProvider, GifQueryOptions, GifMessage, GifProviderError
+      config.ts                GIF_CONTENT_RATING, GIF_SEND_VARIANT, GIF_IMAGE_HOSTS, GIF_MAX_DIMENSION, KLIPY_DEFAULT_BASE, storage keys
+      message.ts               buildGifContent (the wire shape), parseGifContent / isAllowedGifUrl (host allow list), GIF_CONTENT_KEY
+      mock-fixtures.ts         MOCK_FIXTURES catalogue (ids, titles, dimensions), MOCK_EMPTY_QUERIES, MOCK_ERROR_QUERY
+      mock.ts                  createMockProvider, mockGifResults (own-origin /gif-fixtures/*.gif + .png)
+      klipy.ts                 createKlipyProvider, mapKlipyItem, klipyRequestUrl, parseRetryAfter, RATING_TO_CONTENT_FILTER
+      provider.ts              getGifProvider / gifProviderName / searchGifs / trendingGifs, key + provider overrides (env + localStorage)
+      index.ts                 barrel ('@/lib/gif')
     audio/                     (Phase 2) voice-note primitives, no React, no Matrix
       encode.ts                Shared API: pickVoiceMimeType, encodeToOggOpus, decodeToPcm, computeWaveform, baseMimetype
       recording.ts             startRecording (getUserMedia + MediaRecorder lifecycle), createLevelMeter, pickRecordingMimeType
@@ -135,12 +176,12 @@ src/
       config.ts                getHsUrl/setHsUrl/hasHsUrlOverride/normalizeHsUrl, DEFAULT_HS_URL, storage keys, localpartOf, serverNameOf
       mxc.ts                   mxcToHttp (pure; resolves getHsUrl() per call)
       client.ts                getClient, login, register, logout, session persistence, startClient
-      actions.ts               every write + a few aggregate readers (members, reactions); sendVoiceMessage (Phase 2)
-      utils.ts                 read helpers over SDK objects (display names, avatars, getDisplayBody, getVoiceMessage, ...)
+      actions.ts               every write + a few aggregate readers (members, reactions); sendVoiceMessage (Phase 2); sendGif (Phase 4)
+      utils.ts                 read helpers over SDK objects (display names, avatars, getDisplayBody, getVoiceMessage, getGifContent, ...)
   store/
     session.ts                 useSessionStore
     rooms.ts                   useRoomStore + recomputeRooms + waitForRoom + onRoomSelected (Phase 2)
-    layout.ts                  (Phase 2) useLayoutStore, useIsPhone, useViewport, detectIsPhone; stamps <html data-layout>, --vvh
+    layout.ts                  (Phase 2) useLayoutStore, useIsPhone, useViewport, detectIsPhone; stamps <html data-layout>, --vvh; (Phase 4) registerBackHandler, runBackHandlers
     timeline.ts                useTimelineStore + refreshTimeline + setTypingForRoom; (Phase 3) TimelineSource, thread snapshots, paginateBack(source), ensureThreadTimeline
     threads.ts                 (Phase 3) useThreadStore (open thread), useThreadSummary, useThreadRoot, useRoomThreads, useThreadUnread, useOpenThread(RootId)
     thread.ts                  (Phase 3) re-export of threads.ts (docs/PHASE3_TICKETS.md name)
@@ -151,6 +192,8 @@ src/
   features/
     navigation/                (Dev A) index.ts exports SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel, useNavUiStore
     conversation/              (Dev B) index.ts exports Conversation and (Phase 3) ThreadView (placeholder by the Principal; Dev B replaces the internals)
+    gif/                       (Dev A, Phase 4) GifPicker (search, trending, grid, keyboard, sheet variant)
+public/gif-fixtures/           (Phase 4) mock-1..8.gif (animated GIF89a) + mock-1..8.png stills, generated by scripts/make-gif-fixtures.mjs
 capacitor.config.ts            (Phase 2) appId com.acme.matrixpoc, webDir dist, androidScheme http + cleartext, Keyboard native, StatusBar dark
 android/                       (Phase 2) generated by `cap add android` (Capacitor 7); committed minus build outputs; manifest has RECORD_AUDIO etc.
 ios/                           (Phase 2) generated by `cap add ios`; Info.plist has NSMicrophoneUsageDescription + ATS exception; Pods/ not committed
@@ -164,6 +207,10 @@ scripts/send-voice-sample.mjs  (Phase 2) post a contract-shaped voice message vi
 scripts/verify-phone-shell.mjs (Phase 2) Pixel 7 Playwright check + screenshots + voice round trip (npm run verify:phone)
 scripts/send-thread-sample.mjs (Phase 3) post a thread (root + replies, exact wire shape) via the API, validate the server bundle (npm run thread:sample)
 scripts/verify-thread-shell.mjs (Phase 3) desktop + Pixel 7 Playwright check of the thread core on :5183 + screenshots (npm run verify:threads)
+scripts/make-gif-fixtures.mjs  (Phase 4) pure-Node GIF89a + PNG encoder rendering the MOCK_FIXTURES catalogue into public/gif-fixtures (npm run gif:fixtures)
+scripts/send-gif-sample.mjs    (Phase 4) bob posts a contract GIF message to #dev via the API using the client's buildGifContent (npm run gif:sample)
+scripts/verify-gif.mjs         (Phase 4) no-browser check of the gif core: mock contract, fixtures, wire shape, Klipy mapping, live round trip to #dev, optional real Klipy search (npm run verify:gif)
+scripts/lib/gif-api.mjs        (Phase 4) raw API helpers + type-stripped import of src/lib/gif for the two scripts above
 scripts/verify-scaffold.mjs    throwaway Playwright smoke (login + screenshot)
 homeserver/                    homeserver.yaml (single config, committed), docker-compose.yml, wsl/ (no-Docker fallback), data/* (ignored)
 docs/MOBILE.md                 (Phase 2) phone browser path, toolchain, APK, LAN proxy, iOS handoff, troubleshooting
@@ -174,8 +221,8 @@ e2e/, playwright.config.ts     (QA)
 
 | Owner | Owns | Must not edit |
 |---|---|---|
-| Principal | `src/app/**`, `src/store/**`, `src/lib/**` (incl. `audio/**`, `native.ts`), `src/styles/**`, `index.html`, `capacitor.config.ts`, `android/**`, `ios/**`, `seed/**`, `scripts/**`, `homeserver/**`, `package.json`, `.env.example`, `docs/ARCHITECTURE.md`, `docs/MOBILE.md`, root configs | - |
-| Dev A | `src/features/navigation/**` | anything else |
+| Principal | `src/app/**`, `src/store/**`, `src/lib/**` (incl. `audio/**`, `gif/**`, `native.ts`), `public/**`, `src/styles/**`, `index.html`, `capacitor.config.ts`, `android/**`, `ios/**`, `seed/**`, `scripts/**`, `homeserver/**`, `package.json`, `.env.example`, `docs/ARCHITECTURE.md`, `docs/MOBILE.md`, root configs | - |
+| Dev A | `src/features/navigation/**`, (Phase 4) `src/features/gif/**` | anything else |
 | Dev B | `src/features/conversation/**` | anything else |
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:e2e*` script lines in `package.json` | anything else |
 
@@ -282,6 +329,7 @@ Helpers: `recomputeRooms()` (bridge only), `resetRooms()`, `waitForRoom(roomId, 
 | `openNav()`, `closeNav()`, `toggleNav()` | `void` | `header-menu` calls `openNav()`. |
 | `openMembers()`, `closeMembers()`, `toggleMembers()` | `void` | `member-toggle` on phone calls `openMembers()`. |
 | `closeDrawers()` / `closeAll()` | `() => boolean` | Close whichever is open (backdrop, Escape, Android back). True if one was open. |
+| `registerBackHandler(fn)` (module export, Phase 4) | `(fn: () => boolean) => () => void` | Android back: handlers run newest first; return true to consume the press (close your sheet). Returns the unregister function. `App.tsx` runs `runBackHandlers() \|\| closeThread() \|\| closeDrawers()` then minimises the app. |
 | `keyboardHeight` | `number` | px from `@capacitor/keyboard` (0 in browsers / hidden). Also `--keyboard-height` on `:root` and `<html data-keyboard="open">`. |
 | `viewportWidth`, `viewportHeight` | `number` | `window.visualViewport` in CSS px (fallback `innerWidth/Height`); `--vvh` on `:root` is the height in px. |
 | `keyboardOpen` | `boolean` | `keyboardHeight > 0`, or the visual viewport is > 150 px shorter than the tallest seen at this width. |
@@ -366,10 +414,11 @@ first page up to >= 20 visible replies), `bumpThreadVersion()`, `threadKey(roomI
 | `getReactions` | `(roomId, eventId) => { key, count, mine, senders, myEventId? }[]` | From `timelineSet.relations`; safe in render. (Phase 3) Reads the thread's relations when the target is a thread reply, so one call works in both panels. |
 | `fetchEvent` | `(roomId, eventId) => Promise<MatrixEvent \| undefined>` | Local timelines (main and threads) first, then `/rooms/{id}/event/{eventId}` (through the SDK event mapper). For reply quotes whose target is not loaded. |
 | `canRedactEvent` | `(roomId, event) => boolean` | `room.currentState.maySendRedactionForEvent`. |
-| `canEditEvent` | `(event) => boolean` | Own, non-redacted `m.room.message`. |
+| `canEditEvent` | `(event) => boolean` | Own, non-redacted `m.room.message`; (Phase 4) false for GIF messages. |
 | `myPowerLevel` | `(roomId) => number` | |
 | `retryOnRateLimit` | `(fn: () => Promise<T>, label?) => Promise<T>` | Retries `fn` on 429 honouring `retry_after_ms` up to 30 s total, then throws `RateLimitedError` (`.retryAfterMs`, readable `.message`). Already applied inside `createChannel`, `createSpace`, `createDm`, `inviteUser`, `joinRoom`. |
 | `sendVoiceMessage` (Phase 2) | `(roomId, blob: Blob, { durationMs: number, waveform: number[], mimetype: string }) => Promise<eventId>` | `uploadContent(blob, { name: 'Voice message.<ext>', type, includeFilename: true })` then sends **exactly** the contract content below. `mimetype` is reduced to its base type; `waveform` is sanitised (ints 0..1024, resampled to 100 when > 120); `durationMs` rounded. Throws on upload/send failure (Dev B shows `recording-error`). |
+| `sendGif` (Phase 4) | `(roomId, gif: GifResult, opts?: { threadRoot? }) => Promise<eventId>` | `m.text` with `body: "<title> <url>"` + `dev.matrixpoc.gif` (`buildGifContent(gif)`, shape in "GIFs (Phase 4)"); **nothing is uploaded**. `threadRoot` adds the Phase 3 relation. Local echo appears immediately; throws on send failure (Dev B shows the `Could not send GIF` toast). |
 
 Voice message content (docs/PHASE2_ACCEPTANCE.md; Element-compatible):
 
@@ -395,13 +444,20 @@ Firefox, `audio/wav` for the QA fixture); extension follows it (`.webm` / `.m4a`
 `getThreadServerSummary(e) => { count, latestEvent?, participated } | null`, `isMainTimelineEvent(e)`, `formatRelative(ts)`, and
 
 ```ts
-getDisplayBody(event) => { text, html?, msgtype, isEdited, isRedacted, replyTo?, url?, info?, mentions, voice?, threadRoot? }
+getDisplayBody(event) => { text, html?, msgtype, isEdited, isRedacted, replyTo?, url?, info?, mentions, voice?, threadRoot?, gif? }
 ```
 `replyTo` is **undefined for the thread fallback** (`m.in_reply_to` with `is_falling_back: true` - the previous reply, not a
 quote); `threadRoot` is set for thread replies.
 `text`/`html` already reflect the latest edit (the SDK swaps `getContent()` when the `m.replace` arrives) and have
 legacy reply fallbacks stripped. Sanitise `html` with `sanitizeHtml()` from `src/lib/format.ts` before rendering.
 `voice` (Phase 2) is `getVoiceMessage(event) ?? undefined` for `m.audio` events.
+`gif` (Phase 4) is `getGifContent(event) ?? undefined`: present only for `m.text` events whose `dev.matrixpoc.gif` validates (see "GIFs (Phase 4)");
+render it **before** the text branch (otherwise `linkify` shows "<title> <url>"). `previewText` gives `[gif] <title>`.
+
+```ts
+getGifContent(event) => { provider, id, title, url, w, h, previewUrl?, previewW?, previewH?, stillUrl? } | null   // GifMessage
+isGifEvent(event) => boolean
+```
 
 ```ts
 getVoiceMessage(event) => { url (http via mxcToHttp), mxc, durationMs, waveform: number[], mimetype, size?, isVoice, name } | null
@@ -540,6 +596,135 @@ the exact wire shape through the raw API, validates the bundle and `/threads`, w
 `npm run verify:threads` (dev server on :5183) posts a fresh thread and checks the whole core (partitioning, live replies, local
 echo, wire shape, reactions/edits in threads, unread + threaded receipt, desktop column, phone layer, back order).
 
+## GIFs (Phase 4)
+
+Slack-style GIF picker backed by Klipy (Tenor is gone, Giphy is paid), with a keyless mock. Plan: docs/PHASE4_PLAN.md;
+contract + testids: docs/PHASE4_ACCEPTANCE.md. Everything below is Principal-owned (`src/lib/gif/`, `sendGif`, `getGifContent`,
+`public/gif-fixtures/`); the picker is Dev A's `src/features/gif/`, the composer/timeline side is Dev B's.
+
+### API (`src/lib/gif/index.ts`, import from `@/lib/gif`)
+
+```ts
+interface GifResult {                      // one search / trending hit; all URLs absolute, in the provider's order
+  id: string;                              // 'mock-3' | Klipy slug ('hello-hi-662'; numeric ids exceed 2^53, BUG-9)
+  title: string;
+  previewUrl: string;                      // picker tile: sm.webp -> sm.mp4 -> sm.gif (xs.* last); the gif itself for mock
+  previewMimetype: 'image/webp' | 'video/mp4' | 'image/gif';   // mp4 => <video muted autoPlay loop playsInline>
+  previewW: number; previewH: number;
+  fullUrl: string;                         // what gets sent: Klipy GIF_SEND_VARIANT gif (hd -> md -> sm); mock /gif-fixtures/<id>.gif
+  fullW: number; fullH: number; fullSize?: number;
+  stillUrl?: string;                       // paused frame: Klipy sm.jpg; mock /gif-fixtures/<id>.png
+  mimetype: 'image/gif'; provider: 'klipy' | 'mock';
+}
+interface GifPage { results: GifResult[]; nextPage: string | number | null; hasNext: boolean }
+interface GifQueryOptions { page?: string | number | null; limit?: number; rating?: 'g' | 'pg' | 'pg-13' | 'r'; signal?: AbortSignal }
+interface GifProvider { name: 'klipy' | 'mock'; search(query, opts?): Promise<GifPage>; trending(opts?): Promise<GifPage> }
+class GifProviderError extends Error { kind: 'auth' | 'rate-limit' | 'network' | 'bad-response' | 'aborted'; status?: number; retryAfterMs?: number }
+
+getGifProvider(): GifProvider             // memoised per (provider, key, base); re-reads localStorage on every call
+gifProviderName(): 'klipy' | 'mock'        // matrix-poc.gifProvider override -> key present ? klipy : mock
+searchGifs(q, opts?) / trendingGifs(opts?) // one-liners over getGifProvider()
+getGifApiKey() / setGifApiKey(key | null)  // runtime key (localStorage matrix-poc.gifApiKey) over VITE_GIF_API_KEY
+setGifProvider('klipy' | 'mock' | null)    // force a provider (alias setGifProviderOverride); getGifProviderOverride()
+buildGifContent(gif): GifMessageContent    // the wire shape below (pure)
+parseGifContent(content, { origin? }): GifMessage | null   // validator (pure); isAllowedGifUrl(url, { origin? })
+createKlipyProvider({ apiKey, baseUrl?, locale?, customerId?, contentFilter?, fetch? }), mapKlipyItem(item), klipyRequestUrl(...), parseRetryAfter(h)
+getGifCustomerId()                         // random UUID in localStorage matrix-poc.gifCustomerId; getGifProvider() sends it as customer_id
+createMockProvider({ baseUrl?, basePath?, delayMs? }), mockGifResults(opts), MOCK_FIXTURES, MOCK_EMPTY_QUERIES, MOCK_ERROR_QUERY
+GIF_CONTENT_RATING = 'medium', GIF_SEND_VARIANT = 'hd', GIF_IMAGE_HOSTS, GIF_MAX_DIMENSION = 2000, GIF_CONTENT_KEY = 'dev.matrixpoc.gif'
+```
+
+Resolution: `localStorage['matrix-poc.gifProvider']` (`'klipy'` | `'mock'`, forces; `'klipy'` with no key -> every call rejects
+`GifProviderError('auth')`) -> key present (`localStorage['matrix-poc.gifApiKey']` -> `VITE_GIF_API_KEY`) ? `klipy` : `mock`.
+API origin: `VITE_GIF_API_BASE` -> `https://api.klipy.com`. The key is baked into the web bundle and the APK (extractable;
+use a Testing key or one you can revoke). Errors: `'aborted'` = the caller's `AbortSignal` fired (ignore it); `'auth'` = no key
+or Klipy's 404 "invalid key"; `'rate-limit'` = 429 after the one built-in retry; `'network'` = fetch failed or non-2xx;
+`'bad-response'` = 2xx that is not the documented shape. Results are never filtered or re-sorted (Klipy rule).
+
+Dev hook: `window.__matrixPoc.gif` is the whole module (dev builds), `window.__matrixPoc.runBackHandlers()` the back chain.
+
+### The GIF message (wire; `sendGif` / `buildGifContent`)
+
+```json
+{ "msgtype": "m.text", "body": "Tacos dance https://static.klipy.com/ii/.../hd.gif",
+  "dev.matrixpoc.gif": { "provider": "klipy", "id": "tacos-dance-123", "title": "Tacos dance",
+                         "url": "https://static.klipy.com/ii/.../hd.gif", "w": 498, "h": 498,
+                         "previewUrl": "https://static.klipy.com/ii/.../sm.webp", "previewW": 220, "previewH": 220,
+                         "stillUrl": "https://static.klipy.com/ii/.../sm.jpg" } }
+```
+`body` = `"<title> <url>"` (title trimmed, `GIF` when empty; the URL is the last token so Element shows the link and the server's
+URL preview unfurls it); no `format` / `formatted_body` / top-level `url` / `info`; `m.relates_to` (Phase 3 thread relation) when
+`threadRoot` is given. Mock: `url` = `<origin>/gif-fixtures/<id>.gif`, `previewUrl` = the same gif, `stillUrl` = `<id>.png`.
+
+**Reading** (`getGifContent(event)` / `getDisplayBody(event).gif`): non-null only when the field is an object, `url` is
+`https://` on `GIF_IMAGE_HOSTS` (`static.klipy.com`, `static1.klipy.com`, `static2.klipy.com`) **or** same-origin
+`/gif-fixtures/<name>.gif|.png` (`location.origin`; scripts pass `{ origin }`), and `w`/`h` are integers 1..2000. Invalid
+`previewUrl` / `stillUrl` are dropped, not fatal. Anything else is an ordinary `m.text` (forged fields cannot load arbitrary images).
+Rendering rule: `<img src={gif.url} width={w} height={h} alt={title}>` straight from the host (there is no mxc, never
+`mxcToHttp`); `stillUrl` for reduced motion. No CSP meta exists in `index.html`, `sanitizeHtml` is not on this path (structured
+field, not HTML) and Capacitor needs nothing for https images: verified, nothing to allow.
+
+### Klipy facts relied on
+
+Verified 2026-10-09 by the Advisor agent and re-verified by the Principal. Sources: https://docs.klipy.com/llms-full.txt (the whole
+docs site as text; sections "GIF - Search API", "GIF - Trending API", "GIF Format Sizes"), https://docs.klipy.com/gifs-api/gifs-search-api,
+https://docs.klipy.com/gifs-api/gifs-trending-api, https://docs.klipy.com/integration-requirements, https://docs.klipy.com/network-requirements,
+https://docs.klipy.com/getting-started, https://docs.klipy.com/attribution, and live `curl` against api.klipy.com / static.klipy.com.
+
+| Fact | Value |
+|---|---|
+| Endpoints | `GET https://api.klipy.com/api/v1/{app_key}/gifs/search` and `.../gifs/trending`; the key is a **path segment** (no header, no query param) |
+| Query params | `q` (search only), `page` (int >= 1, default 1), `per_page` (8..50, default 24), `content_filter` (`off` \| `low` \| `medium` \| `high`), `locale` (ISO 3166-1 alpha-2, not sent), `customer_id` (stable per-user id; sent = `getGifCustomerId()`), `format_filter` (omit) |
+| Response | `{ result: true, data: { data: Item[], current_page, per_page, has_next } }`; Item `{ id: number, slug, title, type: 'gif', tags, blur_preview, file: { hd \| md \| sm \| xs: { gif \| webp \| jpg \| mp4 \| webm: { url, width, height, size } } } }`. Documented example: hd.gif 498x498 4.0 MB, md.gif 498x498 3.7 MB, sm.gif 220x220 315 KB, sm.webp 80 KB, sm.jpg 8.6 KB, sm.mp4 320x320 50 KB, xs.webp 90x90 25 KB |
+| Errors | Invalid key: HTTP **404** `{ "result": false, "errors": { "message": ["The provided API key is invalid."] } }` -> `kind: 'auth'`. 429 shape and `Retry-After`: **undocumented** (needs a real key); handled defensively |
+| Media hosts | `static.klipy.com`, `static1.klipy.com`, `static2.klipy.com` (https only); example `https://static.klipy.com/ii/<hash>/<a>/<b>/<name>.<ext>` |
+| CORS | API: `access-control-allow-origin: *`, OPTIONS 200 with `access-control-allow-headers: *` / `-methods: *`. CDN GET: `access-control-allow-origin: *`, `cache-control: public, max-age=86400` (OPTIONS 403, irrelevant for simple GETs and `<img>`) |
+| Quota | Testing key: 100 requests/hour; Production: unlimited (requested in https://partner.klipy.com/) |
+| Attribution | "Incorporate KLIPY branding" (Drive folder linked from docs.klipy.com/attribution): search placeholder `Search KLIPY` required, `Powered by KLIPY` optional |
+| Integration terms | Load media directly from the returned URLs; **do not store, mirror, re-host, proxy or cache** media; requests must originate from the end-user client; show results in the returned order, unfiltered; approval via developers@klipy.com. This is why GIFs are hot-linked, not uploaded |
+
+### Synapse static-thumbnail gotcha (user-attached GIFs)
+
+Synapse 1.162 (`docs/advisor/gif-thumb-probe.mjs`, 1313-frame GIF): `/_matrix/media/v3/download` returns the bytes unchanged
+(`image/gif`); `/thumbnail?width&height&method` returns a **static PNG** (first frame) by default; `/thumbnail?...&animated=true`
+(spec v1.11) returns an animated `image/webp`. No config knob; `m.upload.size` is 50 MB. `ImageAttachment` renders `m.image`
+thumbnails, so a GIF file attached with the paperclip renders static; picked GIFs are unaffected (no mxc). Later fix if wanted:
+`mxcToHttp(..., { animated: true })` or the full download URL when `info.mimetype === 'image/gif'`.
+
+### Mock fixture contract (`src/lib/gif/mock-fixtures.ts`; files in `public/gif-fixtures/`, `npm run gif:fixtures`)
+
+| id | title | w x h | frames | gif bytes | matches |
+|---|---|---|---|---|---|
+| `mock-1` | `Tacos dance` | 240 x 180 | 2 | 1219 | `tacos`, `taco`, `dance` |
+| `mock-2` | `Tacos Tuesday` | 200 x 200 | 2 | 2253 | `tacos`, `taco`, `tuesday` |
+| `mock-3` | `Tacos party` | 240 x 180 | 2 | 2251 | `tacos`, `taco`, `party` |
+| `mock-4` | `Party popper` | 160 x 160 | 3 | 2108 | `party` |
+| `mock-5` | `Cat typing` | 240 x 180 | 2 | 1135 | `cat` |
+| `mock-6` | `Cat nope` | 200 x 150 | 3 | 1637 | `cat`, `nope` |
+| `mock-7` | `Thumbs up` | 240 x 180 | 2 | 1204 | `thumbs` |
+| `mock-8` | `Facepalm` | 240 x 180 | 2 | 2247 | `facepalm` |
+
+Animated GIF89a (NETSCAPE loop, 8-colour palette, the fixture number drawn on every frame) + `<id>.png` still of the first frame
+(indexed PNG, ~300 B). Served at `<origin>/gif-fixtures/<id>.gif`; `fullUrl === previewUrl`, `previewMimetype: 'image/gif'`.
+`trending` = all 8 in this order; `search` = case-insensitive title substring in the same order, `''` = all; `nothing-here` /
+`__empty__` -> `[]`; `__error__` -> rejects `GifProviderError('network', 'mock: simulated failure')`; `page > 1` -> `[]`;
+`hasNext` false; resolves on the next microtask (`delayMs` option for loading states). The generator is deterministic
+(re-running never dirties git); `.gitattributes` marks `*.gif binary`.
+
+### GIF gotchas
+
+- Dev B: branch on `body.gif` **before** the plain-text branch, or `linkify` renders "Tacos dance http://...". Hide
+  `message-action-edit` on GIF rows (edits are out of scope); reactions/replies/threads/delete need nothing special.
+- Dev A: tiles may be `video/mp4` (`<video muted autoPlay loop playsInline>`); pass `signal` and debounce >= 300 ms (a
+  Testing key is 100 requests/hour and every keystroke would be one); `'aborted'` errors are not errors.
+- The mock `fullUrl` carries the **page origin** (`http://localhost:5173` in dev, the LAN IP on a phone, `http://localhost`
+  in the APK): a mock GIF sent from one origin does not load on another. Klipy URLs are global. Fine for a POC.
+- `getGifProvider()` is memoised per (provider, key, base) and reads localStorage each call: QA sets the keys before
+  `page.goto`, or calls `setGifProvider()` / `setGifApiKey()` (both clear the memo); no reload needed.
+- Node scripts import `src/lib/gif/*.ts` directly (type stripping): keep those modules free of `@/` aliases, enums and
+  top-level `import.meta.env` reads (`provider.ts` reads it defensively).
+- Klipy `hd.gif` is ~4 MB; a timeline full of them is heavy. Dev B unmounts offscreen rows; `GIF_SEND_VARIANT = 'md'` halves it.
+
 ## data-testid convention
 
 `data-testid`, kebab-case, `{area}-{element}`; dynamic suffix is the raw Matrix id (`channel-item-!abc:localhost`,
@@ -590,6 +775,17 @@ Phase 3:
 npm run thread:sample              # alice root + 3 replies (bob/carol) in #dev via the API; validates; writes seed/thread-sample.json
 npm run dev -- --port 5183 && npm run verify:threads   # thread core check (desktop + Pixel 7) + docs/screenshots/phase3-thread-shell*.png
 ```
+
+Phase 4:
+
+```
+npm run gif:fixtures               # regenerate public/gif-fixtures/mock-1..8.{gif,png} from src/lib/gif/mock-fixtures.ts (byte-stable)
+npm run gif:sample                 # bob posts a contract GIF (mock-7) to #dev via the API; --id mock-3 --room '#general:localhost' --root <id> --origin <url>
+npm run verify:gif                 # no browser: mock contract, fixtures, wire shape, Klipy mapping/urls/errors, alice -> #dev round trip; real Klipy search when VITE_GIF_API_KEY is set
+```
+
+`.env`: `VITE_GIF_API_KEY=<Klipy app key>` switches the picker to Klipy (unset = mock). Runtime: `localStorage['matrix-poc.gifApiKey']`,
+`localStorage['matrix-poc.gifProvider'] = 'klipy' | 'mock'` (QA; wins over keys). `VITE_GIF_API_BASE` points the provider at a stub origin.
 
 ## matrix-js-sdk gotchas (v43) you must know
 

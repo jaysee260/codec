@@ -30,10 +30,29 @@ import { checkFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { DISPLAY_NAMES, NAMES, resolveRoom, userId } from './fixtures/seed.ts';
 import { annotate, ensureUnread, noteSeedDrift } from './fixtures/state.ts';
-import { messageList, settledEventId } from './fixtures/ui.ts';
+import { messageList, row, settledEventId } from './fixtures/ui.ts';
 // `stableRow` only (the `requireThreadUi` probe is deliberately not used in this serial spec — it
 // would clear the shared page's session; see the step 11 header).
 import { openActionSheet } from './fixtures/threads.ts';
+import {
+  composerGif,
+  expectGifPlaying,
+  expectGridIds,
+  gifAttribution,
+  gifClose,
+  gifHeading,
+  gifItem,
+  gifPending,
+  gifPicker,
+  gifRowById,
+  gifSearch,
+  GIF_PROVIDER_STORAGE_KEY,
+  guardGifNetwork,
+  MOCK_IDS,
+  mockSearch,
+  queryMatching,
+  searchInPicker,
+} from './fixtures/gif.ts';
 import {
   backdrop,
   box,
@@ -46,6 +65,8 @@ import {
   pageScroll,
   phoneShot,
   tapBackdrop,
+  tapRoom,
+  settleAnimations,
 } from './fixtures/mobile.ts';
 
 test.describe.configure({ mode: 'serial' });
@@ -73,6 +94,10 @@ let bob: ApiUser;
 
 /** Event id of the note bob posts in beforeAll (demo step 8: something alice did not record). */
 let bobNoteId = '';
+
+/** Phone demo rows 3 and 5 queries, derived so a fixture-catalogue change cannot break the step. */
+const DEMO_QUERY = queryMatching(3, ['tacos', 'taco', 'cat', 'party']) ?? 'cat';
+const SECOND_QUERY = queryMatching(2, ['cat', 'party', 'taco']) ?? 'cat';
 /** Event id of the note alice records in step 6 (played in step 7). */
 let aliceNoteId = '';
 
@@ -492,5 +517,92 @@ test.describe('phone demo script (QA-11 mobile smoke)', () => {
       await expect(page.getByTestId('channel-header-name')).toContainText(NAMES.general);
       await phoneShot(page, 11, 'back-to-channel');
     }
+  });
+  test('step 12 — the GIF sheet: tap GIF, Trending, search, tap a tile, /giphy (phone demo 2-5)', async () => {
+    test.setTimeout(120_000);
+
+    // Phase 4 phone demo rows 2-5, in **#dev** (the room the GIF suites own) rather than #general, so
+    // the stakeholder's #general demo history stays clean. Forced onto `mock` at runtime so the step
+    // is deterministic even with a Klipy key in .env, and guarded so no image request leaves the
+    // machine (AC-G11-3).
+    const guard = guardGifNetwork(page);
+    await page.evaluate((key) => {
+      try {
+        window.localStorage.setItem(key, 'mock');
+      } catch {
+        /* private mode */
+      }
+    }, GIF_PROVIDER_STORAGE_KEY);
+
+    await tapRoom(page, R.dev);
+    await expect(messageList(page)).toBeVisible();
+
+    if ((await composerGif(page).count()) === 0) {
+      annotate('not-built', 'phone demo step 12: `composer-gif` is not built yet (DEV-B-23/26)');
+      test.skip(true, 'phone demo step 12: the GIF button is not built yet');
+    }
+
+    // --- demo row 2: tap GIF -> a bottom sheet on Trending, 2 columns, attribution, a close button
+    await expectTapTarget(composerGif(page), 'composer-gif');
+    await composerGif(page).tap();
+    await expect(gifPicker(page)).toBeVisible();
+    await settleAnimations(gifPicker(page));
+    await expect(gifPicker(page)).toHaveAttribute('data-variant', 'sheet');
+    await expect(gifPicker(page)).toHaveAttribute('data-provider', 'mock');
+    await expect(gifHeading(page)).toHaveText('Trending');
+    await expectGridIds(page, MOCK_IDS);
+    await expect(gifAttribution(page)).toBeVisible();
+    await expectTapTarget(gifClose(page), 'gif-close');
+    const columns = await page
+      .getByTestId('gif-grid')
+      .locator('[data-testid^="gif-item-"]')
+      .evaluateAll((els) => new Set(els.map((el) => Math.round(el.getBoundingClientRect().x))).size);
+    expect(columns, 'the phone sheet shows the grid in 2 columns').toBe(2);
+    await phoneShot(page, 12, 'gif-sheet-trending');
+
+    // --- demo row 3: typing updates the results, and the sheet stays put
+    await searchInPicker(page, DEMO_QUERY);
+    const hits = mockSearch(DEMO_QUERY);
+    await expectGridIds(page, hits.map((g) => g.id));
+    await phoneShot(page, 12, 'gif-sheet-search');
+
+    // --- demo row 4: tap a tile -> the sheet closes, the chip shows, the GIF arrives with the badge
+    const chosen = hits[0];
+    await gifItem(page, chosen.id).tap();
+    await expect(gifPicker(page)).toBeHidden();
+    const sentRow = gifRowById(page, chosen.id);
+    await expect(sentRow.first()).toBeVisible({ timeout: 15_000 });
+    await expect(gifPending(page)).toBeHidden({ timeout: 10_000 });
+    const gifRow = row(page, await settledEventId(sentRow.first()));
+    await expectGifPlaying(gifRow);
+    await expect(gifRow.getByTestId('message-gif-badge')).toHaveText('GIF');
+    const imgBox = await box(gifRow.getByTestId('message-gif-img'), 'message-gif-img');
+    expect(imgBox.width, 'the GIF fits the phone width').toBeLessThanOrEqual(page.viewportSize()!.width);
+    await phoneShot(page, 12, 'gif-sent');
+
+    // --- demo row 5: `/giphy <q>` + send opens the sheet pre-searched; tapping a tile sends as above
+    const input = page.getByTestId('composer-input');
+    await input.tap();
+    await input.fill(`/giphy ${SECOND_QUERY}`);
+    const send = page.getByTestId('composer-send');
+    if (await send.isVisible()) await send.tap();
+    else await input.press('Enter');
+
+    await expect(gifPicker(page)).toBeVisible();
+    await expect(gifSearch(page)).toHaveValue(SECOND_QUERY);
+    await expect(input, 'the slash command is consumed, never sent').toHaveValue('');
+    const secondHits = mockSearch(SECOND_QUERY);
+    await expectGridIds(page, secondHits.map((g) => g.id));
+    await phoneShot(page, 12, 'giphy-prefilled');
+
+    const second = secondHits[secondHits.length - 1];
+    await gifItem(page, second.id).tap();
+    await expect(gifPicker(page)).toBeHidden();
+    const secondRow = gifRowById(page, second.id);
+    await expect(secondRow.first()).toBeVisible({ timeout: 15_000 });
+    await expectGifPlaying(row(page, await settledEventId(secondRow.first())));
+    await phoneShot(page, 12, 'giphy-sent');
+
+    guard.assertClean();
   });
 });

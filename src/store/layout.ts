@@ -19,6 +19,9 @@
  *
  * Ownership rule: desktop member-panel visibility stays Dev A's `useNavUiStore.membersOpen`; this store's
  * `membersOpen` only means "the phone right drawer is open".
+ *
+ * Phase 4: `registerBackHandler(fn)` lets a feature (the GIF sheet) consume the Android back press before the
+ * thread panel and the drawers. App.tsx runs `runBackHandlers() || closeThread() || closeDrawers()`.
  */
 import { create } from 'zustand';
 import { onRoomSelected } from './rooms.ts';
@@ -65,6 +68,38 @@ export interface LayoutState {
 
 function queryMatches(query: string): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
+}
+
+// ---------------------------------------------------------------------------
+// Android back handlers (Phase 4)
+// ---------------------------------------------------------------------------
+
+const backHandlers: Array<() => boolean> = [];
+
+/**
+ * Register a handler for the Android hardware/gesture back press. Handlers run most-recently-registered first;
+ * a handler returns true when it consumed the press (closed its sheet/overlay), which stops the chain. After all
+ * handlers decline, App.tsx closes an open thread, then an open drawer, then minimises the app. Returns the
+ * unregister function (call it on unmount / close). Typical use: register while an overlay is open.
+ */
+export function registerBackHandler(handler: () => boolean): () => void {
+  backHandlers.push(handler);
+  return () => {
+    const i = backHandlers.lastIndexOf(handler);
+    if (i >= 0) backHandlers.splice(i, 1);
+  };
+}
+
+/** Run the registered back handlers (newest first) until one returns true. Exposed for App.tsx and tests. */
+export function runBackHandlers(): boolean {
+  for (let i = backHandlers.length - 1; i >= 0; i--) {
+    try {
+      if (backHandlers[i]!()) return true;
+    } catch (e) {
+      console.error('[layout] back handler threw', e);
+    }
+  }
+  return false;
 }
 
 /** Evaluate the phone media queries right now (no React, no store). */

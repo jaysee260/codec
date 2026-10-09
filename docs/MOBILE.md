@@ -78,6 +78,16 @@ exists (the new `android` CLI that replaces `sdkmanager`); it was not needed.
 ```bash
 npm run cap:build:android:lan           # bakes VITE_HS_URL=http://<first LAN IPv4>:8009 (the hs:lan proxy)
 npm run cap:build:android               # bakes VITE_HS_URL from your env, else the web default http://localhost:8008
+```
+
+Phase 4 (GIF picker): the Klipy key is baked into the APK at build time from `.env` (`VITE_GIF_API_KEY`; both `cap:build:android*`
+scripts run `vite build`, which reads `.env`). Rebuild and reinstall after adding or rotating the key; anyone with the APK can
+extract it from the bundle (use a Testing key or one you can revoke in the Partner Panel). Without a rebuild, set it at runtime in
+the WebView: `chrome://inspect` -> console -> `localStorage.setItem('matrix-poc.gifApiKey', '<key>')`, then reopen the picker.
+GIFs load straight from `https://static.klipy.com`, so the phone needs internet, not just the LAN; the mock fixtures are served
+from the app bundle and work offline.
+
+```
 node scripts/cap-build-android.mjs --hs http://10.0.0.5:8009      # explicit URL
 node scripts/cap-build-android.mjs --lan --install                # ...then adb install -r on the connected phone
 node scripts/cap-build-android.mjs --skip-web                     # gradle only (reuse dist/ + last sync)
