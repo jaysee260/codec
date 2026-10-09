@@ -223,15 +223,15 @@ Plan: docs/PHASE4_PLAN.md · Criteria/testids: docs/PHASE4_ACCEPTANCE.md · Tick
 ## Wave 10 - Principal
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| PRIN-13 `src/lib/gif/` abstraction, resolver, mock provider, fixture generator (`public/gif-fixtures/`) | P0 | in-progress | Principal | Lands first: Dev A's grid and QA's fixture checks need the mock data |
-| PRIN-14 `klipy` provider (path-segment key, search/trending, mapping, errors, abort) | P0 | in-progress | Principal | No live probe without a key; mapping kept in one function |
-| PRIN-15 `sendGif`, `getGifContent` (host allow list), image host allow list (CSP / Capacitor) | P0 | in-progress | Principal | AC-G3-5 has a manual Android WebView check |
-| PRIN-16 `scripts/send-gif-sample.mjs` (`npm run gif:sample`), `.env.example`, MOBILE + ARCHITECTURE deltas | P1 | in-progress | Principal | |
+| PRIN-13 `src/lib/gif/` abstraction, resolver, mock provider, fixture generator (`public/gif-fixtures/`) | P0 | done | Principal | mock + klipy providers, fixtures; verify:gif 30/30. Lands first: Dev A's grid and QA's fixture checks need the mock data |
+| PRIN-14 `klipy` provider (path-segment key, search/trending, mapping, errors, abort) | P0 | done | Principal | customer_id sent, slug ids (BUG-9). No live probe without a key; mapping kept in one function |
+| PRIN-15 `sendGif`, `getGifContent` (host allow list), image host allow list (CSP / Capacitor) | P0 | done | Principal | hot-link send, host allow list, registerBackHandler. AC-G3-5 has a manual Android WebView check |
+| PRIN-16 `scripts/send-gif-sample.mjs` (`npm run gif:sample`), `.env.example`, MOBILE + ARCHITECTURE deltas | P1 | done | Principal | gif:sample defaults to #dev; .env.example, README, MOBILE, ARCHITECTURE deltas.  |
 
 ## Wave 11 - Dev A (GIF picker, `src/features/gif/**`)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-A-20 `GifPicker`: popover + sheet, search (300 ms debounce), trending, grid, states, attribution | P0 | done | Dev A | AC-G4 green (desktop 16/16 incl. keyboard, phone 6/6). BUG-8 (Phase 4: mock titles drifted from the contract) fixed by the mock-2/mock-3 rename |
+| DEV-A-20 `GifPicker`: popover + sheet, search (300 ms debounce), trending, grid, states, attribution | P0 | done | Dev A | AC-G4 green (desktop 16/16 incl. keyboard, phone 6/6). BUG-10 (mock titles drifted from the contract) fixed by the mock-2/mock-3 rename |
 | DEV-A-21 Keyboard navigation, selection, focus trap | P0 | done | Dev A | AC-G5 green |
 | DEV-A-22 Load more, mp4 previews, aspect reservation | P1 | todo | Dev A | |
 | DEV-A-23 Picker polish | P2 | todo | Dev A | Not scheduled before the demo |
@@ -239,10 +239,10 @@ Plan: docs/PHASE4_PLAN.md · Criteria/testids: docs/PHASE4_ACCEPTANCE.md · Tick
 ## Wave 11 - Dev B (conversation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-B-23 Slash commands (`/gif`, `/giphy`), `composer-gif`, mounting the picker | P0 | in-progress | Dev B | Any other `/text` must still send as text (S1 if swallowed) |
-| DEV-B-24 Send flow: `gif-pending`, `sendGif`, error toast, one in flight | P0 | in-progress | Dev B | |
-| DEV-B-25 `GifMessage` rendering: badge, offscreen unmount, reduced motion, fallback | P0 | in-progress | Dev B | Image bytes come straight from `static.klipy.com` (or own origin under `mock`) |
-| DEV-B-26 Thread composer + phone integration | P1 | in-progress | Dev B | |
+| DEV-B-23 Slash commands (`/gif`, `/giphy`), `composer-gif`, mounting the picker | P0 | done | Dev B | verified by QA 16/16 + Dev A in-app pass; Dev B write-up pending. Any other `/text` must still send as text (S1 if swallowed) |
+| DEV-B-24 Send flow: `gif-pending`, `sendGif`, error toast, one in flight | P0 | done | Dev B | gif-pending held 800 ms in AC-G7-3.  |
+| DEV-B-25 `GifMessage` rendering: badge, offscreen unmount, reduced motion, fallback | P0 | done | Dev B | GifMessage states: playing/offscreen/paused/fallback. Image bytes come straight from `static.klipy.com` (or own origin under `mock`) |
+| DEV-B-26 Thread composer + phone integration | P1 | done | Dev B | thread composer + phone sheet, Android back via registerBackHandler.  |
 
 ## Wave 11 - QA
 | Ticket | P | Status | Owner | Notes |
@@ -256,7 +256,7 @@ Plan: docs/PHASE4_PLAN.md · Criteria/testids: docs/PHASE4_ACCEPTANCE.md · Tick
 ## Phase 4 dry run
 | Item | Result |
 |---|---|
-| `desktop` / `mobile` projects incl. `gif.spec.ts`, `mobile-gif.spec.ts`, smoke step 12 | Partial: `gif.spec.ts` 16/16, `mobile-gif.spec.ts` 6/6, smoke step 12 green in both projects; full-project runs pending the PRIN and DEV-B confirmations. Bugs: BUG-8 (Phase 4, title drift, fixed), BUG-9 (S3, slug ids, fixed) |
+| `desktop` / `mobile` projects incl. `gif.spec.ts`, `mobile-gif.spec.ts`, smoke step 12 | Done at bf3ba3b: `gif.spec.ts` 16/16, `mobile-gif.spec.ts` 6/6, smoke step 12 green in both projects; regression shell+nav+threads 76 pass/2 skip, voice+mobile-nav+mobile-threads 61 pass + 1 load flake (AC-T6-2 phone, passes alone), verify:phone 38/38, verify:gif 30/30. APK rebuilt (mock provider, no key). Bugs: BUG-10 (title drift, fixed), BUG-9 (S3, slug ids, fixed) |
 | Stakeholder's Klipy key tried by hand (search, trending, send, Element link + URL preview) | pending the key |
 | APK rebuilt with the key | pending the key |
 | Manual criteria (AC-G3-5 WebView image load, AC-G9-2 Android back) | not yet run |
