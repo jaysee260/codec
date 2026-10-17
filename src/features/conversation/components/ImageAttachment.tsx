@@ -6,6 +6,7 @@
  */
 import { Download, FileText } from 'lucide-react';
 import { mxcToHttp } from '@/lib/matrix/utils.ts';
+import { downloadMedia, openMedia } from '@/lib/matrix/media.ts';
 import type { DisplayBody } from '@/lib/matrix/utils.ts';
 import styles from './ImageAttachment.module.css';
 
@@ -25,10 +26,12 @@ export function fitted(w: number | undefined, h: number | undefined): { width: n
 export function ImageAttachment({ body }: { body: DisplayBody }) {
   if (!body.url) return <div className={styles.missing}>Image unavailable</div>;
   const { width, height } = fitted(body.info?.w, body.info?.h);
+  const full = mxcToHttp(body.url);
   return (
     <a
       className={styles.imageLink}
-      href={mxcToHttp(body.url)}
+      href={full}
+      onClick={(e) => openMedia(e, full, body.text || undefined)}
       target="_blank"
       rel="noopener noreferrer"
       title={body.text || 'Open image'}
@@ -57,11 +60,13 @@ function humanSize(bytes: number | undefined): string {
 export function FileAttachment({ body }: { body: DisplayBody }) {
   if (!body.url) return <div className={styles.missing}>File unavailable</div>;
   const size = humanSize(body.info?.size);
+  const href = mxcToHttp(body.url);
   return (
     <a
       className={styles.file}
       data-testid="message-file"
-      href={mxcToHttp(body.url)}
+      href={href}
+      onClick={(e) => downloadMedia(e, href, body.text || undefined)}
       target="_blank"
       rel="noopener noreferrer"
       download={body.text || undefined}

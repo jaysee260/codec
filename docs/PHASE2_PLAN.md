@@ -63,7 +63,7 @@ Three tiers; the event always carries the real `info.mimetype`, so every client 
 | 2 iOS | WKWebView | Records `audio/mp4` (AAC). Re-encoding to Opus needs a WebCodecs Opus encoder in Safari, unverified; the POC sends `audio/mp4` with the honest mimetype. Documented in the Mac handoff; Element clients play AAC. |
 | 3 Native fallback | anywhere | `pickVoiceMimeType()` returns the first of `audio/ogg;codecs=opus`, `audio/webm;codecs=opus`, `audio/mp4` that `MediaRecorder.isTypeSupported` accepts; if `encodeToOggOpus` fails for any reason the native blob is sent as is. |
 
-Playback is always `<audio src={mxcToHttp(url)}>` with `type` = event mimetype; Chromium plays Ogg/Opus, WebM/Opus and MP4/AAC; iOS 18.4+ plays Ogg/Opus. Media URLs work because `enable_authenticated_media: false` in `homeserver/homeserver.yaml` (do not change it).
+Playback is always `<audio src={mxcToHttp(url)}>` with `type` = event mimetype; Chromium plays Ogg/Opus, WebM/Opus and MP4/AAC; iOS 18.4+ plays Ogg/Opus. Media URLs work because `enable_authenticated_media: false` in `homeserver/homeserver.yaml` (superseded: authenticated media is now supported, see ARCHITECTURE.md "Media").
 
 ## Risks and mitigations
 | Risk | Impact | Mitigation |

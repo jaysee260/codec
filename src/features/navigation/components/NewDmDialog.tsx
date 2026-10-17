@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { createDm } from '@/lib/matrix/actions.ts';
 import { useRoomStore, waitForRoom } from '@/store/rooms.ts';
 import { isUserId, serverErrorText } from '../errors.ts';
-import { resolveUserName } from '../userLookup.ts';
+import { exampleServer, resolveUserName } from '../userLookup.ts';
 import { Dialog, DialogField } from './Dialog.tsx';
 
 /** `m.direct` account data can land a beat after the room itself; wait so the item shows in `dm-list`. */
@@ -37,7 +37,7 @@ export function NewDmDialog({ onClose }: { onClose(): void }) {
     const target = userId.trim();
     if (!target) return;
     if (!isUserId(target)) {
-      setError(`"${target}" is not a user ID. Use the full form, e.g. @dave:localhost`);
+      setError(`"${target}" is not a user ID. Use the full form, e.g. @dave:${exampleServer()}`);
       return;
     }
     setBusy(true);
@@ -73,7 +73,7 @@ export function NewDmDialog({ onClose }: { onClose(): void }) {
         testId="new-dm-user-id"
         value={userId}
         onChange={setUserId}
-        placeholder="@dave:localhost"
+        placeholder={`@dave:${exampleServer()}`}
         maxLength={255}
       />
     </Dialog>

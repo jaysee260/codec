@@ -15,6 +15,7 @@ import {
 } from 'matrix-js-sdk';
 import type { ISyncStateData } from 'matrix-js-sdk/lib/sync.js';
 import { DEVICE_DISPLAY_NAME, getHsUrl, SESSION_STORAGE_KEY } from './config.ts';
+import { probeAuthenticatedMedia } from './media.ts';
 
 export { mxcToHttp } from './mxc.ts';
 
@@ -85,6 +86,91 @@ export async function login(username: string, password: string): Promise<StoredS
   return session;
 }
 
+/** An SSO identity provider offered by the homeserver (e.g. Keycloak). `id` is '' when the server lists none. */
+export interface SsoProvider {
+  id: string;
+  name: string;
+}
+
+/** What the login screen can offer on a homeserver: password login, SSO providers, open registration. */
+export interface LoginOptions {
+  password: boolean;
+  sso: SsoProvider[];
+  registration: boolean;
+}
+
+/**
+ * Ask the homeserver which login methods it accepts (`GET /login`) and whether registration is open
+ * (`POST /register` with an empty body: 401 with flows when open, 403 when disabled; no account is created).
+ * Network errors fall back to password-only, so the form still shows when the server is unreachable.
+ */
+export async function getLoginOptions(baseUrl: string): Promise<LoginOptions> {
+  const tmp = createClient({ baseUrl });
+  let password = true;
+  let sso: SsoProvider[] = [];
+  try {
+    const { flows } = await tmp.loginFlows();
+    password = flows.some((f) => f.type === 'm.login.password');
+    for (const f of flows) {
+      if (f.type !== 'm.login.sso') continue;
+      const idps = (f as { identity_providers?: { id: string; name: string }[] }).identity_providers;
+      sso = idps?.length ? idps.map((p) => ({ id: p.id, name: p.name })) : [{ id: '', name: 'Single sign-on' }];
+    }
+  } catch {
+    return { password: true, sso: [], registration: true };
+  }
+  // Registration here means the password form, so it is only offered alongside password login.
+  let registration = false;
+  if (password) {
+    try {
+      const res = await fetch(`${baseUrl}/_matrix/client/v3/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      registration = res.status === 401;
+    } catch {
+      registration = true; // unreachable: keep the classic form
+    }
+  }
+  return { password, sso, registration };
+}
+
+/** Query parameter Synapse appends to the redirect URL after SSO. */
+const LOGIN_TOKEN_PARAM = 'loginToken';
+
+/** Where to send the browser to sign in with `provider`; the homeserver redirects back here with a login token. */
+export function ssoRedirectUrl(baseUrl: string, provider: SsoProvider): string {
+  const back = new URL(window.location.href);
+  back.searchParams.delete(LOGIN_TOKEN_PARAM);
+  return createClient({ baseUrl }).getSsoLoginUrl(back.toString(), 'sso', provider.id || undefined);
+}
+
+/** Remove and return the SSO login token from the current URL, or null when there is none. */
+export function takeLoginTokenFromUrl(): string | null {
+  const url = new URL(window.location.href);
+  const token = url.searchParams.get(LOGIN_TOKEN_PARAM);
+  if (!token) return null;
+  url.searchParams.delete(LOGIN_TOKEN_PARAM);
+  window.history.replaceState(window.history.state, '', url.toString());
+  return token;
+}
+
+/** Finish an SSO login: exchange the one-time login token for a session (already persisted). */
+export async function loginWithToken(token: string): Promise<StoredSession> {
+  const baseUrl = getHsUrl();
+  const tmp = createClient({ baseUrl });
+  const res = await tmp.login('m.login.token', { token, initial_device_display_name: DEVICE_DISPLAY_NAME });
+  const session: StoredSession = {
+    baseUrl,
+    userId: res.user_id,
+    accessToken: res.access_token,
+    deviceId: res.device_id,
+  };
+  saveSession(session);
+  return session;
+}
+
 /** Open registration with the dummy UIA stage (homeserver has enable_registration_without_verification). */
 export async function register(username: string, password: string): Promise<StoredSession> {
   const baseUrl = getHsUrl();
@@ -136,6 +222,8 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     timelineSupport: true,
   });
   if (opts.onSyncState) c.on(ClientEvent.Sync, opts.onSyncState);
+  // Runs alongside the first sync; nothing renders media before the client is prepared.
+  const mediaProbe = probeAuthenticatedMedia(session.baseUrl);
   client = c;
   await c.startClient({
     initialSyncLimit: 30,
@@ -147,6 +235,7 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     // No crypto, ever.
     threadSupport: true,
   });
+  await mediaProbe;
   return c;
 }
 

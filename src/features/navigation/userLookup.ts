@@ -6,7 +6,8 @@
  * `GET /_matrix/client/v3/profile/{userId}` answers 404 for an unknown id. That also stops the room
  * from collecting phantom invites.
  */
-import { getClient } from '@/lib/matrix/client.ts';
+import { getClient, getClientOrNull } from '@/lib/matrix/client.ts';
+import { serverNameOf } from '@/lib/matrix/config.ts';
 
 interface Httpish {
   httpStatus?: number;
@@ -26,4 +27,10 @@ export async function resolveUserName(userId: string): Promise<string | undefine
     }
     return undefined;
   }
+}
+
+/** Server name for example user ids in hints: the logged-in user's own server ("localhost" before login). */
+export function exampleServer(): string {
+  const me = getClientOrNull()?.getUserId();
+  return me ? serverNameOf(me) : 'localhost';
 }

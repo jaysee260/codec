@@ -808,8 +808,18 @@ npm run verify:gif                 # no browser: mock contract, fixtures, wire s
   `m.typing` event's `user_ids`, so unknown members still show (as their localpart until loaded).
 - **Unread counts** are server-side (`unread_notifications`). After `sendReadReceipt` the badge clears when the
   next `/sync` echoes the receipt (usually < 1 s). The seed leaves #random at 3 and #lobby at 2 for alice.
-- **Media**: the homeserver runs with `enable_authenticated_media: false`, so `mxcToHttp()` returns plain
-  `/_matrix/media/v3/{download,thumbnail}` URLs that work in `<img>` without headers. Do not switch this on.
+- **Media** (authenticated media, `src/lib/matrix/media.ts`): `public/media-sw.js` is a service worker that adds
+  the access token to `/_matrix/client/v1/media/{download,thumbnail}` requests, so `<img src>` works on servers
+  with `enable_authenticated_media: true` (the Synapse default, and what real deployments run). `mxcToHttp()`
+  returns v1 URLs when the server advertises v1.11 and the worker controls the page, else the legacy
+  `/_matrix/media/v3` URLs (plain-http LAN dev has no service worker; those need the local server's
+  `enable_authenticated_media: false`). Links to media are navigations the worker can't see: use
+  `openMedia()` / `downloadMedia()` as the click handler, and `fetchMedia()` instead of `fetch()` for media.
+  The worker never stores the token; it asks the page per request and only sends it to the session's homeserver.
+- **Login methods**: the login screen asks `GET /login` and shows the password form and/or one "Continue with
+  <provider>" button per SSO identity provider (e.g. Keycloak). SSO returns with `?loginToken=`, which
+  `restore()` exchanges via `m.login.token`. The Register toggle only shows when `POST /register {}` answers
+  401 (open); that probe logs one expected 401 in the console.
 - **No crypto**: never call `initRustCrypto`; rooms are created without `m.room.encryption`. Encrypted rooms from
   other clients would show as undecryptable - out of scope.
 - **Sync loop errors**: the SDK retries forever; `useSessionStore.error` carries the message while `status`

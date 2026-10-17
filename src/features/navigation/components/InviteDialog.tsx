@@ -9,7 +9,7 @@ import { inviteUser } from '@/lib/matrix/actions.ts';
 import { useRoomStore } from '@/store/rooms.ts';
 import { showToast } from '@/store/toast.ts';
 import { isAlreadyMember, isUserId, serverErrorText } from '../errors.ts';
-import { resolveUserName } from '../userLookup.ts';
+import { exampleServer, resolveUserName } from '../userLookup.ts';
 import { Dialog, DialogField } from './Dialog.tsx';
 
 export function InviteDialog({ spaceId, onClose }: { spaceId: string; onClose(): void }) {
@@ -23,7 +23,7 @@ export function InviteDialog({ spaceId, onClose }: { spaceId: string; onClose():
     const target = userId.trim();
     if (!target) return;
     if (!isUserId(target)) {
-      setError(`"${target}" is not a user ID. Use the full form, e.g. @carol:localhost`);
+      setError(`"${target}" is not a user ID. Use the full form, e.g. @carol:${exampleServer()}`);
       return;
     }
     setBusy(true);
@@ -91,7 +91,7 @@ export function InviteDialog({ spaceId, onClose }: { spaceId: string; onClose():
         testId="invite-user-id"
         value={userId}
         onChange={setUserId}
-        placeholder="@carol:localhost"
+        placeholder={`@carol:${exampleServer()}`}
         maxLength={255}
       />
     </Dialog>
