@@ -46,9 +46,9 @@ export function memberAvatarUrl(member: RoomMember, size = 40): string {
 
 /** Room avatar (http). For DMs without an explicit avatar, falls back to the other member's avatar. */
 export function roomAvatarUrl(room: Room, size = 48): string {
-  const client = getClientOrNull();
-  if (!client) return '';
-  return room.getAvatarUrl(client.baseUrl, size, size, 'crop', true) ?? '';
+  // Through mxcToHttp (not room.getAvatarUrl, which always builds unauthenticated v3 URLs).
+  const mxc = room.getMxcAvatarUrl() ?? room.getAvatarFallbackMember()?.getMxcAvatarUrl();
+  return mxcToHttp(mxc, size, size, 'crop');
 }
 
 /** Topic of a room or undefined. */

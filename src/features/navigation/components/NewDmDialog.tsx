@@ -7,9 +7,8 @@ import { useState } from 'react';
 import { createDm } from '@/lib/matrix/actions.ts';
 import { useRoomStore, waitForRoom } from '@/store/rooms.ts';
 import { isUserId, serverErrorText } from '../errors.ts';
-import { resolveUserName } from '../userLookup.ts';
+import { exampleServer, resolveUserName } from '../userLookup.ts';
 import { Dialog, DialogField } from './Dialog.tsx';
-import { exampleServer } from '../userLookup.ts';
 
 /** `m.direct` account data can land a beat after the room itself; wait so the item shows in `dm-list`. */
 function waitForDmListing(roomId: string, timeoutMs = 6000): Promise<void> {

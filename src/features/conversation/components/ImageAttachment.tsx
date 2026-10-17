@@ -31,7 +31,7 @@ export function ImageAttachment({ body }: { body: DisplayBody }) {
     <a
       className={styles.imageLink}
       href={full}
-      onClick={(e) => openMedia(e, full)}
+      onClick={(e) => openMedia(e, full, body.text || undefined)}
       target="_blank"
       rel="noopener noreferrer"
       title={body.text || 'Open image'}

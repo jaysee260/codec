@@ -7,11 +7,16 @@
  * approach as Element Web. It never stores the token: for every media request it asks the page that made
  * the request (see src/lib/matrix/media.ts), and only sends the token to that page's homeserver origin.
  */
-const MEDIA_PATH = /^\/_matrix\/client\/v1\/media\/(download|thumbnail)\//;
+// Unanchored: the homeserver may sit under a path prefix. The origin check below keeps the token on that server.
+const MEDIA_PATH = /\/_matrix\/client\/v1\/media\/(download|thumbnail)\//;
 const ASK_TIMEOUT_MS = 3000;
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+// After a hard reload the page is uncontrolled even though this worker is active; the page asks it to claim again.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'matrix-poc.claim') event.waitUntil(self.clients.claim());
+});
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;

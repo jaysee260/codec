@@ -9,9 +9,8 @@ import { inviteUser } from '@/lib/matrix/actions.ts';
 import { useRoomStore } from '@/store/rooms.ts';
 import { showToast } from '@/store/toast.ts';
 import { isAlreadyMember, isUserId, serverErrorText } from '../errors.ts';
-import { resolveUserName } from '../userLookup.ts';
+import { exampleServer, resolveUserName } from '../userLookup.ts';
 import { Dialog, DialogField } from './Dialog.tsx';
-import { exampleServer } from '../userLookup.ts';
 
 export function InviteDialog({ spaceId, onClose }: { spaceId: string; onClose(): void }) {
   const space = useRoomStore((s) => s.roomsById[spaceId]);

@@ -117,18 +117,21 @@ export async function getLoginOptions(baseUrl: string): Promise<LoginOptions> {
       sso = idps?.length ? idps.map((p) => ({ id: p.id, name: p.name })) : [{ id: '', name: 'Single sign-on' }];
     }
   } catch {
-    return { password: true, sso: [], registration: false };
+    return { password: true, sso: [], registration: true };
   }
+  // Registration here means the password form, so it is only offered alongside password login.
   let registration = false;
-  try {
-    const res = await fetch(`${baseUrl}/_matrix/client/v3/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    registration = res.status === 401;
-  } catch {
-    /* treat as closed */
+  if (password) {
+    try {
+      const res = await fetch(`${baseUrl}/_matrix/client/v3/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      registration = res.status === 401;
+    } catch {
+      registration = true; // unreachable: keep the classic form
+    }
   }
   return { password, sso, registration };
 }
@@ -219,7 +222,8 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     timelineSupport: true,
   });
   if (opts.onSyncState) c.on(ClientEvent.Sync, opts.onSyncState);
-  await probeAuthenticatedMedia(session.baseUrl);
+  // Runs alongside the first sync; nothing renders media before the client is prepared.
+  const mediaProbe = probeAuthenticatedMedia(session.baseUrl);
   client = c;
   await c.startClient({
     initialSyncLimit: 30,
@@ -231,6 +235,7 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     // No crypto, ever.
     threadSupport: true,
   });
+  await mediaProbe;
   return c;
 }
 

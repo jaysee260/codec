@@ -27,7 +27,7 @@ export function LoginScreen() {
   const busy = status === 'logging-in';
   const overridden = hasHsUrlOverride();
   // Until the server answers, assume the classic form (no flicker against the local test server).
-  const [options, setOptions] = useState<LoginOptions>({ password: true, sso: [], registration: false });
+  const [options, setOptions] = useState<LoginOptions>({ password: true, sso: [], registration: true });
   const [optionsFor, setOptionsFor] = useState(() => getHsUrl());
 
   useEffect(() => {

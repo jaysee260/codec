@@ -12,7 +12,7 @@
  * Links (open full image, download file) are navigations the worker can't see, so `openMedia()` /
  * `downloadMedia()` fetch the bytes with the token and hand the browser a `blob:` URL instead.
  */
-import { loadSession } from './client.ts';
+import { SESSION_STORAGE_KEY } from './config.ts';
 import { setAuthenticatedMedia } from './mxc.ts';
 
 const SW_URL = `${import.meta.env.BASE_URL}media-sw.js`;
@@ -20,6 +20,22 @@ const CONTROL_TIMEOUT_MS = 3000;
 
 let swActive = false;
 let serverSupportsV1 = false;
+let probedFor: string | null = null;
+
+/** The persisted session's homeserver + token, read directly so this module doesn't import client.ts. */
+function storedCreds(): { baseUrl: string; accessToken: string } | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? 'null') as { baseUrl?: string; accessToken?: string } | null;
+    return s?.baseUrl && s.accessToken ? { baseUrl: s.baseUrl, accessToken: s.accessToken } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve after `ms` at the latest. */
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([p, new Promise<undefined>((resolve) => setTimeout(resolve, ms))]);
+}
 
 function apply(): void {
   setAuthenticatedMedia(swActive && serverSupportsV1);
@@ -34,22 +50,18 @@ export async function initMediaAuth(): Promise<void> {
   const sw = navigator.serviceWorker;
   sw.addEventListener('message', (e: MessageEvent) => {
     if ((e.data as { type?: string } | null)?.type !== 'matrix-poc.media-auth') return;
-    const s = loadSession();
-    e.ports[0]?.postMessage(s ? { baseUrl: s.baseUrl, accessToken: s.accessToken } : null);
+    e.ports[0]?.postMessage(storedCreds());
   });
   sw.startMessages();
   try {
     await sw.register(SW_URL, { scope: import.meta.env.BASE_URL });
-    await sw.ready;
-    if (!sw.controller) {
-      // First visit: the worker claims the page on activate; wait for that, but never block startup long.
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, CONTROL_TIMEOUT_MS);
-        sw.addEventListener('controllerchange', () => {
-          clearTimeout(timer);
-          resolve();
-        }, { once: true });
-      });
+    const reg = await within(sw.ready, CONTROL_TIMEOUT_MS);
+    if (reg && !sw.controller) {
+      // First visit (the worker claims on activate) or a hard reload (an active worker doesn't control the page
+      // until it claims again): ask it to claim, and wait for that, but never block startup long.
+      const claimed = new Promise<void>((resolve) => sw.addEventListener('controllerchange', () => resolve(), { once: true }));
+      reg.active?.postMessage({ type: 'matrix-poc.claim' });
+      await within(claimed, CONTROL_TIMEOUT_MS);
     }
     swActive = !!sw.controller;
   } catch (e) {
@@ -64,70 +76,103 @@ export async function initMediaAuth(): Promise<void> {
  * Called before the client starts so the first render already uses the right URLs.
  */
 export async function probeAuthenticatedMedia(baseUrl: string): Promise<void> {
-  try {
-    const res = await fetch(`${baseUrl}/_matrix/client/versions`);
-    const body = (await res.json()) as { versions?: string[]; unstable_features?: Record<string, boolean> };
-    serverSupportsV1 =
-      !!body.versions?.some((v) => /^v1\.(\d+)$/.test(v) && Number(v.slice(3)) >= 11) ||
-      !!body.unstable_features?.['org.matrix.msc3916.stable'];
-  } catch {
-    serverSupportsV1 = false;
+  if (probedFor === baseUrl) return;
+  // A transient failure here would pin the whole session to v3 URLs, so retry a few times.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${baseUrl}/_matrix/client/versions`);
+      if (!res.ok) throw new Error(`versions: ${res.status}`);
+      const body = (await res.json()) as { versions?: string[]; unstable_features?: Record<string, boolean> };
+      serverSupportsV1 =
+        !!body.versions?.some((v) => /^v1\.(\d+)$/.test(v) && Number(v.slice(3)) >= 11) ||
+        !!body.unstable_features?.['org.matrix.msc3916.stable'];
+      probedFor = baseUrl;
+      break;
+    } catch {
+      serverSupportsV1 = false;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
   }
   apply();
 }
 
-/** True for URLs that need the access token (`/_matrix/client/v1/media/...` on the session's homeserver). */
+/** Same origin as `base`, without throwing on malformed URLs. */
+function sameOrigin(url: string, base: string): boolean {
+  try {
+    return new URL(url).origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** True for URLs that need the access token: `/_matrix/client/v1/media/...` on the session's own homeserver. */
 function needsAuth(url: string): boolean {
-  return url.includes('/_matrix/client/v1/media/');
+  const creds = storedCreds();
+  return !!creds && url.includes('/_matrix/client/v1/media/') && sameOrigin(url, creds.baseUrl);
 }
 
-/** `fetch()` for media URLs: adds the access token for authenticated media. */
+/** `fetch()` for media URLs: adds the access token for authenticated media on the session's homeserver only. */
 export function fetchMedia(url: string): Promise<Response> {
-  const s = needsAuth(url) ? loadSession() : null;
-  return fetch(url, s ? { headers: { Authorization: `Bearer ${s.accessToken}` } } : undefined);
+  const creds = needsAuth(url) ? storedCreds() : null;
+  return fetch(url, creds ? { headers: { Authorization: `Bearer ${creds.accessToken}` } } : undefined);
 }
 
-async function blobUrlOf(url: string): Promise<string> {
-  const res = await fetchMedia(url);
-  if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
-  return URL.createObjectURL(await res.blob());
-}
+/** Image types a browser renders as inert pixels; anything else (SVG, HTML, ...) could run script in our origin. */
+const VIEWABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp']);
 
 /**
  * Click handler for a link to full-size media. Unauthenticated URLs keep the native link behaviour;
  * authenticated ones open a tab synchronously (so popup blockers allow it) and point it at a blob.
+ * A blob: URL lives in the app's origin and loses the homeserver's sandboxing headers, so only raster
+ * images are opened this way; everything else, or a blocked popup, falls back to a download.
  */
-export function openMedia(e: { preventDefault(): void }, url: string): void {
+export function openMedia(e: { preventDefault(): void }, url: string, name?: string): void {
   if (!needsAuth(url)) return;
   e.preventDefault();
   const tab = window.open('', '_blank');
-  blobUrlOf(url).then(
-    (blobUrl) => {
-      if (tab) tab.location.href = blobUrl;
-      else window.location.assign(blobUrl);
+  if (!tab) {
+    downloadMedia(e, url, name);
+    return;
+  }
+  fetchMedia(url)
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
+      const blob = await res.blob();
+      const type = blob.type.split(';')[0]!.trim().toLowerCase();
+      if (!VIEWABLE_TYPES.has(type)) {
+        tab.close();
+        saveBlob(blob, name);
+        return;
+      }
+      const blobUrl = URL.createObjectURL(new Blob([blob], { type }));
+      tab.location.href = blobUrl;
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-    },
-    (err: unknown) => {
-      tab?.close();
+    })
+    .catch((err: unknown) => {
+      tab.close();
       console.warn('[media] open failed', err);
-    },
-  );
+    });
 }
 
-/** Click handler for a download link: like `openMedia`, but saves the file under `name`. */
+function saveBlob(blob: Blob, name: string | undefined): void {
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = name || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+}
+
+/** Click handler for a download link: like `openMedia`, but always saves the file under `name`. */
 export function downloadMedia(e: { preventDefault(): void }, url: string, name: string | undefined): void {
   if (!needsAuth(url)) return;
   e.preventDefault();
-  blobUrlOf(url).then(
-    (blobUrl) => {
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = name || 'file';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-    },
-    (err: unknown) => console.warn('[media] download failed', err),
-  );
+  fetchMedia(url)
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
+      saveBlob(await res.blob(), name);
+    })
+    .catch((err: unknown) => console.warn('[media] download failed', err));
 }

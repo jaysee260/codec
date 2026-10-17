@@ -76,6 +76,9 @@ export function describeError(e: unknown): string {
 
 const initialSession = loadSession();
 
+/** The in-flight restore(): React StrictMode runs the boot effect twice, and both calls must share one start. */
+let restoring: Promise<void> | null = null;
+
 export const useSessionStore = create<SessionState>((set, get) => {
   async function startSession(session: StoredSession): Promise<void> {
     set({ status: 'syncing', userId: session.userId, error: null });
@@ -114,6 +117,45 @@ export const useSessionStore = create<SessionState>((set, get) => {
     set({ status: nextStatus, userId: null, displayName: null, avatarUrl: null, error: message, syncState: null });
   }
 
+  async function doRestore(): Promise<void> {
+    const ssoToken = takeLoginTokenFromUrl();
+    let tokenError: string | null = null;
+    if (ssoToken) {
+      set({ status: 'logging-in', error: null });
+      let fresh: StoredSession | null = null;
+      try {
+        fresh = await sdkLoginWithToken(ssoToken);
+      } catch (e) {
+        // Expired or reused token (e.g. Back after signing in): keep any stored session and say so plainly.
+        tokenError =
+          e instanceof MatrixError && e.errcode === 'M_FORBIDDEN' ? 'That sign-in expired, please try again' : describeError(e);
+      }
+      if (fresh) {
+        try {
+          await startSession(fresh);
+        } catch (e) {
+          await fail(e, 'error');
+        }
+        return;
+      }
+    }
+    const session = loadSession();
+    if (!session && tokenError) {
+      set({ status: 'error', error: tokenError });
+      return;
+    }
+    if (!session) {
+      if (get().status === 'syncing') set({ status: 'logged-out' });
+      return;
+    }
+    if (getClientOrNull()) return; // already started (React StrictMode double-invokes effects)
+    try {
+      await startSession(session);
+    } catch (e) {
+      await fail(e, 'logged-out');
+    }
+  }
+
   return {
     status: initialSession ? 'syncing' : 'logged-out',
     userId: initialSession?.userId ?? null,
@@ -144,28 +186,11 @@ export const useSessionStore = create<SessionState>((set, get) => {
       }
     },
 
-    async restore() {
-      const ssoToken = takeLoginTokenFromUrl();
-      if (ssoToken) {
-        set({ status: 'logging-in', error: null });
-        try {
-          await startSession(await sdkLoginWithToken(ssoToken));
-        } catch (e) {
-          await fail(e, 'error');
-        }
-        return;
-      }
-      const session = loadSession();
-      if (!session) {
-        if (get().status === 'syncing') set({ status: 'logged-out' });
-        return;
-      }
-      if (getClientOrNull()) return; // already started (React StrictMode double-invokes effects)
-      try {
-        await startSession(session);
-      } catch (e) {
-        await fail(e, 'logged-out');
-      }
+    restore() {
+      restoring ??= doRestore().finally(() => {
+        restoring = null;
+      });
+      return restoring;
     },
 
     async logout() {
