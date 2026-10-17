@@ -44,6 +44,11 @@ enable_registration: true
 enable_registration_without_verification: true
 allow_public_rooms_without_auth: true
 enable_authenticated_media: false
+# Lets e2e/auth-media.spec.ts mint an SSO-style login token from an existing session (MSC3882).
+login_via_existing_session:
+  enabled: true
+  require_ui_auth: false
+  token_timeout: "5m"
 url_preview_enabled: true
 url_preview_ip_range_blacklist:
   - "127.0.0.0/8"
