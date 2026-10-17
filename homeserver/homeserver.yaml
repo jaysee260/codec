@@ -5,7 +5,9 @@
 #      /data/... paths below. Generate the signing key with: python -m synapse.app.homeserver -c homeserver.yaml --generate-keys
 # Equivalent to what "synapse generate" produces for SYNAPSE_SERVER_NAME=localhost / SYNAPSE_REPORT_STATS=no,
 # plus the "matrix-poc overrides" block at the bottom (open registration, no rate limits, presence, plain media).
-# localhost.signing.key is NOT committed; homeserver.db / media_store live in data/ (git-ignored).
+# No secrets live in this file: the signing key and the three Synapse secrets (registration_shared_secret,
+# macaroon_secret_key, form_secret) are files under data/secrets/ (git-ignored), created by `npm run hs:up`
+# (scripts/hs.mjs ensureSecrets) or by hand: 64 random hex chars each. homeserver.db / media_store live in data/.
 # Reference: https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
 server_name: "localhost"
 pid_file: /data/homeserver.pid
@@ -23,10 +25,10 @@ database:
     database: /data/homeserver.db
 log_config: "/data/localhost.log.config"
 media_store_path: /data/media_store
-registration_shared_secret: "REDACTED"
+registration_shared_secret_path: "/data/secrets/registration_shared_secret"
 report_stats: false
-macaroon_secret_key: "REDACTED"
-form_secret: "REDACTED"
+macaroon_secret_key_path: "/data/secrets/macaroon_secret_key"
+form_secret_path: "/data/secrets/form_secret"
 signing_key_path: "/data/localhost.signing.key"
 trusted_key_servers:
   - server_name: "matrix.org"

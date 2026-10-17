@@ -16,6 +16,7 @@
  *              SYNAPSE_IMAGE (default ghcr.io/element-hq/synapse:latest)
  */
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,8 +26,11 @@ const HS_DIR = path.join(ROOT, 'homeserver');
 const DATA_DIR = path.join(HS_DIR, 'data');
 const CONFIG = path.join(HS_DIR, 'homeserver.yaml');
 const SIGNING_KEY = path.join(DATA_DIR, 'localhost.signing.key');
+const SECRETS_DIR = path.join(DATA_DIR, 'secrets');
+// homeserver.yaml points at these via *_path so no secret is ever committed (see homeserver/README.md).
+const SECRET_FILES = ['registration_shared_secret', 'macaroon_secret_key', 'form_secret'];
 const WSL_SCRIPT = path.join(HS_DIR, 'wsl', 'hs.sh');
-const KEEP_ON_RESET = new Set(['.gitkeep']);
+const KEEP_ON_RESET = new Set(['.gitkeep', 'secrets']);
 const HS_URL = (process.env.HS_URL ?? 'http://localhost:8008').replace(/\/+$/, '');
 const IMAGE = process.env.SYNAPSE_IMAGE ?? 'ghcr.io/element-hq/synapse:latest';
 const DOCKER = process.platform === 'win32' ? 'docker.exe' : 'docker';
@@ -197,6 +201,15 @@ function reportUp(versions) {
 // ---------------------------------------------------------------------------
 
 const docker = {
+  ensureSecrets() {
+    mkdirSync(SECRETS_DIR, { recursive: true });
+    for (const name of SECRET_FILES) {
+      const file = path.join(SECRETS_DIR, name);
+      if (existsSync(file)) continue;
+      writeFileSync(file, randomBytes(32).toString('hex'), { mode: 0o600 });
+      console.log(`Generated data/secrets/${name}`);
+    }
+  },
   ensureSigningKey() {
     mkdirSync(DATA_DIR, { recursive: true });
     if (existsSync(SIGNING_KEY)) return;
@@ -213,6 +226,7 @@ const docker = {
   },
   async up() {
     ensureConfigPatched();
+    this.ensureSecrets();
     this.ensureSigningKey();
     sh(DOCKER, ['compose', 'up', '-d']);
     console.log(`Waiting for Synapse on ${HS_URL} ...`);
