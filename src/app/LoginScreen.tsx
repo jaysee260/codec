@@ -1,15 +1,17 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useSessionStore } from '@/store/session.ts';
 import { DEFAULT_HS_URL, getHsUrl, hasHsUrlOverride, setHsUrl } from '@/lib/matrix/config.ts';
+import { getLoginOptions, ssoRedirectUrl, type LoginOptions, type SsoProvider } from '@/lib/matrix/client.ts';
 import styles from './LoginScreen.module.css';
 
 /**
- * Username/password login with a register toggle and (Phase 2) an "Advanced" section holding the
+ * Username/password login and/or SSO buttons, whichever the homeserver offers (`GET /login`), a register
+ * toggle shown only when registration is open, and (Phase 2) an "Advanced" section holding the
  * homeserver URL, so a phone can point at the PC's LAN proxy (docs/MOBILE.md). The URL is persisted in
  * localStorage (`matrix-poc.hsUrl`) as it is typed and read by every Matrix call through `getHsUrl()`;
  * empty or equal to the build-time default removes the override.
  *
- * testids: login-form, login-username, login-password, login-submit, login-register-toggle, login-error,
+ * testids: login-form, login-username, login-password, login-submit, login-register-toggle, login-error, login-sso,
  *          login-advanced-toggle, login-hs-url, login-hs-url-reset
  */
 export function LoginScreen() {
@@ -24,6 +26,28 @@ export function LoginScreen() {
   const [hsUrl, setHsUrlInput] = useState(() => getHsUrl());
   const busy = status === 'logging-in';
   const overridden = hasHsUrlOverride();
+  // Until the server answers, assume the classic form (no flicker against the local test server).
+  const [options, setOptions] = useState<LoginOptions>({ password: true, sso: [], registration: false });
+  const [optionsFor, setOptionsFor] = useState(() => getHsUrl());
+
+  useEffect(() => {
+    let cancelled = false;
+    void getLoginOptions(optionsFor).then((o) => {
+      if (!cancelled) setOptions(o);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [optionsFor]);
+
+  useEffect(() => {
+    if (!options.registration && mode === 'register') setMode('login');
+  }, [options.registration, mode]);
+
+  const startSso = (provider: SsoProvider): void => {
+    setHsUrl(hsUrl);
+    window.location.assign(ssoRedirectUrl(getHsUrl(), provider));
+  };
 
   const onHsUrlChange = (value: string): void => {
     setHsUrlInput(value);
@@ -31,10 +55,12 @@ export function LoginScreen() {
   };
   const onHsUrlBlur = (): void => {
     setHsUrlInput(getHsUrl()); // show the normalised, effective URL
+    setOptionsFor(getHsUrl());
   };
   const resetHsUrl = (): void => {
     setHsUrl(null);
     setHsUrlInput(DEFAULT_HS_URL);
+    setOptionsFor(DEFAULT_HS_URL);
   };
 
   const onSubmit = (e: FormEvent): void => {
@@ -57,36 +83,41 @@ export function LoginScreen() {
           {mode === 'login' ? "We're so excited to see you again!" : 'Pick a username and password'}
         </p>
 
-        <label className={styles.label} htmlFor="login-username">
-          Username
-        </label>
-        <input
-          id="login-username"
-          className={styles.input}
-          data-testid="login-username"
-          autoComplete="username"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          autoFocus
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          disabled={busy}
-        />
+        {options.password && (
+          <>
+            <label className={styles.label} htmlFor="login-username">
+              Username
+            </label>
+            <input
+              id="login-username"
+              className={styles.input}
+              data-testid="login-username"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={busy}
+            />
 
-        <label className={styles.label} htmlFor="login-password">
-          Password
-        </label>
-        <input
-          id="login-password"
-          className={styles.input}
-          data-testid="login-password"
-          type="password"
-          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={busy}
-        />
+            <label className={styles.label} htmlFor="login-password">
+              Password
+            </label>
+            <input
+              id="login-password"
+              className={styles.input}
+              data-testid="login-password"
+              type="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={busy}
+            />
+
+          </>
+        )}
 
         {error && status !== 'logging-in' && (
           <div className={styles.error} data-testid="login-error" role="alert">
@@ -94,27 +125,48 @@ export function LoginScreen() {
           </div>
         )}
 
-        <button
-          type="submit"
-          className={styles.submit}
-          data-testid="login-submit"
-          disabled={busy || !username.trim() || !password}
-        >
-          {busy ? 'Please wait...' : mode === 'login' ? 'Log In' : 'Register'}
-        </button>
-
-        <div className={styles.footer}>
-          {mode === 'login' ? 'Need an account?' : 'Already have an account?'}{' '}
+        {options.password && (
           <button
-            type="button"
-            className={styles.link}
-            data-testid="login-register-toggle"
-            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-            disabled={busy}
+            type="submit"
+            className={styles.submit}
+            data-testid="login-submit"
+            disabled={busy || !username.trim() || !password}
           >
-            {mode === 'login' ? 'Register' : 'Log in'}
+            {busy ? 'Please wait...' : mode === 'login' ? 'Log In' : 'Register'}
           </button>
-        </div>
+        )}
+
+        {options.sso.length > 0 && mode === 'login' && (
+          <div className={styles.sso}>
+            {options.sso.map((p) => (
+              <button
+                key={p.id || 'sso'}
+                type="button"
+                className={options.password ? styles.ssoSecondary : styles.submit}
+                data-testid="login-sso"
+                onClick={() => startSso(p)}
+                disabled={busy}
+              >
+                {busy ? 'Please wait...' : `Continue with ${p.name}`}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {options.registration && (
+          <div className={styles.footer}>
+            {mode === 'login' ? 'Need an account?' : 'Already have an account?'}{' '}
+            <button
+              type="button"
+              className={styles.link}
+              data-testid="login-register-toggle"
+              onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+              disabled={busy}
+            >
+              {mode === 'login' ? 'Register' : 'Log in'}
+            </button>
+          </div>
+        )}
 
         <div className={styles.advanced}>
           <button

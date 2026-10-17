@@ -35,7 +35,8 @@ trusted_key_servers:
 
 ${MARKER}
 # Appended by scripts/hs.mjs when the config is generated. Everything below is POC-only:
-# open registration, no rate limits, presence on, unauthenticated media (so <img src> works).
+# open registration, no rate limits, presence on, unauthenticated media (the e2e fixtures and plain-http LAN dev
+# download via /_matrix/media/v3; the web client itself also works with authenticated media on).
 public_baseurl: http://localhost:8008/
 serve_server_wellknown: false
 suppress_key_server_warning: true

@@ -4,6 +4,7 @@
  * status flow:
  *   'logged-out' --login()--> 'logging-in' --> 'syncing' --> 'ready'
  *   'logged-out' --restore() (stored session)--> 'syncing' --> 'ready'
+ *   page load with ?loginToken= (back from SSO) --restore()--> 'logging-in' --> 'syncing' --> 'ready'
  *   any failure during login/register --> 'error' (login form shows `error`)
  *   logout() --> 'logged-out'
  */
@@ -14,9 +15,11 @@ import {
   getClientOrNull,
   loadSession,
   login as sdkLogin,
+  loginWithToken as sdkLoginWithToken,
   logout as sdkLogout,
   register as sdkRegister,
   startClientFromSession,
+  takeLoginTokenFromUrl,
   waitForPrepared,
   type StoredSession,
 } from '@/lib/matrix/client.ts';
@@ -40,7 +43,7 @@ export interface SessionState {
   login(username: string, password: string): Promise<void>;
   register(username: string, password: string): Promise<void>;
   logout(): Promise<void>;
-  /** Restore a persisted session on page load. No-op when nothing is stored. */
+  /** Restore a persisted session on page load, or finish an SSO login. No-op when there is neither. */
   restore(): Promise<void>;
 }
 
@@ -142,6 +145,16 @@ export const useSessionStore = create<SessionState>((set, get) => {
     },
 
     async restore() {
+      const ssoToken = takeLoginTokenFromUrl();
+      if (ssoToken) {
+        set({ status: 'logging-in', error: null });
+        try {
+          await startSession(await sdkLoginWithToken(ssoToken));
+        } catch (e) {
+          await fail(e, 'error');
+        }
+        return;
+      }
       const session = loadSession();
       if (!session) {
         if (get().status === 'syncing') set({ status: 'logged-out' });

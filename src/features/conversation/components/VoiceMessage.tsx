@@ -33,6 +33,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Download, Pause, Play } from 'lucide-react';
 import { formatDuration, type VoiceMessageInfo } from '@/lib/matrix/utils.ts';
+import { downloadMedia, fetchMedia } from '@/lib/matrix/media.ts';
 import styles from './VoiceMessage.module.css';
 
 /** Bars drawn when the sender gave no waveform (flat placeholder, AC-V4-3). */
@@ -109,7 +110,7 @@ export function VoiceMessage({ voice }: { voice: VoiceMessageInfo }) {
   /** Download once; the object URL is what makes the note seekable. Throws on a bad download. */
   const ensureSource = useCallback(async (): Promise<string> => {
     if (objectUrlRef.current) return objectUrlRef.current;
-    const res = await fetch(voice.url);
+    const res = await fetchMedia(voice.url);
     if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
     const blob = await res.blob();
     // Keep the event's mimetype: Synapse serves the right one, but a proxy might not.
@@ -278,7 +279,7 @@ export function VoiceMessage({ voice }: { voice: VoiceMessageInfo }) {
       {state === 'error' && (
         <div className={styles.error} data-testid="voice-error" role="alert">
           <span>Can&apos;t play this voice message.</span>
-          <a className={styles.download} href={voice.url} download={voice.name} target="_blank" rel="noopener noreferrer">
+          <a className={styles.download} href={voice.url} download={voice.name} onClick={(e) => downloadMedia(e, voice.url, voice.name)} target="_blank" rel="noopener noreferrer">
             <Download size={13} aria-hidden="true" />
             Download
           </a>

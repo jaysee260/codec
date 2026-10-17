@@ -22,8 +22,8 @@ One config (`homeserver.yaml` in this folder) is shared by both ways of running 
 
 - `homeserver.yaml` - **committed, the single config**. Generated-equivalent settings plus the
   `# --- matrix-poc overrides ---` block: open registration without verification, all `rc_*` limits at
-  1000/s, presence on, `enable_authenticated_media: false` (so plain `<img src="/_matrix/media/v3/...">`
-  works), `experimental_features.msc3575_enabled` (Simplified Sliding Sync; a no-op on current images).
+  1000/s, presence on, `enable_authenticated_media: false` (the e2e fixtures and plain-http LAN dev use the
+  legacy `/_matrix/media/v3` URLs; the web client also works with it on, see ARCHITECTURE.md "Media"), `experimental_features.msc3575_enabled` (Simplified Sliding Sync; a no-op on current images).
   Paths inside point at `/data/...`: Docker mounts `./data` there; a native install symlinks it.
 - `localhost.log.config` - committed. Logs to the console (`docker compose logs`).
 - `docker-compose.yml` - the Docker path: one `synapse` service, `./data` + the two config files bind-mounted, port 8008.
