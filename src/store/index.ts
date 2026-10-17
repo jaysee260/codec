@@ -16,6 +16,11 @@ export {
   useRoomSummary,
   useSelectedRoom,
   useMyUserId,
+  useRoomEncrypted,
+  useDecryptionState,
+  useDecryptedMediaUrl,
+  useMediaObjectUrl,
+  type DecryptedMedia,
   type RoomTimeline,
   type Timeline,
   type MemberInfo,
@@ -39,6 +44,21 @@ export {
   type ThreadState,
 } from './threads.ts';
 export { useToastStore, showToast, withToast, type Toast, type ToastKind } from './toast.ts';
+export {
+  useSecurityStore,
+  useSecurityHint,
+  securityHint,
+  bindSecurity,
+  unbindSecurity,
+  resetSecurity,
+  type SecurityState,
+  type SecurityHint,
+  type VerificationFlow,
+  type VerificationStage,
+  type SasState,
+  type RecoveryState,
+  type PendingPrompt,
+} from './security.ts';
 export {
   useLayoutStore,
   useIsPhone,

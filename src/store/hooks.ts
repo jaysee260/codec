@@ -1,11 +1,20 @@
 /**
  * Convenience React hooks over the stores. Devs may use these or read the stores directly.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { KnownMembership, type MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { loadMembers } from '@/lib/matrix/actions.ts';
-import { displayNameOf, isDisplayableEvent, isMainTimelineEvent, memberAvatarUrl } from '@/lib/matrix/utils.ts';
+import { fetchDecryptedMedia, type EncryptedFile } from '@/lib/matrix/attachments.ts';
+import {
+  displayNameOf,
+  getDecryptionState,
+  isDisplayableEvent,
+  isMainTimelineEvent,
+  isRoomEncrypted,
+  memberAvatarUrl,
+  type DecryptionState,
+} from '@/lib/matrix/utils.ts';
 import { useRoomStore, type RoomSummary } from './rooms.ts';
 import {
   ensureThreadTimeline,
@@ -160,8 +169,73 @@ export function useMyUserId(): string | null {
   return useSessionStore((s) => s.userId);
 }
 
+// ---------------------------------------------------------------------------
+// Encryption (Phase 5)
+// ---------------------------------------------------------------------------
+
+/** True when the room has `m.room.encryption` (lock icon, encrypted composer hint). Re-reads on room-list changes. */
+export function useRoomEncrypted(roomId: string | null): boolean {
+  const version = useRoomStore((s) => s.version);
+  return useMemo(() => isRoomEncrypted(roomId), [roomId, version]);
+}
+
+/**
+ * Decryption state of an event for its row: `status` 'none' (plaintext event) | 'decrypting' | 'decrypted' |
+ * 'failed' (+ `code`, `message`, `historical`). Re-evaluated on every timeline commit, which the bridge triggers
+ * when the SDK decrypts the event in place (`MatrixEventEvent.Decrypted`).
+ */
+export function useDecryptionState(event: MatrixEvent | null | undefined): DecryptionState {
+  const version = useTimelineStore((s) => s.version);
+  return useMemo(() => (event ? getDecryptionState(event) : { status: 'none' as const }), [event, version]);
+}
+
+export interface DecryptedMedia {
+  /** `blob:` URL for `<img src>` / `<audio src>` / `<a href download>`, or null while loading / on error. */
+  url: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
+/**
+ * Download + decrypt an encrypted attachment (`DisplayBody.file`, `info.thumbnail_file`, `VoiceMessageInfo.file`)
+ * into a `blob:` URL. Pass `null` for plaintext media (returns `{ url: null, loading: false }`, so a component can
+ * fall back to `mxcToHttp(body.url)`). The URL is cached per attachment for the session; do not revoke it.
+ */
+export function useDecryptedMediaUrl(file: EncryptedFile | null | undefined, mimetype?: string): DecryptedMedia {
+  const key = file?.url ?? null;
+  const [state, setState] = useState<DecryptedMedia>({ url: null, loading: !!file, error: null });
+  useEffect(() => {
+    if (!file) {
+      setState({ url: null, loading: false, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState({ url: null, loading: true, error: null });
+    fetchDecryptedMedia(file, mimetype).then(
+      (url) => {
+        if (!cancelled) setState({ url, loading: false, error: null });
+      },
+      (e: unknown) => {
+        if (!cancelled) setState({ url: null, loading: false, error: e instanceof Error ? e.message : String(e) });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // `file` objects are re-created on every getDisplayBody(); key on the mxc url (+ type) instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, mimetype]);
+  return state;
+}
+
+/** docs/PHASE5_TICKETS.md name for `useDecryptedMediaUrl`. */
+export const useMediaObjectUrl = useDecryptedMediaUrl;
+
 // Phase 2 (docs/PHASE2_TICKETS.md Shared API): layout hooks live in ./layout.ts and are re-exported here.
 export { useIsPhone, useViewport, type Viewport } from './layout.ts';
+
+// Phase 5: security hooks live in ./security.ts and are re-exported here.
+export { useSecurityStore, useSecurityHint, securityHint, type SecurityState, type SecurityHint, type VerificationFlow, type SasState, type RecoveryState, type PendingPrompt } from './security.ts';
 
 // Phase 3: thread hooks live in ./threads.ts and are re-exported here.
 export {

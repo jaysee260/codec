@@ -26,6 +26,7 @@ import {
 import { getHsUrl } from '@/lib/matrix/config.ts';
 import { bindClient, unbindClient } from './bridge.ts';
 import { resetRooms } from './rooms.ts';
+import { bindSecurity, resetSecurity, unbindSecurity } from './security.ts';
 import { resetTimelines } from './timeline.ts';
 import { resetThreads } from './threads.ts';
 
@@ -40,6 +41,8 @@ export interface SessionState {
   error: string | null;
   /** Last SDK sync state (for a "reconnecting" hint in the shell). */
   syncState: SyncState | null;
+  /** Phase 5: what the loading screen is waiting on ('crypto' = WASM + key store, then 'sync'). */
+  loadingStage: 'crypto' | 'sync' | null;
   login(username: string, password: string): Promise<void>;
   register(username: string, password: string): Promise<void>;
   logout(): Promise<void>;
@@ -81,7 +84,7 @@ let restoring: Promise<void> | null = null;
 
 export const useSessionStore = create<SessionState>((set, get) => {
   async function startSession(session: StoredSession): Promise<void> {
-    set({ status: 'syncing', userId: session.userId, error: null });
+    set({ status: 'syncing', userId: session.userId, error: null, loadingStage: 'crypto' });
     const client = await startClientFromSession(session, {
       onSyncState: (state: SyncState, _prev: SyncState | null, data?: ISyncStateData) => {
         set({ syncState: state });
@@ -91,8 +94,11 @@ export const useSessionStore = create<SessionState>((set, get) => {
           set({ error: null });
         }
       },
+      onCryptoLoading: () => set({ loadingStage: 'crypto' }),
     });
+    set({ loadingStage: 'sync' });
     bindClient(client, { onSessionLoggedOut: () => void get().logout() });
+    bindSecurity(client);
     await waitForPrepared(client, (message) => set({ error: message }));
     // Profile: cheap request, avoids depending on lazy-loaded member events.
     let displayName: string | null = null;
@@ -104,17 +110,19 @@ export const useSessionStore = create<SessionState>((set, get) => {
     } catch {
       /* profile is optional */
     }
-    set({ status: 'ready', displayName, avatarUrl, error: null });
+    set({ status: 'ready', displayName, avatarUrl, error: null, loadingStage: null });
   }
 
   async function fail(e: unknown, nextStatus: SessionStatus): Promise<void> {
     const message = describeError(e);
+    unbindSecurity();
     unbindClient();
-    await sdkLogout();
+    await sdkLogout(); // Phase 5: also wipes the device's crypto store (the token / device is gone)
     resetRooms();
     resetTimelines();
     resetThreads();
-    set({ status: nextStatus, userId: null, displayName: null, avatarUrl: null, error: message, syncState: null });
+    resetSecurity();
+    set({ status: nextStatus, userId: null, displayName: null, avatarUrl: null, error: message, syncState: null, loadingStage: null });
   }
 
   async function doRestore(): Promise<void> {
@@ -163,6 +171,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     avatarUrl: null,
     error: null,
     syncState: null,
+    loadingStage: initialSession ? 'crypto' : null,
 
     async login(username, password) {
       if (get().status === 'logging-in' || get().status === 'syncing') return;
@@ -194,12 +203,14 @@ export const useSessionStore = create<SessionState>((set, get) => {
     },
 
     async logout() {
+      unbindSecurity();
       unbindClient();
-      await sdkLogout();
+      await sdkLogout(); // Phase 5: wipes the crypto store too
       resetRooms();
       resetTimelines();
       resetThreads();
-      set({ status: 'logged-out', userId: null, displayName: null, avatarUrl: null, error: null, syncState: null });
+      resetSecurity();
+      set({ status: 'logged-out', userId: null, displayName: null, avatarUrl: null, error: null, syncState: null, loadingStage: null });
     },
   };
 });

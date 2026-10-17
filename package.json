@@ -30,6 +30,8 @@
     "verify:gif": "node scripts/verify-gif.mjs",
     "gif:sample": "node scripts/send-gif-sample.mjs",
     "gif:fixtures": "node scripts/make-gif-fixtures.mjs",
+    "e2ee:sample": "node scripts/send-encrypted-sample.mjs",
+    "verify:e2ee": "node scripts/verify-e2ee.mjs",
     "test:e2e": "playwright test",
     "test:e2e:desktop": "playwright test --project=desktop",
     "test:e2e:mobile": "playwright test --project=mobile",

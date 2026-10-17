@@ -37,6 +37,8 @@ export interface RoomSummary {
   highlight: number;
   /** Phase 3: some thread in the room has unread notifications (`unread_thread_notifications`, cleared by threaded receipts). */
   threadUnread: boolean;
+  /** Phase 5: the room has `m.room.encryption` (lock icon; sends are encrypted). Recomputed when the state event arrives. */
+  encrypted: boolean;
 }
 
 export type SpaceSelection = string | 'home';
@@ -220,6 +222,7 @@ function summarize(room: Room, dmUserId: string | undefined, parentSpaceId: stri
     unread: room.getRoomUnreadNotificationCount(NotificationCountType.Total),
     highlight: room.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
     threadUnread: room.hasThreadUnreadNotification(),
+    encrypted: room.hasEncryptionStateEvent(),
   };
 }
 

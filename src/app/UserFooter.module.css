@@ -74,3 +74,11 @@
   background: var(--bg-hover);
   color: var(--text-normal);
 }
+
+/* Phase 5: verified session line under the display name */
+.verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--online);
+}

@@ -9,9 +9,11 @@ import {
   type Room,
   type RoomMember,
 } from 'matrix-js-sdk';
+import { DecryptionFailureCode } from 'matrix-js-sdk/lib/crypto-api/index.js';
 import { getClientOrNull } from './client.ts';
 import { localpartOf } from './config.ts';
 import { mxcToHttp } from './mxc.ts';
+import { isEncryptedFile, type EncryptedFile } from './attachments.ts';
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { isAudioMimeType } from '../audio/mime.ts';
 import { parseGifContent } from '../gif/message.ts';
@@ -20,6 +22,16 @@ import type { GifMessage } from '../gif/types.ts';
 export { mxcToHttp } from './mxc.ts';
 export { formatTime, formatFullTime, formatDayDivider, formatRelative, isSameDay, initialsOf, colorFor } from '../format.ts';
 export { localpartOf, serverNameOf } from './config.ts';
+export { isEncryptedFile, type EncryptedFile } from './attachments.ts';
+
+/** Phase 5: `m.room.encryption` algorithm every encrypted room uses. */
+export const MEGOLM_ALGORITHM = 'm.megolm.v1.aes-sha2';
+
+/** Phase 5: true when the room has an `m.room.encryption` state event (sends are encrypted, history is Megolm). */
+export function isRoomEncrypted(roomId: string | null | undefined): boolean {
+  if (!roomId) return false;
+  return getClientOrNull()?.getRoom(roomId)?.hasEncryptionStateEvent() ?? false;
+}
 
 // ---------------------------------------------------------------------------
 // Rooms & members
@@ -74,15 +86,77 @@ export function isReactionEvent(event: MatrixEvent): boolean {
 
 /**
  * Should this timeline event get its own row?
- * Keeps: m.room.message (incl. redacted ones, rendered as "Message deleted"), m.sticker.
+ * Keeps: m.room.message (incl. redacted ones, rendered as "Message deleted"), m.sticker, and (Phase 5) events
+ * that are still encrypted (`m.room.encrypted`: being decrypted, or undecryptable - rendered as a placeholder;
+ * `getType()` becomes the clear type once decrypted, so a decrypted reaction/edit drops out of the rows then).
  * Drops: reactions, edits (aggregated onto their target), state events, everything else.
  */
 export function isDisplayableEvent(event: MatrixEvent): boolean {
   const type = event.getType();
-  if (type === EventType.Sticker) return true;
+  if (type === EventType.Sticker || type === EventType.RoomMessageEncrypted) return true;
   if (type !== EventType.RoomMessage) return false;
   if (isEditEvent(event)) return false;
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Decryption (Phase 5)
+// ---------------------------------------------------------------------------
+
+/** What the row should show for an encrypted event. `'none'` = the event was never encrypted. */
+export type DecryptionStatus = 'none' | 'decrypting' | 'decrypted' | 'failed';
+
+export interface DecryptionState {
+  status: DecryptionStatus;
+  /** SDK reason code when `status === 'failed'` (`DecryptionFailureCode`). */
+  code?: DecryptionFailureCode;
+  /** Short user text for a failed row ("Waiting for this message's key"). */
+  message?: string;
+  /** Failed because the message predates this device: the recovery key / backup is the fix, not waiting. */
+  historical?: boolean;
+}
+
+/** Row text per failure code; `historical` marks codes a backup restore (recovery key) can fix. */
+export function describeDecryptionFailure(code: DecryptionFailureCode | null | undefined): { message: string; historical: boolean } {
+  switch (code) {
+    case DecryptionFailureCode.MEGOLM_UNKNOWN_INBOUND_SESSION_ID:
+    case DecryptionFailureCode.OLM_UNKNOWN_MESSAGE_INDEX:
+      return { message: "Waiting for this message's key", historical: false };
+    case DecryptionFailureCode.MEGOLM_KEY_WITHHELD:
+      return { message: 'The sender withheld the key for this message', historical: false };
+    case DecryptionFailureCode.MEGOLM_KEY_WITHHELD_FOR_UNVERIFIED_DEVICE:
+      return { message: 'The sender only shares keys with verified sessions. Verify this session', historical: false };
+    case DecryptionFailureCode.HISTORICAL_MESSAGE_NO_KEY_BACKUP:
+      return { message: 'Sent before you signed in here, and this account has no key backup', historical: true };
+    case DecryptionFailureCode.HISTORICAL_MESSAGE_BACKUP_UNCONFIGURED:
+      return { message: 'Sent before you signed in here. Enter your recovery key to read it', historical: true };
+    case DecryptionFailureCode.HISTORICAL_MESSAGE_WORKING_BACKUP:
+      return { message: 'Sent before you signed in here. Restoring from backup...', historical: true };
+    case DecryptionFailureCode.HISTORICAL_MESSAGE_USER_NOT_JOINED:
+      return { message: "You weren't in the room when this was sent", historical: true };
+    case DecryptionFailureCode.SENDER_IDENTITY_PREVIOUSLY_VERIFIED:
+      return { message: "The sender's verified identity has changed", historical: false };
+    case DecryptionFailureCode.UNSIGNED_SENDER_DEVICE:
+    case DecryptionFailureCode.UNKNOWN_SENDER_DEVICE:
+      return { message: 'Sent from an unverified or unknown device', historical: false };
+    default:
+      return { message: 'Unable to decrypt this message', historical: false };
+  }
+}
+
+/**
+ * Decryption state of an event, safe in render. Re-read on every `version` bump: the SDK mutates the event in
+ * place and the bridge refreshes the timeline on `MatrixEventEvent.Decrypted` (late keys turn a failed row into a
+ * message without any new timeline entry).
+ */
+export function getDecryptionState(event: MatrixEvent): DecryptionState {
+  if (!event.isEncrypted()) return { status: 'none' };
+  if (event.isDecryptionFailure()) {
+    const code = event.decryptionFailureReason ?? DecryptionFailureCode.UNKNOWN_ERROR;
+    return { status: 'failed', code, ...describeDecryptionFailure(code) };
+  }
+  if (event.isBeingDecrypted() || event.getType() === EventType.RoomMessageEncrypted) return { status: 'decrypting', message: 'Decrypting...' };
+  return { status: 'decrypted' };
 }
 
 /**
@@ -207,9 +281,16 @@ export interface DisplayBody {
   isRedacted: boolean;
   /** Event id of the message this one replies to. */
   replyTo?: string;
-  /** For m.image / m.file / m.video / m.audio: the media mxc url and info block. */
+  /** For **unencrypted** m.image / m.file / m.video / m.audio: the media mxc url. Undefined for encrypted media (see `file`). */
   url?: string;
-  info?: { w?: number; h?: number; mimetype?: string; size?: number; thumbnail_url?: string; duration?: number };
+  info?: { w?: number; h?: number; mimetype?: string; size?: number; thumbnail_url?: string; thumbnail_file?: EncryptedFile; duration?: number };
+  /**
+   * Phase 5: for **encrypted** media, the spec `EncryptedFile` (`file` in the content) instead of `url`. Decrypt
+   * with `fetchDecryptedMedia(file, info?.mimetype)` / `useDecryptedMediaUrl(body)`; there are no server thumbnails.
+   */
+  file?: EncryptedFile;
+  /** Phase 5: encrypted thumbnail when the sender made one (`info.thumbnail_file`). */
+  thumbnailFile?: EncryptedFile;
   /** `m.mentions.user_ids` when present. */
   mentions: string[];
   /** Present for `m.audio` events that carry playable media (voice notes and plain audio files). */
@@ -218,6 +299,13 @@ export interface DisplayBody {
   threadRoot?: string;
   /** Phase 4: present for GIF messages (`dev.matrixpoc.gif` validated). Render `<img src={gif.url}>`, not `text`. */
   gif?: GifMessage;
+  /** Phase 5: true for events that arrived as `m.room.encrypted` (decrypted or not). */
+  isEncrypted: boolean;
+  /**
+   * Phase 5: present when the event is still being decrypted or could not be decrypted. Render `decryption.message`
+   * instead of `text` (`msgtype` is `m.bad.encrypted` for failures, `m.room.encrypted` while decrypting).
+   */
+  decryption?: DecryptionState;
 }
 
 interface MessageContent {
@@ -226,6 +314,7 @@ interface MessageContent {
   format?: string;
   formatted_body?: string;
   url?: string;
+  file?: unknown;
   info?: DisplayBody['info'];
   'm.mentions'?: { user_ids?: string[] };
 }
@@ -235,9 +324,12 @@ interface MessageContent {
 // ---------------------------------------------------------------------------
 
 export interface VoiceMessageInfo {
-  /** http(s) download URL (`mxcToHttp(mxc)`), for `<audio src>`. */
+  /** http(s) download URL (`mxcToHttp(mxc)`), for `<audio src>`. **Empty for encrypted notes**: use `file`. */
   url: string;
+  /** The mxc url (of the ciphertext when encrypted). */
   mxc: string;
+  /** Phase 5: set for encrypted notes; `fetchDecryptedMedia(file, mimetype)` gives the playable blob URL. */
+  file?: EncryptedFile;
   /** Integer ms: `org.matrix.msc1767.audio.duration`, else `info.duration`, else 0 (player reads `<audio>`). */
   durationMs: number;
   /** Ints 0..1024; `[]` when the sender gave none (render flat bars). */
@@ -254,7 +346,7 @@ export interface VoiceMessageInfo {
 interface VoiceContent extends MessageContent {
   'org.matrix.msc3245.voice'?: Record<string, never>;
   'org.matrix.msc1767.audio'?: { duration?: number; waveform?: unknown };
-  'org.matrix.msc1767.file'?: { url?: string; name?: string; mimetype?: string; size?: number };
+  'org.matrix.msc1767.file'?: { url?: string; file?: unknown; name?: string; mimetype?: string; size?: number };
 }
 
 function asInt(v: unknown): number | undefined {
@@ -274,11 +366,14 @@ export function getVoiceMessage(event: MatrixEvent): VoiceMessageInfo | null {
   const isVoice = Object.prototype.hasOwnProperty.call(c, 'org.matrix.msc3245.voice');
   const mimetype = c.info?.mimetype ?? file?.mimetype;
   if (c.msgtype !== MsgType.Audio && !isVoice && !isAudioMimeType(mimetype)) return null;
-  const mxc = (typeof c.url === 'string' && c.url) || (typeof file?.url === 'string' ? file.url : '');
+  // Phase 5: encrypted notes carry `file` (top level, Element also mirrors it under msc1767.file) instead of `url`.
+  const encrypted = isEncryptedFile(c.file) ? c.file : isEncryptedFile(file?.file) ? file.file : undefined;
+  const mxc = encrypted?.url ?? ((typeof c.url === 'string' && c.url) || (typeof file?.url === 'string' ? file.url : ''));
   if (!mxc.startsWith('mxc://')) return null;
   return {
-    url: mxcToHttp(mxc),
+    url: encrypted ? '' : mxcToHttp(mxc),
     mxc,
+    file: encrypted,
     durationMs: asInt(audio?.duration) ?? asInt(c.info?.duration) ?? 0,
     waveform: sanitizeWaveform(audio?.waveform),
     mimetype: mimetype || 'audio/ogg',
@@ -323,9 +418,26 @@ export function isGifEvent(event: MatrixEvent): boolean {
  */
 export function getDisplayBody(event: MatrixEvent): DisplayBody {
   const isRedacted = event.isRedacted();
+  const isEncrypted = event.isEncrypted();
+  const replyTo = getReplyTargetId(event);
+  const threadRoot = getThreadRelation(event)?.event_id;
+  // Phase 5: still encrypted (decrypting) or undecryptable: a placeholder row, no content to read.
+  const decryption = isEncrypted && !isRedacted ? getDecryptionState(event) : undefined;
+  if (decryption && decryption.status !== 'decrypted') {
+    return {
+      text: decryption.message ?? '',
+      msgtype: decryption.status === 'failed' ? 'm.bad.encrypted' : EventType.RoomMessageEncrypted,
+      isEdited: false,
+      isRedacted: false,
+      replyTo,
+      mentions: [],
+      threadRoot,
+      isEncrypted: true,
+      decryption,
+    };
+  }
   const content = event.getContent<MessageContent>();
   const msgtype = content.msgtype ?? (event.getType() === EventType.Sticker ? 'm.sticker' : MsgType.Text);
-  const replyTo = getReplyTargetId(event);
   const rawText = isRedacted ? '' : (content.body ?? '');
   const text = replyTo ? stripReplyFallback(rawText) : rawText;
   let html: string | undefined;
@@ -334,6 +446,8 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
   }
   const voice = !isRedacted && msgtype === MsgType.Audio ? (getVoiceMessage(event) ?? undefined) : undefined;
   const gif = !isRedacted && msgtype === MsgType.Text ? (parseGifContent(content) ?? undefined) : undefined;
+  const file = !isRedacted && isEncryptedFile(content.file) ? content.file : undefined;
+  const thumbnailFile = !isRedacted && isEncryptedFile(content.info?.thumbnail_file) ? content.info!.thumbnail_file : undefined;
   return {
     text: voice?.isVoice && !text ? 'Voice message' : text,
     html,
@@ -341,12 +455,16 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
     isEdited: !isRedacted && !!event.replacingEvent(),
     isRedacted,
     replyTo,
-    url: isRedacted ? undefined : content.url,
+    url: isRedacted || file ? undefined : content.url,
     info: isRedacted ? undefined : content.info,
+    file,
+    thumbnailFile,
     mentions: content['m.mentions']?.user_ids ?? [],
     voice,
-    threadRoot: getThreadRelation(event)?.event_id,
+    threadRoot,
     gif,
+    isEncrypted,
+    decryption,
   };
 }
 
@@ -354,6 +472,7 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
 export function previewText(event: MatrixEvent, max = 120): string {
   const body = getDisplayBody(event);
   if (body.isRedacted) return 'Message deleted';
+  if (body.decryption && body.decryption.status !== 'decrypted') return body.decryption.status === 'failed' ? 'Unable to decrypt' : 'Decrypting...';
   if (body.gif) return `[gif] ${body.gif.title}`;
   if (body.msgtype === MsgType.Image) return `[image] ${body.text}`;
   if (body.msgtype === MsgType.File) return `[file] ${body.text}`;

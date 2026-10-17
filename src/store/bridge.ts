@@ -19,6 +19,7 @@ import {
   EventStatus,
   EventType,
   HttpApiEvent,
+  MatrixEventEvent,
   RoomEvent,
   RoomMemberEvent,
   RoomStateEvent,
@@ -221,8 +222,22 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
   const onSessionLoggedOut = (): void => {
     opts.onSessionLoggedOut?.(); // token revoked server-side: the session store drops to the login screen
   };
+  // Phase 5: the SDK decrypts in place and re-emits each event's `Event.decrypted` on the client (event mapper),
+  // for sync, pagination, /relations and /event alike; late keys (backup restore, key shares) fire it again.
+  // No timeline entry changes, so nothing else would re-render: refresh the owning timeline (main or thread), the
+  // room list (previews, unread recount) and the thread summaries (`latestEvent` may just have decrypted).
+  const onDecrypted = (event: MatrixEvent): void => {
+    const roomId = event.getRoomId();
+    if (!roomId) return;
+    const thread = event.getThread();
+    if (thread) scheduleThread(roomId, thread.id);
+    else scheduleTimeline(roomId);
+    scheduleRooms();
+    threadsVersion.call();
+  };
 
   client.on(ClientEvent.Sync, onSync);
+  client.on(MatrixEventEvent.Decrypted, onDecrypted);
   client.on(ClientEvent.Room, onRoom);
   client.on(ClientEvent.DeleteRoom, scheduleRooms);
   client.on(ClientEvent.AccountData, onAccountData);
@@ -255,6 +270,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
       for (const off of roomListeners.values()) off();
       roomListeners.clear();
       client.off(ClientEvent.Sync, onSync);
+      client.off(MatrixEventEvent.Decrypted, onDecrypted);
       client.off(ClientEvent.Room, onRoom);
       client.off(ClientEvent.DeleteRoom, scheduleRooms);
       client.off(ClientEvent.AccountData, onAccountData);

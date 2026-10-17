@@ -13,7 +13,7 @@ Everything below is created by `npm run seed` against http://localhost:8008 (ser
 Avatars: optional. If set, upload `seed/assets/avatar-{name}.png` (64x64 solid colour with initial) and set `avatar_url` on the profile.
 
 ## Spaces and rooms
-All rooms: `preset: public_chat`, `join_rule: public`, `history_visibility: shared`, **no** `m.room.encryption`. Space rooms have `creation_content: { type: "m.space" }`. Each channel gets an `m.space.child` state event in its space (`via: ["localhost"]`, `order` as below) and an `m.space.parent` state event (`canonical: true`) pointing at the space.
+All rooms: `preset: public_chat`, `join_rule: public`, `history_visibility: shared`, **no** `m.room.encryption` (except `#vault`, Phase 5). Space rooms have `creation_content: { type: "m.space" }`. Each channel gets an `m.space.child` state event in its space (`via: ["localhost"]`, `order` as below) and an `m.space.parent` state event (`canonical: true`) pointing at the space.
 
 | Kind | Name | Alias | Topic | Members | `order` |
 |---|---|---|---|---|---|
@@ -21,6 +21,7 @@ All rooms: `preset: public_chat`, `join_rule: public`, `history_visibility: shar
 | Channel | general | `#general:localhost` | Company-wide chat. Be nice. | alice, bob, carol, dave | `01` |
 | Channel | random | `#random:localhost` | Off-topic, memes, lunch plans. | alice, bob, carol, dave | `02` |
 | Channel | dev | `#dev:localhost` | Engineering talk. Stack traces welcome. | alice, bob, dave | `03` |
+| Channel | vault | `#vault:localhost` | Encrypted. Say it here. | alice, bob, dave | `04` (Phase 5: `m.room.encryption` `m.megolm.v1.aes-sha2` in `initial_state`, no seeded messages) |
 | Space | Gaming | `#gaming:localhost` | After-hours squad | alice, bob, dave | - |
 | Channel | lobby | `#lobby:localhost` | Find a squad. | alice, bob, dave | `01` |
 
@@ -42,6 +43,7 @@ Created by alice with `is_direct: true`, `preset: trusted_private_chat`, `invite
 |---|---|
 | alice <-> bob | bob: "Hey, got a sec?" / alice: "Sure, what's up?" / bob: "Can you review my PR before the demo?" / alice: "On it. Link?" / bob: "https://github.com/acme/chat/pull/42" / alice: "Looks good, left two comments." |
 | alice <-> carol | carol: "Are you joining the planning meeting?" / alice: "Yes, I'll be there." / carol: "Great, I'll add you to the invite." / alice: "Thanks!" |
+| alice <-> dave | (Phase 5) encrypted DM, `m.room.encryption` in `initial_state`, no messages; key `dm-alice-dave` |
 
 ## #general - 40 messages (send in this order)
 Plain `m.text` unless noted. Formatted rows send `format: "org.matrix.custom.html"` with `formatted_body` as given and the plain-text `body` shown.
@@ -139,7 +141,7 @@ Reaction pills in #general: #1 🎉 x3, #11 👍 x2 (includes alice's own, so hi
 ## Seed script requirements (Principal)
 1. Location `seed/seed.ts`, run with `npm run seed`; raw `fetch` against `/_matrix/client/v3` (matrix-js-sdk not required).
 2. Registers users via `POST /register` (open registration, `m.login.dummy`), logs in each user; every event is sent as its listed sender.
-3. Idempotent guard: if `#acme-hq:localhost` already resolves, print `already seeded - run npm run seed:reset` and exit 0.
+3. Idempotent guard: if `#acme-hq:localhost` already resolves, the seed is **additive** (Phase 5): it creates only the channels whose alias is missing and the DMs missing from alice's `m.direct`, merges them into `seed-output.json` (every room id is refreshed from the server, `events` are kept), and prints "nothing to add" otherwise. Messages of existing rooms are never re-sent.
 4. Sequential sends; retry on 429 honouring `retry_after_ms`. Homeserver `rc_*` limits are raised (see PLAN risks) so this should be rare.
 5. Writes `seed/seed-output.json` (gitignored) for QA, shape: `{ users: { alice: "@alice:localhost", ... }, rooms: { "acme-hq", general, random, dev, gaming, lobby, "dm-alice-bob", "dm-alice-carol" }, events: { "general.first" (#1), "general.last" (#40), "general.replyTarget" (#6), "general.reply" (#7), "general.bold" (#8), "general.reacted" (#11), "general.image" (#17), "general.edited" (#18), "general.link" (#22), "general.mention" (#28), "general.code" (#31) } }` where every value is the room ID / event ID string.
 6. Reaction keys must come from the client's hardcoded picker set: `👍 ❤️ 😂 🎉 🔥 👀`.
@@ -155,3 +157,11 @@ Replies carry the spec relation `m.relates_to: { rel_type: 'm.thread', event_id:
 | #dev | new message before "Ship it." (carol): "Which Node 24 features ..." | bob, alice, carol (3) | `dev.threadRoot`, `dev.threadReply1..3` |
 
 carol joins #dev for this. Expected state for alice: the #general tacos thread is **unread** (header "Threads" dot in #general; the channel badge stays 0 because thread replies no longer count towards it), the other two threads are read (she participated in #dev; the #general demo thread predates her final receipt). The main-timeline numbering above (#1-#40) is unchanged: the two new roots are extra rows, replies are not rows.
+
+## Encryption (Phase 5)
+
+`#vault` and the alice <-> dave DM are created encrypted and empty; `npm run seed` on an already-seeded server adds just those (no reset).
+Sample content comes from `npm run e2ee:sample` (bob: "vault sample 1..3" + one encrypted PNG), which writes bob's Megolm sessions to
+`seed/e2ee-keys.json` (gitignored); a browser session imports them with `__matrixPoc.security.importRoomKeys(json)`, and
+`npm run verify:e2ee` checks the room, the wire shape and the ciphertext on the server. A browser device that logs in later cannot read
+these messages without the keys file or a key backup (that is the point).
