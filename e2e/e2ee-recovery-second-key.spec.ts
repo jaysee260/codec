@@ -13,7 +13,8 @@
  *
  * Cases: Cancel at the prompt -> `locked` (verified, history locked), then `recovery-retry` with a wrong key ->
  * `locked` (wrong-key), `recovery-retry` with K2 -> `done`; K2 at the first prompt -> `done` (history decrypts);
- * Hide (X) at the prompt -> the unlock and the prompt stay alive (the banner re-opens the prompt) and K2 finishes it.
+ * Hide (X) at the prompt -> the unlock and the prompt stay alive (the banner re-opens the prompt) and K2 finishes it;
+ * the same after the `unlock` banner was dismissed (a pending prompt overrides the dismissal).
  */
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import { channelItem, openChannel, openSpace, row, rowByText, settledEventId, typeAndSend } from './fixtures/ui.ts';
@@ -270,6 +271,53 @@ test.describe('second secret-storage key mid-unlock', () => {
     await expect(page.getByTestId('recovery-done')).toBeVisible({ timeout: 60_000 });
     await expectVerified(page);
     await page.getByTestId('recovery-dialog').getByTestId('dialog-close').last().click();
+    for (const [i, id] of U.ids.entries()) await expect(row(page, id).getByTestId('message-body')).toHaveText(U.texts[i]!, { timeout: 15_000 });
+  });
+  test('Hide (X) at the prompt after the unlock banner was dismissed: the banner comes back and reopens the prompt', async ({ page, browser }) => {
+    // BLOCKING review finding: with `unlock` dismissed, X on a pending prompt left no way back to it (the unlock /
+    // restore waited forever). A pending recovery-key prompt must override the dismissal.
+    const U = await seedSecondKeyAccount(browser, 'qak2dismiss');
+    await unlockWithK1UntilPrompt(page, U);
+    const dialog = page.getByTestId('recovery-dialog');
+    const bannerEl = page.getByTestId('security-banner');
+
+    // K1 verified the session; cancelling the backup prompt leaves it `locked` -> the banner nags `unlock`.
+    await page.getByTestId('recovery-prompt-cancel').click();
+    await expect(dialog).toHaveAttribute('data-phase', 'locked', { timeout: 30_000 });
+    await dialog.getByTestId('dialog-close').last().click();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    await expect(bannerEl).toHaveAttribute('data-need', 'unlock', { timeout: 20_000 });
+
+    // The user dismisses the unlock banner, then reaches the recovery dialog another way.
+    await page.getByTestId('security-banner-dismiss').click();
+    await expect(bannerEl).toHaveCount(0);
+    await page.evaluate(async () => {
+      const url = '/src/features/security/index.ts'; // Vite dev serves the module; a variable keeps tsc out of it
+      const m = (await import(/* @vite-ignore */ url)) as { openSecurityDialog(kind: string): void };
+      m.openSecurityDialog('unlock');
+    });
+    await expect(dialog).toHaveAttribute('data-phase', 'locked', { timeout: 10_000 });
+    await page.getByTestId('recovery-retry').click();
+    await expect(dialog).toHaveAttribute('data-phase', 'prompt', { timeout: 30_000 });
+
+    // X hides the dialog; the prompt stays pending, and the dismissed banner must come back for it.
+    await dialog.getByTestId('recovery-close').click();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    expect((await cryptoState(page)).prompt?.kind, 'X does not cancel the prompt').toBe('recovery-key');
+    await expect(bannerEl, 'banner reappears while the prompt is pending').toHaveAttribute('data-need', 'unlock', { timeout: 10_000 });
+
+    // Dismissing again while the prompt is pending does not hide it either (the banner is the only way back).
+    await page.getByTestId('security-banner-dismiss').click();
+    await page.waitForTimeout(500);
+    await expect(bannerEl, 'a dismissal cannot hide a pending prompt').toHaveAttribute('data-need', 'unlock');
+
+    await page.getByTestId('security-banner-action').click();
+    await expect(dialog).toHaveAttribute('data-phase', 'prompt', { timeout: 10_000 });
+    await page.getByTestId('recovery-input').fill(U.k2);
+    await page.getByTestId('recovery-submit').click();
+    await expect(page.getByTestId('recovery-done')).toBeVisible({ timeout: 60_000 });
+    await expectVerified(page);
+    await dialog.getByTestId('dialog-close').last().click();
     for (const [i, id] of U.ids.entries()) await expect(row(page, id).getByTestId('message-body')).toHaveText(U.texts[i]!, { timeout: 15_000 });
   });
 });
