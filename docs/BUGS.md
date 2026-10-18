@@ -100,7 +100,9 @@ were never run. The suites annotate them as `not run here`.
 
 ### Waived
 
-**AC-V2-4** (`info.mimetype` is `audio/ogg` on Chromium). docs/ARCHITECTURE.md "Phase 2 deltas"
+**AC-V2-4** — *no longer waived* since the voice-format change (see "Voice format" below): Chromium
+now sends `audio/ogg` and `e2e/voice.spec.ts` asserts it. Original Phase 2 text, for history:
+(`info.mimetype` is `audio/ogg` on Chromium). docs/ARCHITECTURE.md "Phase 2 deltas"
 records the decision to send the native `MediaRecorder` container with no transcoding; Chromium and
 the Android WebView therefore produce `audio/webm`. Verified instead: the mimetype is one of
 `audio/ogg` / `audio/webm` / `audio/mp4` **and** the uploaded bytes really are that container
@@ -242,6 +244,30 @@ with the registry composer, `thread-root`, `thread-replies-divider`, `thread-mes
 | D-1 | `src/store/thread.ts`, `useThreadStore` with `open: { roomId, rootId } \| null` plus `openThreadRootId` | `src/store/threads.ts`, `useThreadStore` with `openThreadRootId` / `openThreadRoomId` fields and a `useOpenThread()` selector returning `{ roomId, threadRootId }` | Internal only, and QA asserts the DOM contract (`app-shell[data-thread-open]`, `thread-panel[data-root]`) rather than the store, so nothing in the suite depends on it. **Resolved during Wave 8**: docs/ARCHITECTURE.md now has the "Phase 3 deltas (threads)" section AC-T10-4 asks for, which records these renames. Left here as the record of what QA checked. |
 | D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. **Closed** (Dev A, 2026-10-08): `relativeTime.ts` deleted, `ThreadList.tsx` imports `formatRelative` from `@/lib/format.ts`; one implementation of the pinned strings. |
 | D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
+
+## Voice format (Ogg remux + software-decode fallback, docs/VOICE_FORMAT_PLAN.md)
+
+QA pass against `e2e/ogg-remux.spec.ts` (Node, the remuxer on the real Chromium fixtures
+`e2e/fixtures/chromium-{1s,3s}.webm`, judged by the independent reader `e2e/fixtures/ogg.ts`),
+`e2e/voice-compat.spec.ts` (native vs fallback playback; the "old iPhone" simulation is
+`e2e/fixtures/old-iphone.ts`) and `e2e/voice.spec.ts` (AC-V2-4 now asserted), all in the `mobile`
+project, on the dirty homeserver. Notes go to `#dev`.
+
+```
+npx playwright test -c playwright.local.config.ts e2e/ogg-remux.spec.ts e2e/voice-compat.spec.ts e2e/voice.spec.ts --project=mobile
+npx playwright test -c playwright.local.config.ts e2e/voice-compat.spec.ts --project=mobile -g "AC-F5"
+```
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-11 | decision 1 (lossless remux), AC-F1 | S3 | web-mobile-emulated (Node) | no | Principal | `remuxWebmOpusToOgg(chromium-3s.webm sliced to 60 % of its bytes)` — a recording cut in the middle of a SimpleBlock. | The truncated trailing block is dropped (the remuxer's own header says so): 34 audio packets, the 34 complete SimpleBlocks. | 35 packets: the partial block was emitted as a full Opus packet (a corrupt last frame). `readElement()` clamped `dataEnd` to the buffer, so the `el.end > cluster.dataEnd` truncation check in the packet loop could never fire. | `e2e/ogg-remux.spec.ts` "remux of a WebM cut mid-cluster …" | **Fixed** (Principal, `src/lib/audio/ogg.ts`: elements record `truncated`, the packet loop breaks on it). Re-verified: the regression test passes. |
+| — | AC-V1-2 | — | web-mobile-emulated | no | — | Baseline run before the change: AC-V1-2 (live level meter) failed once. | — | Passed in every run of this pass (full voice run, and the suite alone). Not reproducible; environment flake of the fake mic in this container's Chromium, not a voice-format regression. | — | Not a bug. |
+| — | phone demo step 1 | — | web-mobile-emulated | no | — | `mobile-smoke.spec.ts` run as the first spec right after the dev server cold-started (same run as the voice specs). | Lands in #general. | Header read "random" once (the pre-seeded `nav.selection` race the voice.spec `openRoom` helper already works around); the 12 later serial steps did not run. The suite alone right after: 13/13 green. | — | Not a voice-format defect; flake on a cold dev server. |
+
+Regression tests added for Dev B's notes (no bug found, kept as guards): a native `play()` that never
+settles switches to the fallback after the ~4 s stall timeout (`voice-compat.spec.ts` "stalled native
+play() …"), and a WKWebView-style `canPlayType` that *lies* (`'maybe'`) recovers through the
+`<audio>` format-error path ("old iPhone whose canPlayType lies").
 
 ## Phase 4 (GIF picker)
 

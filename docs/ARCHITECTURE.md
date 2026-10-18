@@ -93,7 +93,7 @@ What the Phase 2 brief, docs/PHASE2_PLAN.md and docs/PHASE2_TICKETS.md say versu
 | Keyboard resize mode | brief: body or native; plan/tickets: body | **`native`** (`KeyboardResize.Native`). | iOS-only option (Android always resizes the WebView). `body` only shrinks `<body>`; `100dvh`/`env()` would not follow the keyboard. Advisor consultation. |
 | Voice event shape | brief: no `msc1767.text`, `msc1767.file { url, mimetype }` | Element's `createVoiceMessageContent` shape verbatim (docs/PHASE2_ACCEPTANCE.md): + `org.matrix.msc1767.text`, `msc1767.file { url, name, mimetype, size }`. | Acceptance contract. |
 | Waveform | brief: RMS per bucket | **Peak amplitude** per bucket, **normalised so the loudest bucket is 1024**, 100 samples. | Acceptance (peak) + tickets (normalised). Non-normalised is `waveformFromSamples(src, n, { normalize: false })`. |
-| Audio format | brief: WASM Ogg/Opus encoder, else native; plan: remux spike (mediabunny) | **Native MediaRecorder container, no transcoding**: `audio/webm` (Opus) on Android/Chromium, `audio/mp4` (AAC) on iOS, `audio/ogg` on Firefox; `info.mimetype` is always the real base type. `encodeToOggOpus()` is an identity and the single P1 seam. **AC-V2-4 (Ogg on Chromium) is waived for the POC.** | Orchestrator decision (the only testable artifact here is the Android APK, which records and plays WebM/Opus). `wasm-media-encoders` was evaluated and dropped: it is Ogg *Vorbis*, not Opus. `opus-recorder` (Element Web's WASM encoder) and a WebM->Ogg remux remain the P1 options. |
+| Audio format | brief: WASM Ogg/Opus encoder, else native; plan: remux spike (mediabunny) | **Send**: WebM/Opus (Android/Chromium/new Safari) is losslessly **remuxed to Ogg/Opus** in pure TS (`ogg.ts`, behind `encodeToOggOpus()`); `audio/mp4` (AAC, old Safari) and `audio/ogg` (Firefox) pass through; a remux error sends the original blob. `info.mimetype` is the real base type of what was uploaded. **Play**: native `<audio>` first; when `canPlayNatively()` says no, or native errors / stalls 4 s, a lazy `ogg-opus-decoder` decode to a WAV blob (`softdecode.ts`). **AC-V2-4 (Ogg on Chromium) is met** (was waived for the POC). | docs/VOICE_FORMAT_PLAN.md. No re-encoding, no WASM on the send path; the decoder is only loaded by browsers that can't play Ogg/WebM (iPhones < iOS 18.4). `wasm-media-encoders` was dropped earlier (Ogg *Vorbis*, not Opus). |
 | `computeWaveform` signature | brief: `(blob) => Promise<number[]>`; tickets: `(AudioBuffer \| Float32Array, samples) => number[]` | Tickets' sync version is `computeWaveform` (encode.ts); the brief's blob version is `computeWaveformFromBlob(blob)` / `analyzeAudio(blob)`. | Dev B codes against the tickets table. |
 | Mimetype picker | brief: `pickRecordingMimeType(): string \| null`; tickets: `pickVoiceMimeType(): string` | Both. Candidate order: `audio/ogg;codecs=opus`, `audio/webm;codecs=opus`, `audio/webm`, `audio/mp4;codecs=mp4a.40.2`, `audio/mp4`, `audio/ogg` (Chromium -> webm;opus, Safari -> mp4, Firefox -> ogg). | - |
 | `useLayoutStore` | tickets: `closeAll()`; brief: `openMembers/closeMembers` only | `closeAll()` **and** `closeDrawers()` (same), plus `toggleMembers()`, `keyboardHeight`, `viewportWidth/Height`, `keyboardOpen`, `setIsPhone`, `setKeyboardHeight`, `setViewport`. "`selectRoom()` closes the nav drawer" is implemented with `onRoomSelected()` (rooms.ts) subscribed in layout.ts, so rooms.ts stays layout-agnostic. | Superset. |
@@ -114,7 +114,7 @@ What the Phase 2 brief, docs/PHASE2_PLAN.md and docs/PHASE2_TICKETS.md say versu
 | JDK / SDK versions | brief said JDK 17 + android-35; `capacitor/build.gradle` said Java 21 (+ compileSdk 36 on Cap 8) | Trust the template: JDK 21. SDK 36 while on Cap 8, 35 after the orchestrator's switch to Cap 7. Both built. |
 | Keyboard resize | `body` vs `native` | `native` (see table). |
 | Mic permission plumbing | custom `MainActivity` vs manifest only | Manifest only: `BridgeWebChromeClient.onPermissionRequest` already requests `RECORD_AUDIO`/`MODIFY_AUDIO_SETTINGS` for `AUDIO_CAPTURE` and grants. Verified in the installed source. |
-| Audio strategy | WASM encoder / remux / native | P0 native MediaRecorder format, P1 Ogg/Opus seam; decode with `OfflineAudioContext.decodeAudioData` (not subject to iOS's gesture rule), one decode for duration + waveform, never `<audio>.duration` (WebM blobs report `Infinity`). Orchestrator then fixed "no transcoding in the POC". |
+| Audio strategy | WASM encoder / remux / native | P0 native MediaRecorder format, P1 Ogg/Opus seam; decode with `OfflineAudioContext.decodeAudioData` (not subject to iOS's gesture rule), one decode for duration + waveform, never `<audio>.duration` (WebM blobs report `Infinity`). Orchestrator then fixed "no transcoding in the POC"; superseded by the voice-format change (lossless remux + decode fallback, row above). |
 | LAN proxy | raw TCP vs HTTP | Advisor: raw TCP; orchestrator: reuse the proven HTTP one -> HTTP. |
 | Blind spots raised | `HS_URL` is a module constant with 5 consumers; the zero-build path cannot record (insecure context); `isPhone` must not flip the desktop suite (width-capped coarse pointer); `useNavUiStore.membersOpen` vs the phone drawer; stale `dist/` in the first `cap sync`; add `login-hs-url` + the new localStorage key to the registry | All addressed above / in docs/MOBILE.md. |
 
@@ -171,7 +171,10 @@ src/
       recording.ts             startRecording (getUserMedia + MediaRecorder lifecycle), createLevelMeter, pickRecordingMimeType
       analysis.ts              decodeAudio, analyzeAudio, waveformFromSamples, sanitizeWaveform, computeWaveformFromBlob, getAudioDuration
       mime.ts                  containerMimeType, extensionFor, voiceFileName, isAudioMimeType
-      index.ts                 re-exports
+      ogg.ts                   (voice format) remuxWebmOpusToOgg (pure TS, lossless), parseOggPages, isWebmBytes/isOggBytes
+      wav.ts                   (voice format) encodeWav: PCM -> 16-bit WAV bytes
+      softdecode.ts            (voice format) canPlayNatively, decodeToWavBlob (lazy ogg-opus-decoder), SoftDecodeError
+      index.ts                 re-exports (full API list in its header)
     matrix/
       config.ts                getHsUrl/setHsUrl/hasHsUrlOverride/normalizeHsUrl, DEFAULT_HS_URL, storage keys, localpartOf, serverNameOf
       mxc.ts                   mxcToHttp (pure; resolves getHsUrl() per call)
@@ -431,8 +434,9 @@ Voice message content (docs/PHASE2_ACCEPTANCE.md; Element-compatible):
   "org.matrix.msc3245.voice": {} }
 ```
 `duration` is integer ms (same in both places); `waveform` ~100 ints 0..1024 (peak per bucket, loudest = 1024);
-`mimetype` is the real base container type (`audio/webm` on Android/Chromium, `audio/mp4` on iOS, `audio/ogg` on
-Firefox, `audio/wav` for the QA fixture); extension follows it (`.webm` / `.m4a` / `.ogg` / `.wav`). No encryption.
+`mimetype` is the real base container type of the uploaded bytes: `audio/ogg` from Android/Chromium/Firefox (WebM/Opus
+is remuxed to Ogg before upload, file `Voice message.ogg`), `audio/mp4` on iOS, `audio/webm` only when the remux failed
+(or for pre-format notes), `audio/wav` for the QA fixture; extension follows it (`.ogg` / `.m4a` / `.webm` / `.wav`). No encryption.
 `scripts/send-voice-sample.mjs` posts one through the raw API and validates every field.
 
 ### Read helpers (`src/lib/matrix/utils.ts`)
@@ -858,8 +862,24 @@ npm run verify:gif                 # no browser: mock contract, fixtures, wire s
   outside a user gesture stays suspended on iOS and some decodes never resolve. Playback with `<audio>` is fine;
   autoplay still needs the tap that pressed play.
 - **Format per platform**: Chromium/Android WebView record `audio/webm;codecs=opus`, Safari/WKWebView `audio/mp4`
-  (AAC), Firefox `audio/ogg;codecs=opus`. Everything Chromium-based plays all three; WKWebView may refuse WebM
-  (`voice-error` + download link). Element plays all of them.
+  (AAC), Firefox `audio/ogg;codecs=opus`. Everything Chromium-based plays all three; WKWebView before iOS 18.4 plays
+  neither WebM nor Ogg. Element plays all of them.
+- **Lossless WebM -> Ogg remux on send** (`remuxWebmOpusToOgg`, `src/lib/audio/ogg.ts`): Opus packets are copied
+  from the Matroska blocks into Ogg pages (OpusHead/OpusTags built from the track header), no decode, no WASM.
+  `encodeToOggOpus` catches any remux error and returns the original blob with its own mimetype: sending never
+  breaks on the format step. Duration and waveform are still computed from the original recording.
+- **Software decode fallback on play** (`VoiceMessage.tsx` + `decodeToWavBlob`): native `<audio>` is always tried
+  first. Only when `canPlayNatively(mimetype)` is false, or the element errors / `play()` rejects with a format
+  error / neither plays nor errors within 4 s (WKWebView can stall silently), the note is decoded with the lazily
+  imported `ogg-opus-decoder` (WebM is remuxed to Ogg in the browser first) and played as a 16-bit WAV blob through
+  the same `<audio>` + blob: URL, so scrubber, seek, duration and one-at-a-time keep working. MP4/AAC never takes
+  this path (`SoftDecodeError('unsupported')` -> `voice-error`). Browsers that play natively never load the decoder.
+- **iOS gesture unlock**: the first tap on `voice-play` synchronously plays a 10 ms silent `data:audio/wav` clip so
+  the element counts as user-activated; the real `play()` happens after the download/decode awaits, when the tap's
+  activation would otherwise be gone (`NotAllowedError`). Media events from the unlock clip are ignored.
+- **Observability**: `voice-message` carries `data-playback="native|fallback"` once a source is set; dev builds
+  expose `window.__matrixPoc.voice = { forceRemuxFailure, encodeToOggOpus }` (`src/app/devtools.ts`) for the AC-F9
+  / AC-F10 tests. Criteria: docs/VOICE_FORMAT_PLAN.md.
 - **Waveform normalisation**: `computeWaveform` scales the loudest bucket to 1024, so a quiet recording still shows
   bars; silence stays all zeros. QA fixtures from `scripts/send-voice-sample.mjs` use the same algorithm.
 - **Release the mic**: always `stop()`/`cancel()` the `RecordingHandle` (and `close()` the level meter) on room

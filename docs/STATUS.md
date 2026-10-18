@@ -91,7 +91,7 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | PRIN-2 LAN proxy (8009) + `VITE_HS_URL` + login Homeserver override + `dev:lan` | P0 | done | Principal | `0913d00`. `scripts/lan-proxy.mjs` on 0.0.0.0:8009 -> 127.0.0.1:8008; `getHsUrl()` override on the login screen; homeserver untouched |
 | PRIN-3 Layout store + `Drawer` + phone shell | P0 | done | Principal | `0913d00`. Shared API table is the contract for A/B; `npm run verify:phone` 40/40 |
 | PRIN-4 Safe area, `100dvh`, viewport meta, keyboard, status bar | P0 | done | Principal | `0913d00`. Keyboard `resize: 'native'` shipped (tickets updated) |
-| PRIN-5 Voice core (encoder spike, helpers, `sendVoiceMessage`, `getVoiceMessage`) | P0 | done | Principal | `0913d00`. Spike outcome: the POC ships the native `MediaRecorder` container with no transcoding; `encodeToOggOpus` is an identity seam. See the AC-V2-4 waiver below |
+| PRIN-5 Voice core (encoder spike, helpers, `sendVoiceMessage`, `getVoiceMessage`) | P0 | done | Principal | `0913d00`. Spike outcome: the POC ships the native `MediaRecorder` container with no transcoding; `encodeToOggOpus` is an identity seam. AC-V2-4 was waived then; met by the "Voice format" change below |
 | PRIN-6 iOS project + Info.plist + Mac handoff | P1 | done | Principal | `0913d00`. Done to the extent possible on Windows (`cap copy ios`); build and device run happen on a Mac per docs/PHASE2_PLAN.md |
 | PRIN-7 docs/MOBILE.md + ARCHITECTURE deltas | P0 | done | Principal | `0913d00` |
 
@@ -109,7 +109,7 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
 | DEV-B-12 Mic button + recording bar (`useVoiceRecorder`) | P0 | done | Dev B | `5814c90`. AC-V1 green |
-| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | done | Dev B | AC-V2/V5 green; native container, `encodeToOggOpus` identity seam (AC-V2-4 waiver) |
+| DEV-B-13 Send flow: encode -> upload -> event, errors, retry | P0 | done | Dev B | AC-V2/V5 green; native container at the time (AC-V2-4 waiver, since met: "Voice format" below) |
 | DEV-B-14 Voice message bubble (play/pause, scrubber, duration, waveform) | P0 | done | Dev B | AC-V3/V4 green |
 | DEV-B-15 Phone composer + message rows | P0 | done | Dev B | AC-V6-1/2/5/6/7 green |
 | DEV-B-16 Long-press message action sheet | P1 | done | Dev B | AC-V6-3/4 green |
@@ -119,7 +119,7 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
 | QA-8 `mobile` Playwright project + fixtures | P0 | done | QA | `5814c90`. Projects `desktop` / `mobile` (Pixel 7, fake mic flags, CDP long-press) |
-| QA-9 Voice-note suite (API + magic-byte verification) | P0 | done | QA | `e2e/voice.spec.ts`; WAV fixture for bob; native-container magic bytes per the AC-V2-4 waiver |
+| QA-9 Voice-note suite (API + magic-byte verification) | P0 | done | QA | `e2e/voice.spec.ts`; WAV fixture for bob; magic bytes now asserted as `OggS` on Chromium ("Voice format" below) |
 | QA-10 Mobile navigation suite | P1 | done | QA | `e2e/mobile-nav.spec.ts` |
 | QA-11 Mobile smoke = phone demo script + screenshots | P0 | done | QA | `e2e/mobile-smoke.spec.ts`; screenshots in `e2e/demo-mobile/` (01-login-general .. 10-member-drawer) |
 | QA-12 Android build check | P0 | done | QA | `npm run test:android-build` 20/20 |
@@ -134,7 +134,7 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | Flake pass | 3 full runs clean |
 | Fixes landed this wave | Principal: SDK double-encoded upload filename fixed via `uploadMedia` (`actions.ts`); Synapse ignoring `Range` on media downloads documented in docs/ARCHITECTURE.md (the player streams the whole file; fine for voice notes) |
 | Open bugs | **BUG-4** (S3, environment): desktop login exceeded the 10 s budget (10.6 s) only at the tail of a 14-minute suite run; passes alone (phone smoke logs in at 1.8 s). Demo-day rule: do not run the suites right before the demo, or `seed:reset` first. No code change proposed. |
-| Waived | AC-V2-4, see below |
+| Waived | AC-V2-4 at the time; **met** since the "Voice format" change (see below) |
 
 **Before the stakeholder demo** (carried over from Phase 1, still pending): restart the homeserver once (`npm run hs:down && npm run hs:up`) so the relaxed `rc_room_creation` limit applies; `npm run seed:reset` for the seeded badges; then follow docs/PHASE2_DEMO.md.
 
@@ -144,7 +144,16 @@ Plan: docs/PHASE2_PLAN.md · Criteria/testids: docs/PHASE2_ACCEPTANCE.md · Tick
 | APK on the stakeholder's Android device, phone demo script 1-10 | not yet run (docs/PHASE2_DEMO.md) |
 | Manual criteria (AC-C1-6, AC-M2-8, AC-M6-4/5, AC-V5-3) | not yet run |
 | Mac handoff package (iOS) | prepared: `ios/` in the repo, steps in docs/MOBILE.md section 4 |
-| AC-V2-4 (Ogg/Opus in Chromium) | **Waived** (PM, 2026-10-04, after the PRIN-5 spike): the POC ships the native `MediaRecorder` container with no transcoding (`audio/webm` on Chromium/Android, `audio/mp4` on iOS), with the real mimetype in the event; `encodeToOggOpus` is an identity seam. Transcoding to Ogg/Opus is **P1** via `opus-recorder` or a WebM -> Ogg remux. AC-V2-2/V2-3 still apply with the native magic bytes. |
+| AC-V2-4 (Ogg/Opus in Chromium) | **Met** (2026-10-18, "Voice format" below). Was waived by PM on 2026-10-04 after the PRIN-5 spike (native `MediaRecorder` container, `encodeToOggOpus` identity seam); the WebM -> Ogg remux that was P1 then has landed. AC-V2-2/V2-3 now assert `OggS` on Chromium. |
+
+## Voice format (2026-10-18, branch `claude/voice-notes-format-*`)
+Plan + criteria: docs/VOICE_FORMAT_PLAN.md (AC-F1..F13). Goal (JC): every voice note plays for every listener, including iPhones older than iOS 18.4.
+| Item | Status | Owner | Notes |
+|---|---|---|---|
+| Lossless WebM/Opus -> Ogg/Opus remux on send, `audio/ogg` + `Voice message.ogg`, original sent on remux error | done | Principal + Dev A | `src/lib/audio/ogg.ts`, `encode.ts` seam, `useVoiceRecorder.ts`, `actions.ts`. AC-V2-4 met |
+| Software decode fallback on play (`ogg-opus-decoder`, lazy) for browsers that can't play Ogg/WebM; old WebM notes remuxed in the browser first; iOS gesture unlock | done | Principal + Dev B | `src/lib/audio/softdecode.ts`, `wav.ts`, `VoiceMessage.tsx` (`data-playback="native\|fallback"`) |
+| QA: AC-F tests in `e2e/voice.spec.ts`, fixtures `chromium-*.webm` | done | QA | 34 mobile tests: ogg-remux 4, voice-compat 12, voice 18 (AC-V1-2 level meter flaky in the cloud container, passes alone; untouched code) |
+| AC-F13 real-device check on an iPhone < 18.4 (WebKit not runnable here) | todo | manual | docs/VOICE_FORMAT_PLAN.md |
 
 ## Requests to Principal (Phase 2)
 | # | From | Request | Status |

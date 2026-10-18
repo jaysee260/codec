@@ -358,7 +358,10 @@ export interface VoiceMessageOptions extends ThreadOptions {
   durationMs: number;
   /** About 100 ints in 0..1024 (`analyzeAudio().waveform`). Sanitised here; `[]` is allowed. */
   waveform: number[];
-  /** The blob's real mimetype (codec parameters are stripped for the event). */
+  /**
+   * The real mimetype of `blob`, i.e. what is uploaded: `encodeToOggOpus().mimetype` (audio/ogg after the
+   * WebM -> Ogg remux), never the recorder's when they differ. Codec parameters are stripped for the event.
+   */
   mimetype: string;
 }
 
@@ -370,6 +373,9 @@ export interface VoiceMessageOptions extends ThreadOptions {
  *   org.matrix.msc1767.text "Voice message", org.matrix.msc1767.file { url, name, mimetype, size },
  *   org.matrix.msc1767.audio { duration, waveform }, org.matrix.msc3245.voice {}
  *
+ * `blob` is the encoded upload (`encodeToOggOpus` output); `opts.mimetype` is its mimetype and drives the
+ * upload Content-Type, `info.mimetype`, the msc1767 file mimetype and the file name (`voiceFileName`, e.g.
+ * `Voice message.ogg`). `size` is `blob.size`, so it always matches the uploaded bytes.
  * Resolves with the event id. Throws on upload/send failure (Dev B shows `recording-error`, AC-V5-2).
  * Phase 3: `opts.threadRoot` sends the voice note into a thread (the thread relation is added to the content).
  */

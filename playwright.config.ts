@@ -13,7 +13,12 @@ import { defineConfig, devices } from '@playwright/test';
  * | project | device | specs | outputDir |
  * |---|---|---|---|
  * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
- * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` | `e2e/results/mobile` |
+ * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` + voice format `voice-compat`, `ogg-remux` | `e2e/results/mobile` |
+ *
+ * Voice format (docs/VOICE_FORMAT_PLAN.md): `voice-compat.spec.ts` (old-iPhone simulation, native vs
+ * fallback playback) and `ogg-remux.spec.ts` (the Node-side WebM -> Ogg remuxer; no page, so it costs
+ * no browser) are listed in **both** regexes like `mobile-threads`: they run in `mobile` only, so
+ * `--project=mobile` covers the whole voice feature and neither runs twice.
  *
  * Phase 4 (QA-19/20): `gif.spec.ts` likewise needs no entry in `desktop`, and `mobile-gif.spec.ts`
  * is listed in **both** regexes for the same reason `mobile-threads.spec.ts` is — see below.
@@ -69,13 +74,13 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
+      testIgnore: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
       outputDir: './e2e/results/desktop',
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile',
-      testMatch: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
+      testMatch: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
       outputDir: './e2e/results/mobile',
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },
