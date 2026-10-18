@@ -16,7 +16,7 @@
  * testids: setup-dialog (+data-phase), setup-start, setup-password, setup-password-submit, setup-sso-hint, setup-key,
  *          setup-copy, setup-confirm, setup-error, setup-close
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Copy, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { showToast, useSecurityStore } from '@/store';
 import { Dialog } from '@/features/navigation';
@@ -264,7 +264,8 @@ export function SetupEncryptionDialog() {
       errorTestId="setup-error"
       onSubmit={onSubmit}
       onClose={close}
-      footer={footer}
+      // Keyed by phase so one phase's button node is never reused for the next phase's (see RecoveryDialog).
+      footer={footer == null ? footer : <Fragment key={phase}>{footer}</Fragment>}
       closeTestId="setup-close"
       closeOnBack
       dataAttrs={{ 'data-phase': phase }}

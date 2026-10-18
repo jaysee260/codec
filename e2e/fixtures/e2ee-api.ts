@@ -229,6 +229,27 @@ export async function defaultSecretStorageKey(token: string, userId: string): Pr
   return r.status === 404 ? null : (r.json.key ?? null);
 }
 
+/** The account's published master cross-signing key (`ed25519:...` id), or null. */
+export async function masterKeyId(token: string, userId: string): Promise<string | null> {
+  const { json } = await call<{ master_keys?: Record<string, { keys?: Record<string, string> }> }>('POST', '/keys/query', token, { device_keys: { [userId]: [] } });
+  return Object.keys(json.master_keys?.[userId]?.keys ?? {})[0] ?? null;
+}
+
+/**
+ * Creates a server key backup version from outside any device (unsigned, random public key): a backup this
+ * account's devices cannot trust or decrypt, like one another client left behind. Returns the version.
+ */
+export async function createForeignKeyBackup(token: string): Promise<string> {
+  const pub = Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString('base64').replace(/=+$/, '');
+  const { json } = await call<{ version: string }>('POST', '/room_keys/version', token, { algorithm: 'm.megolm_backup.v1.curve25519-aes-sha2', auth_data: { public_key: pub } });
+  return json.version;
+}
+
+/** DELETE a key backup version (what Hubot does server-side with the user's token). */
+export async function deleteKeyBackupVersion(token: string, version: string): Promise<void> {
+  await call('DELETE', `/room_keys/version/${encodeURIComponent(version)}`, token);
+}
+
 /** Global account data of `type` (e.g. `m.megolm_backup.v1`: `{ encrypted: { <keyId>: ... } }`), or null. */
 export async function accountData<T = Record<string, unknown>>(token: string, userId: string, type: string): Promise<T | null> {
   const r = await call<T>('GET', `/user/${encodeURIComponent(userId)}/account_data/${encodeURIComponent(type)}`, token, undefined, [404]);

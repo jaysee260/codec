@@ -4,6 +4,8 @@ import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
   plugins: [react()],
+  // Per-server dep cache for parallel e2e (playwright.config.ts sets it per worker); dev keeps the default.
+  cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

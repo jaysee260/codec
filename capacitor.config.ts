@@ -20,7 +20,7 @@ import { KeyboardResize } from '@capacitor/keyboard';
  */
 const config: CapacitorConfig = {
   appId: 'com.acme.matrixpoc',
-  appName: 'Matrix POC',
+  appName: 'Codec',
   webDir: 'dist',
   server: {
     androidScheme: 'http',

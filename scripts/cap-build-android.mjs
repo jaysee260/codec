@@ -97,5 +97,5 @@ if (flag('--install')) {
     process.exit(1);
   }
   run(`"${adb}" install -r "${apk}"`, { env });
-  console.log('[cap-build-android] installed. On the phone: open "Matrix POC".');
+  console.log('[cap-build-android] installed. On the phone: open "Codec".');
 }

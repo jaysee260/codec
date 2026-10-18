@@ -1,4 +1,4 @@
-# Matrix POC GIF picker - Demo Handoff (Phase 4)
+# Codec GIF picker - Demo Handoff (Phase 4)
 
 The Phase 1-3 client (docs/DEMO.md, docs/PHASE2_DEMO.md, docs/PHASE3_DEMO.md), now with a Slack-style GIF picker: `/gif <query>`, `/giphy <query>`, or the **GIF** button beside the paperclip, on desktop and phone. GIFs come from Klipy (Tenor shut down in June 2026; Giphy's API is paid). Final test numbers: docs/STATUS.md "Phase 4".
 

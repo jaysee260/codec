@@ -120,6 +120,10 @@
   display: grid;
   gap: 6px;
   align-content: start;
+  /* Rows take their tile's full height. With the default `auto` rows, a page that doesn't fit the
+   * scroller (any real Klipy page; the 8 mock GIFs always fit) shrinks every row toward 0, because an
+   * `overflow: hidden` tile has no minimum height, and the tiles pile up on top of each other. */
+  grid-auto-rows: max-content;
   padding: 4px 8px 8px;
 }
 .grid:focus {
