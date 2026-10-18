@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      // Test output churns constantly during an e2e run (traces, videos, homeserver logs/DBs); watching it cost each
+      // dev server ~45% of a core in stat calls, multiplied by one dev server per Playwright worker (issue #2).
+      ignored: ['**/e2e/results/**', '**/e2e/tmp/**', '**/e2e/demo-mobile/**', '**/playwright-report/**', '**/test-results/**', '**/homeserver/**', '**/seed/**', '**/android/**', '**/ios/**', '**/docs/**'],
+    },
   },
   optimizeDeps: {
     // Phase 5: the crypto engine resolves its .wasm with `new URL('./pkg/x.wasm', import.meta.url)`; esbuild's
