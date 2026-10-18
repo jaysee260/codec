@@ -245,7 +245,9 @@ export const useCallStore = create<CallState>((set, get) => {
       // the session had gone far enough to ring anyone).
       if (session === next) session = null;
       void stopCallService();
-      set({ activeCall: null, lastError: toError(e) });
+      // One failed start is one error (BUG-37): when the session already reported it through onChange (and the UI may
+      // already have shown and cleared it), don't raise a second one.
+      set(next.snapshot().error ? { activeCall: null } : { activeCall: null, lastError: toError(e) });
       throw e;
     }
   }

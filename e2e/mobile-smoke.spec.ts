@@ -26,6 +26,8 @@
  */
 import { devices, expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
+import * as C from './fixtures/call.ts';
+import { requireUi, secondContext, waitForStatus } from './fixtures/e2ee.ts';
 import { checkFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { DISPLAY_NAMES, NAMES, resolveRoom, userId } from './fixtures/seed.ts';
@@ -604,5 +606,48 @@ test.describe('phone demo script (QA-11 mobile smoke)', () => {
     await phoneShot(page, 12, 'giphy-sent');
 
     guard.assertClean();
+  });
+});
+
+/* ================================================================== step 14: Phase 7 phone call (QA-37, AC-R10-3 / AC-R9-1) */
+
+test.describe('step 14 — Phase 7 phone call (AC-R9-1)', () => {
+  test('step 14 — the phone calls dave: full-screen call, 56 px controls, minimise to the bar, leave', async ({ page, browser }) => {
+    test.setTimeout(150_000);
+    await C.requireRtc(test);
+    requireUi('Dev B', 'header-call', 'call-screen', 'call-mute', 'call-speaker', 'call-leave', 'in-call-bar');
+    const dm = await resolveRoom('dm-alice-dave');
+    await C.cleanupCalls([dm]);
+    await loginAs(page, 'alice');
+    await openNavDrawer(page);
+    await navDrawer(page).getByTestId('space-item-home').tap();
+    await navDrawer(page).getByTestId(`dm-item-${dm}`).tap();
+    await expect(navDrawer(page)).toHaveAttribute('data-open', 'false');
+    const dave = await secondContext(browser, 'dave');
+    try {
+      await waitForStatus(dave.page);
+      await page.getByTestId('header-call').tap();
+      await expect(C.callScreen(page)).toHaveAttribute('data-state', 'calling');
+      await expect(C.incomingCard(dave.page)).toBeVisible({ timeout: 10_000 });
+      await phoneShot(page, 14, 'calling');
+      await dave.page.getByTestId('incoming-call-accept').click();
+      await expect(C.callScreen(page)).toHaveAttribute('data-state', 'connected', { timeout: 20_000 });
+      const vp = page.viewportSize()!;
+      const screen = await box(C.callScreen(page), 'call-screen');
+      expect(screen.width).toBeGreaterThanOrEqual(vp.width - 1);
+      for (const id of ['call-mute', 'call-speaker', 'call-leave']) await expectTapTarget(page.getByTestId(id), id, 56);
+      await phoneShot(page, 14, 'connected');
+      await page.getByTestId('call-minimise').tap();
+      await expect(page.getByTestId('in-call-bar')).toContainText(/In call \d{2}:\d{2}/);
+      await phoneShot(page, 14, 'in-call-bar');
+      await page.getByTestId('in-call-bar').tap();
+      await page.getByTestId('call-leave').tap();
+      await expect(C.callScreen(page)).toHaveCount(0, { timeout: 10_000 });
+      await expect(C.callLines(page, 'ended').last()).toContainText('Call ended', { timeout: 15_000 });
+      await phoneShot(page, 14, 'call-ended');
+    } finally {
+      await C.cleanupCalls([dm], [page, dave.page]);
+      await dave.close();
+    }
   });
 });

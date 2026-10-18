@@ -228,7 +228,7 @@ test('AC-R6-6: 3-person #vault call: bob leaves -> alice stays connected with 2 
   const ended = (await callEventsSince(page, R.vault, t0, LINE_TYPE, 'ended'))[0]!;
   expect(ended.sender).toBe(DAVE);
   expect(ended.content.call_id).toBe(rings[0]!.eventId);
-  expect.soft(new Set((ended.content.participants as string[] | undefined) ?? []), 'ended.participants = everyone who was in the call').toEqual(new Set([ALICE, BOB, DAVE]));
+  expect(new Set((ended.content.participants as string[] | undefined) ?? []), 'BUG-34 regression: ended.participants = everyone who was in the call').toEqual(new Set([ALICE, BOB, DAVE]));
   await expect(page.locator('[data-testid="message-call"][data-kind="ended"]').last()).toContainText('Call ended');
   await dave.close();
 });

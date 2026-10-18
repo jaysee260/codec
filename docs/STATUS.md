@@ -452,7 +452,7 @@ Orchestrator rulings from QA's contract review (docs/PHASE7_ACCEPTANCE.md update
 | Item | Result |
 |---|---|
 | Gate run after `livekit-client` + worker bundling (`desktop`, `mobile`, `test:e2e:e2ee`, `test:e2e:threads`) | not yet run |
-| Full runs incl. `test:e2e:call` and smoke step 14, both projects | Wave 2 (`7f5bf37`), 3 workers: 360 passed / 5 failed / 12 skipped; the 5 are BUG-33..37 (docs/BUGS.md Phase 7). Smoke step 14 not written yet |
+| Full runs incl. `test:e2e:call` and smoke step 14, both projects | Fix wave `41169c9`, 3 workers, 22.5 min: **368 passed / 1 failed / 10 skipped**. Red: AC-R4-5 (BUG-37: still two mic-denied toasts, store sets `lastError` twice; Principal). Call specs 21/22; smoke step 14 green on both projects. BUG-33..36 closed (docs/BUGS.md Phase 7). Earlier: Wave 2 `7f5bf37` 360 / 5 / 12 |
 | Desktop demo script 1-9 (docs/PHASE7_PLAN.md) | not yet run |
 | Android: AC-R9-2/4/5 on a real phone (PRIN-31) | not yet run |
 | Manual 704.chat checklist M1-M15 (JC, Charlie, Juanjo; needs product Phase 0 on the homelab) | not yet run |

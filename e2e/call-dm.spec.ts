@@ -143,8 +143,8 @@ test('AC-R4-5: mic denied -> toast with how to allow, no membership, no ring, no
   await page.getByTestId('header-call').click();
   const MIC = "Codec can't use your microphone. Allow it in the browser's site settings and try again";
   await expect(page.getByTestId('toast').filter({ hasText: MIC }).first()).toBeVisible();
-  // BUG (Phase 7): CallErrorToast shows the toast twice in the dev build (StrictMode re-runs its effect).
-  expect.soft(await page.getByTestId('toast').filter({ hasText: MIC }).count(), 'one mic-denied toast').toBe(1);
+  // BUG-37 regression: one toast, also under React StrictMode (dev build).
+  expect(await page.getByTestId('toast').filter({ hasText: MIC }).count(), 'one mic-denied toast').toBe(1);
   await expect(callScreen(page)).toHaveCount(0);
   const s = await callHook(page).state();
   expect(s.activeCall).toBeNull();
@@ -216,7 +216,7 @@ test('AC-R4-1, R5-1/2, R6-1/2/4/5, R3-6 (ended): ring -> card -> accept -> conne
       return r ? r.lastPlayedAt ?? null : 'no-hook';
     });
     if (played === 'no-hook') test.info().annotations.push({ type: 'core-pending', description: '__matrixPoc.calls.ringtone not exposed: lastPlayedAt not asserted' });
-    else await expect.soft.poll(() => d.page.evaluate(() => { const poc = (window as any).__matrixPoc; return (poc.call ?? poc.calls).ringtone.lastPlayedAt; }), { timeout: 3_000, message: 'ringtone.lastPlayedAt after the click (the ring started before any gesture)' }).not.toBeNull();
+    else await expect.poll(() => d.page.evaluate(() => { const poc = (window as any).__matrixPoc; return (poc.call ?? poc.calls).ringtone.lastPlayedAt; }), { timeout: 3_000, message: 'BUG-33 regression: ringtone.lastPlayedAt after the click (the ring started before any gesture)' }).not.toBeNull();
   });
 
   let connectedAt = 0;
@@ -308,13 +308,13 @@ test('AC-R4-1, R5-1/2, R6-1/2/4/5, R3-6 (ended): ring -> card -> accept -> conne
     const ring = (await callEventsSince(page, R.dm, connectedAt - 60_000, RING_TYPE))[0]!;
     expect(ended[0]!.sender).toBe(DAVE);
     expect(ended[0]!.content.call_id).toBe(ring.eventId);
-    expect.soft(new Set((ended[0]!.content.participants as string[] | undefined) ?? []), 'ended.participants = both').toEqual(new Set([ALICE, DAVE]));
+    expect(new Set((ended[0]!.content.participants as string[] | undefined) ?? []), 'BUG-34 regression: ended.participants = both').toEqual(new Set([ALICE, DAVE]));
     expect(Math.abs((ended[0]!.content.duration_ms as number) - (tLeave - daveConnectedAt)), "duration_ms within 2 s of dave's connected time").toBeLessThanOrEqual(2_000);
     await expectSentEncrypted(R.dm, ended[0]!.eventId);
     for (const p of [page, d.page]) {
       await expect(callLines(p, 'ended').last()).toContainText('Call ended, < 1 min');
       await expect(callLines(p, 'started').last()).toContainText(/started a (voice )?call/);
-      await expect.soft(callLines(p, 'started').last(), 'AC-R7-1 wording').toContainText(/(Alice Park|You) started a voice call/);
+      await expect(callLines(p, 'started').last(), 'BUG-36 regression: AC-R7-1 wording').toContainText(/(Alice Park|You) started a voice call/);
     }
   });
 });
@@ -427,7 +427,7 @@ test('AC-R5-4 (caller hangs up): the card closes within 3 s and the missed line 
   const d = await dave(browser);
   await openTheDm(page);
   await openTheDm(d.page);
-  // dave calls alice and hangs up after the card is up (the AC's "at 20 s", shortened: what matters is "before the timeout").
+  // BUG-35 regression. dave calls alice and hangs up after the card is up (the AC's "at 20 s", shortened: what matters is "before the timeout").
   const t0 = Date.now();
   await d.page.getByTestId('header-call').click();
   await expect(incomingCard(page)).toBeVisible({ timeout: 10_000 });
@@ -534,7 +534,7 @@ test('AC-R7-1/2/4: call lines render from the three event types; malformed rende
   // A ring that is already expired (no card) still renders as the "started" line.
   const ring = await ringAlice(R.dm, { from: 'dave', senderTs: Date.now() - 120_000 });
   await expectNewLine('started', startedText, n);
-  await expect.soft(callLines(page, 'started').filter({ hasText: startedText }).last(), 'AC-R7-1 wording').toContainText(`${DISPLAY_NAMES.dave} started a voice call`);
+  await expect(callLines(page, 'started').filter({ hasText: startedText }).last(), 'BUG-36 regression: AC-R7-1 wording').toContainText(`${DISPLAY_NAMES.dave} started a voice call`);
   await expect(incomingCard(page)).toHaveCount(0);
   await ring.hangUp();
 

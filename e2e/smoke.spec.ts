@@ -16,6 +16,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import * as E2 from './fixtures/e2ee.ts';
 import * as E2API from './fixtures/e2ee-api.ts';
+import * as C from './fixtures/call.ts';
 import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { BODIES, DISPLAY_NAMES, NAMES, eventId, resolveRoom, uniqueName, userId } from './fixtures/seed.ts';
@@ -853,3 +854,110 @@ test.describe('step 13 — Phase 5 E2EE demo (rows 1-11)', () => {
     await E2.e2eeAfterEach(page, info);
   });
 });
+
+/* ================================================================== step 14: Phase 7 desktop demo (QA-37, AC-R10-3) */
+
+/**
+ * docs/PHASE7_PLAN.md "Desktop demo script" rows 1-7, one screenshot per sub-step into `e2e/results/demo/14-*`.
+ * Window 1 = alice (`page` of the test), window 2 = dave in a second context: the seed's only encrypted DM is
+ * `dm-alice-dave` (the script's "bob"). The 60 s ring of row 7 is shortened with `setRingTimeoutMs`. Rows 8-9 are
+ * covered by call-room.spec.ts / call-dm.spec.ts (AC-R4-2, AC-R6-6, AC-R8).
+ */
+test.describe('step 14 — Phase 7 voice call demo (rows 1-7)', () => {
+  test('step 14 — call, accept, mute, chat + bar, leave, decline, no answer + missed + call back', async ({ page, browser }) => {
+    test.setTimeout(240_000);
+    await C.requireRtc(test);
+    E2.requireUi('Dev B', 'header-call', 'call-screen', 'incoming-call', 'in-call-bar', 'message-call', 'call-back');
+    const dm = await resolveRoom('dm-alice-dave');
+    await C.cleanupCalls([dm]);
+    const ALICE = userId('alice');
+    const DAVE = userId('dave');
+    await E2.loginWith(page, 'alice');
+    await E2.waitForStatus(page);
+    const w2 = await E2.secondContext(browser, 'dave');
+    await E2.waitForStatus(w2.page);
+    try {
+      for (const p of [page, w2.page]) {
+        await p.getByTestId('space-item-home').click();
+        await p.getByTestId(`dm-item-${dm}`).click();
+        await expect(messageList(p)).toBeVisible();
+      }
+      // 1. alice calls; dave's card
+      await page.getByTestId('header-call').click();
+      await expect(C.callScreen(page)).toHaveAttribute('data-state', 'calling');
+      await expect(page.getByTestId('call-lock')).toBeVisible();
+      await expect(C.incomingCard(w2.page)).toBeVisible({ timeout: 10_000 });
+      await stepShot(page, 14, '01-calling');
+      await stepShot(w2.page, 14, '01-incoming-card');
+      // 2. accept: connected on both, two tiles, timer
+      await w2.page.getByTestId('incoming-call-accept').click();
+      for (const p of [page, w2.page]) await expect(C.callScreen(p)).toHaveAttribute('data-state', 'connected', { timeout: 20_000 });
+      await C.waitForCallState(page, C.connectedWith(DAVE), 'alice connected with dave', 30_000);
+      await expect(C.participantTile(page, DAVE)).toBeVisible();
+      await stepShot(page, 14, '02-connected');
+      // 3. mute: crossed mic on both sides
+      await page.getByTestId('call-mute').click();
+      await expect(C.participantTile(w2.page, ALICE)).toHaveAttribute('data-muted', 'true', { timeout: 5_000 });
+      await stepShot(w2.page, 14, '03-alice-muted');
+      // 4. dave chats behind the minimised call; the bar reopens the screen
+      await w2.page.getByTestId('call-minimise').click();
+      await expect(w2.page.getByTestId('in-call-bar')).toContainText(/In call \d{2}:\d{2}/);
+      const text = `demo 14 chat ${Date.now()}`;
+      await typeAndSend(w2.page, text);
+      await expect(rowByText(page, text)).toBeVisible({ timeout: 15_000 });
+      await stepShot(w2.page, 14, '04-in-call-bar');
+      await w2.page.getByTestId('in-call-bar').click();
+      await expect(C.callScreen(w2.page)).toBeVisible();
+      // 5. alice leaves: both close, started + ended lines
+      await page.getByTestId('call-leave').click();
+      for (const p of [page, w2.page]) await expect(C.callScreen(p)).toHaveCount(0, { timeout: 10_000 });
+      for (const p of [page, w2.page]) {
+        await expect(C.callLines(p, 'ended').last()).toContainText('Call ended', { timeout: 15_000 });
+        await expect(C.callLines(p, 'started').last()).toContainText('started a voice call');
+      }
+      await stepShot(page, 14, '05-call-ended');
+      // 6. dave calls, alice declines
+      await w2.page.getByTestId('header-call').click();
+      await expect(C.incomingCard(page)).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId('incoming-call-decline').click();
+      await expect(w2.page.getByTestId('call-status')).toHaveText(`${DISPLAY_NAMES.alice} declined`, { timeout: 10_000 });
+      await expect(C.callLines(w2.page, 'declined').last()).toContainText(`${DISPLAY_NAMES.alice} declined`);
+      await expect(C.callLines(page, 'declined').last()).toContainText('You declined');
+      await stepShot(w2.page, 14, '06-declined');
+      await expect(C.callScreen(w2.page)).toHaveCount(0, { timeout: 6_000 });
+      // 7. dave calls, nobody answers (ring shortened): no answer, missed + call back, sidebar preview
+      const ring = await C.ringTimeoutOverride(w2.page, 8_000);
+      await openSpaceOrStay(page); // alice leaves the DM for #general...
+      await page.getByTestId('space-item-home').click(); // ...and watches the DM row from Home
+      await w2.page.getByTestId('header-call').click();
+      await expect(C.incomingCard(page)).toBeVisible({ timeout: 10_000 });
+      await expect(C.callScreen(w2.page)).toHaveAttribute('data-state', 'no-answer', { timeout: ring + 15_000 });
+      await stepShot(w2.page, 14, '07-no-answer');
+      await w2.page.getByTestId('call-close').click();
+      await expect(page.getByTestId(`dm-item-${dm}`)).toHaveAttribute('data-preview', 'missed-call', { timeout: 15_000 });
+      await stepShot(page, 14, '07-sidebar-missed');
+      await page.getByTestId(`dm-item-${dm}`).click();
+      const missed = page.locator('[data-testid="message-call"][data-kind="missed"][data-missed="true"]').last();
+      await expect(missed).toContainText(`Missed call from ${DISPLAY_NAMES.dave}`);
+      await stepShot(page, 14, '07-missed-line');
+      await missed.getByTestId('call-back').click();
+      await expect(C.callScreen(page)).toHaveAttribute('data-state', 'calling');
+      await expect(C.incomingCard(w2.page)).toBeVisible({ timeout: 10_000 });
+      await stepShot(page, 14, '07-call-back');
+      await page.getByTestId('call-leave').click();
+    } finally {
+      await C.cleanupCalls([dm], [page, w2.page]);
+      await w2.close();
+    }
+  });
+
+  test.afterEach(async ({ page }, info) => {
+    await E2.e2eeAfterEach(page, info);
+  });
+});
+
+/** Row 7: alice must not be inside the DM when the missed line lands (the sidebar preview is the point). */
+async function openSpaceOrStay(page: Page): Promise<void> {
+  const acme = await resolveRoom('acme-hq');
+  await openSpace(page, acme);
+}
