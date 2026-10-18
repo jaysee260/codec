@@ -5,10 +5,12 @@ QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..
 
 ## Which specs CI runs
 
-Pushes to master run everything. A pull request runs the two smoke walk-throughs plus the specs for the areas it
-changes (`scripts/select-e2e.mjs`; shared code such as `src/lib/matrix`, `src/store` or `e2e/fixtures` runs
-everything). Label a PR `full-e2e` to force the whole suite. **A new spec must be added to an area there**:
-`npm run test:unit` fails until it is.
+Pushes to master run everything. A pull request never does (unless it is labelled `full-e2e`): it runs the two smoke
+walk-throughs plus the specs that depend on the files it changes, found by following imports
+(`scripts/select-e2e.mjs`). A feature change runs its feature's specs; a change most of the suite depends on (the
+Matrix client layer, the stores, the login fixtures, test setup) runs a small core set (smoke, login, crypto boot)
+and leaves the rest to master's full run. **A new spec must be added to an area there**: `npm run test:unit` fails
+until it is. `node scripts/select-e2e.mjs origin/master` prints what your branch would run.
 
 ## Projects
 

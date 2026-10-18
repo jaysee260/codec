@@ -2,8 +2,9 @@
 #   build  typecheck + production build (npm run build) + unit tests (npm run test:unit, node:test, src/**/*.test.ts + scripts/**/*.test.mjs)
 #   e2e    Playwright (desktop + mobile projects), in parallel: Playwright's global setup builds the seed snapshot and
 #          starts one throwaway Synapse (from homeserver/.venv) + one Vite per worker (issue #2).
-#          Pushes to master, manual runs and PRs labelled `full-e2e` run the whole suite; other PRs run the smoke
-#          walk-throughs plus the specs for the areas they change (scripts/select-e2e.mjs; shared code -> everything).
+#          Pushes to master, manual runs and PRs labelled `full-e2e` run the whole suite. Other PRs never do: they run
+#          the smoke walk-throughs plus the specs that depend on what they change (scripts/select-e2e.mjs; a change to
+#          the client core or the test setup runs a small core set, and master's full run covers the rest).
 name: CI
 
 on:
