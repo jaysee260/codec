@@ -64,6 +64,7 @@
     "dompurify": "^3.4.16",
     "lucide-react": "^1.49.0",
     "matrix-js-sdk": "^43.0.0",
+    "ogg-opus-decoder": "^1.7.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.15"

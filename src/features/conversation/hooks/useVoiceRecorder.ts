@@ -7,7 +7,8 @@
  *   createLevelMeter(stream)                       RMS 0..100 for `recording-level`
  *   handle.stop() -> { blob, mimetype, durationMs } wall-clock duration
  *   analyzeAudio(blob) -> { durationMs, waveform, decoded }   one decode for both numbers
- *   encodeToOggOpus(blob) -> { blob, mimetype }    identity in the POC (the P1 transcode seam)
+ *   encodeToOggOpus(blob, mime) -> { blob, mimetype }   lossless WebM/Opus -> Ogg/Opus remux (audio/ogg); Ogg,
+ *                                                  MP4/AAC and anything it cannot remux come back unchanged
  *   sendVoiceMessage(roomId, blob, meta)           upload + the MSC1767/MSC3245 event
  *
  * States (docs/PHASE2_ACCEPTANCE.md test-id registry):
@@ -46,6 +47,13 @@ export const MAX_DURATION_MS = 120_000;
 export const MIN_DURATION_MS = 1_000;
 /** Waveform samples in the event (contract: about 100, accepted 30..120). */
 export const WAVEFORM_SAMPLES = 100;
+
+/**
+ * Dev-only test switch (AC-F9), exposed as `window.__matrixPoc.voice.forceRemuxFailure` by src/app/devtools.ts.
+ * When true in a dev build, the send path behaves as if the WebM -> Ogg remux threw, so the ORIGINAL recording
+ * is uploaded with its own mimetype. Ignored in production builds.
+ */
+export const voiceSendDebug = { forceRemuxFailure: false };
 
 const LEVEL_INTERVAL_MS = 66; // ~15 fps; AC-V1-2 compares two samples 500 ms apart
 const TIMER_INTERVAL_MS = 100;
@@ -101,8 +109,11 @@ function micErrorText(e: unknown): string {
 
 /** The analysed, upload-ready take kept across a retry (AC-V5-2). */
 interface PreparedTake {
+  /** The ENCODED blob (`encodeToOggOpus` output): what is uploaded, on the first try and on every retry. */
   blob: Blob;
+  /** `encodeToOggOpus`'s mimetype for `blob` (audio/ogg after a remux), not the recorder's. */
   mimetype: string;
+  /** From the original recording's decode (else the recorder's wall clock). */
   durationMs: number;
   waveform: number[];
 }
@@ -205,9 +216,19 @@ export function useVoiceRecorder(roomId: string, opts: VoiceRecorderOptions = {}
         }
         setState('encoding');
         await raf(); // one paint in `encoding` before the decode blocks (AC-V2-1)
+        // Duration + waveform come from the ORIGINAL recording (the remux changes no samples, and the
+        // original is what this platform is known to decode); only the upload uses the encoded blob.
         const analysis = await analyzeAudio(stopped.blob, WAVEFORM_SAMPLES);
-        const encoded = await encodeToOggOpus(stopped.blob, stopped.mimetype);
+        let encoded: { blob: Blob; mimetype: string };
+        try {
+          if (import.meta.env.DEV && voiceSendDebug.forceRemuxFailure) throw new Error('forced remux failure (AC-F9)');
+          encoded = await encodeToOggOpus(stopped.blob, stopped.mimetype);
+        } catch {
+          // The seam already falls back on remux failure; this is belt and braces so sending never breaks.
+          encoded = { blob: stopped.blob, mimetype: stopped.mimetype };
+        }
         if (genRef.current !== gen) return;
+        // Kept in `takeRef`: a retry after a failed upload re-sends this exact encoded blob (no re-encode).
         take = {
           blob: encoded.blob,
           mimetype: encoded.mimetype,
