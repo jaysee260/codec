@@ -437,6 +437,17 @@ Plan: docs/PHASE7_PLAN.md · Criteria/testids + manual 704.chat checklist: docs/
 | QA-37 `e2e/mobile-call.spec.ts` + smoke step 14 in both smoke specs | P0 | todo | QA | |
 | QA-38 Gate run after PRIN-28, regression runs, docs/BUGS.md "Phase 7" + manual checklist table, regression test per fix | P0 | todo | QA | |
 
+## Wave 21 - fix wave (QA run 1 of Wave 20, docs/BUGS.md "Phase 7")
+| Bug | S | Status | Owner | Notes |
+|---|---|---|---|---|
+| BUG-33 Ringtone never starts when the ring arrives before any gesture (AC-R5-1) | S2 | in-progress | Principal | `ringtone.play()` called once from the store; needs a retry on the first gesture |
+| BUG-34 `ended` line has no `participants` (AC-R3-6, AC-R6-6) | S2 | in-progress | Principal | `buildCallLineContent` / `sendEndLines` |
+| BUG-35 Caller hangs up while ringing: no `missed` line (AC-R5-4) | S2 | in-progress | Principal | `sendEndLines` only covers the timeout |
+| BUG-36 Started row reads "started a call" (AC-R7-1) | S3 | in-progress | Principal | Text is "started a voice call"; sender's own device says "You" (orchestrator ruling) |
+| BUG-37 Mic-denied toast shown twice (AC-R4-5) | S3 | in-progress | Dev B | `CallErrorToast` effect under StrictMode |
+
+Orchestrator rulings from QA's contract review (docs/PHASE7_ACCEPTANCE.md updated): the sender's own device says "You" on every call line; a drop-in start sends no ring event (AC-R3-2); `call-close` added to the registry.
+
 ## Phase 7 dry run (Wave 21)
 | Item | Result |
 |---|---|
@@ -445,7 +456,7 @@ Plan: docs/PHASE7_PLAN.md · Criteria/testids + manual 704.chat checklist: docs/
 | Desktop demo script 1-9 (docs/PHASE7_PLAN.md) | not yet run |
 | Android: AC-R9-2/4/5 on a real phone (PRIN-31) | not yet run |
 | Manual 704.chat checklist M1-M15 (JC, Charlie, Juanjo; needs product Phase 0 on the homelab) | not yet run |
-| Open bugs | BUG-4 (S3, environment) carried over; AC-E6-3 ordering dependency (Phase 6 follow-up) still open |
+| Open bugs | BUG-33..37 (Wave 21 table above, all in progress); BUG-4 (S3, environment) carried over; AC-E6-3 green after its test-order fix |
 
 ## Requests to Principal (Phase 7)
 | # | From | Request | Status |

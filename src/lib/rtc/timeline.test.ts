@@ -19,13 +19,13 @@ describe('timeline rows', () => {
     assert.deepEqual(describeCallEvent(n, { displayName: 'Alice', myUserId: '@bob:localhost' }), {
       kind: 'started',
       userId: '@alice:localhost',
-      text: 'Alice started a call',
+      text: 'Alice started a voice call',
       notifyEventId: '$n',
       callId: '$n',
       missedByMe: false,
       previewText: 'Voice call',
     });
-    assert.equal(describeCallEvent(n, { displayName: 'Alice', myUserId: '@alice:localhost' })!.text, 'You started a call');
+    assert.equal(describeCallEvent(n, { displayName: 'Alice', myUserId: '@alice:localhost' })!.text, 'You started a voice call');
     const d = ev('org.matrix.msc4310.rtc.decline', { 'm.relates_to': { rel_type: 'm.reference', event_id: '$n' } }, '@bob:localhost');
     const dRow = describeCallEvent(d, { displayName: 'Bob' })!;
     assert.equal(dRow.kind, 'declined');

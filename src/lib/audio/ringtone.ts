@@ -2,7 +2,8 @@
  * Phase 7 (PRIN-30): the incoming-call ringtone, synthesised with WebAudio (no asset to ship, loops for free).
  *
  *   ringtone.canPlay()        true once the page has seen a pointer / key gesture (browser autoplay gate)
- *   ringtone.play()           starts the loop; before a gesture it resolves without playing (never throws)
+ *   ringtone.play()           starts the loop; before a gesture it resolves without playing (never throws) and the
+ *                             first pointer / key gesture after it starts the loop unless `stop()` came first (BUG-33)
  *   ringtone.stop()           silence; idempotent
  *   ringtone.lastPlayedAt     ms timestamp of the last successful `play()`, null until then (AC-R3-8)
  *   ringtone.vibrate(on)      `navigator.vibrate` pattern on phones (no-op where unsupported); off stops it
@@ -17,11 +18,17 @@ let ctx: AudioContext | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let gain: GainNode | null = null;
 let lastPlayedAt: number | null = null;
+/** `play()` was asked for before any gesture: the first gesture starts it (BUG-33). */
+let pendingPlay = false;
 
 const VIBRATE_PATTERN = [400, 200, 400, 1200];
 
 function noteGesture(): void {
   gestureSeen = true;
+  if (pendingPlay) {
+    pendingPlay = false;
+    void ringtone.play();
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -71,7 +78,11 @@ export const ringtone = {
   },
   async play(): Promise<void> {
     if (timer) return;
-    if (!gestureSeen) return;
+    if (!gestureSeen) {
+      pendingPlay = true; // resolves without playing; the first pointer / key gesture retries (BUG-33)
+      return;
+    }
+    pendingPlay = false;
     const audio = getContext();
     if (!audio) return;
     try {
@@ -90,6 +101,7 @@ export const ringtone = {
     }, 2200);
   },
   stop(): void {
+    pendingPlay = false;
     if (timer) clearInterval(timer);
     timer = null;
     if (gain) {

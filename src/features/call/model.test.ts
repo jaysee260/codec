@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closeDelayFor, errorText, formatTimer, screenStateOf, statusText, tilesOf } from './model.ts';
+import { closeDelayFor, createOnceGate, errorText, formatTimer, screenStateOf, statusText, tilesOf } from './model.ts';
 
 const ME = '@alice:localhost';
 const BOB = '@bob:localhost';
@@ -62,4 +62,13 @@ test('tilesOf: one tile per user, self first, devices merged', () => {
 test('errorText: the mic-denied toast text is exact', () => {
   assert.equal(errorText('mic-denied'), "Codec can't use your microphone. Allow it in the browser's site settings and try again");
   assert.equal(errorText('weird', 'boom'), 'boom');
+});
+
+test('createOnceGate: each error object passes once (BUG-37, StrictMode double effect)', () => {
+  const gate = createOnceGate<{ code: string }>();
+  const a = { code: 'mic-denied' };
+  const b = { code: 'mic-denied' };
+  assert.equal(gate(a), true);
+  assert.equal(gate(a), false);
+  assert.equal(gate(b), true); // a new failure with the same code still toasts
 });

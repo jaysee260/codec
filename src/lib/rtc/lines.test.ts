@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   buildCallLineContent,
   callLinePreviewText,
+  endLineFor,
   formatCallLine,
   formatCallLineDuration,
   getCallLine,
@@ -48,8 +49,8 @@ describe('getCallLine', () => {
   });
 
   test('buildCallLineContent round-trips through getCallLine', () => {
-    const ended = buildCallLineContent({ kind: 'ended', callId: '$n', durationMs: 70_400.6 });
-    assert.deepEqual(ended, { kind: 'ended', call_id: '$n', duration_ms: 70401 });
+    const ended = buildCallLineContent({ kind: 'ended', callId: '$n', durationMs: 70_400.6, participants: [alice, bob] });
+    assert.deepEqual(ended, { kind: 'ended', call_id: '$n', duration_ms: 70401, participants: [alice, bob] });
     assert.equal(getCallLine(ev(ended))!.durationMs, 70401);
     const missed = buildCallLineContent({ kind: 'missed', callId: '$n', participants: [alice, carol] });
     assert.deepEqual(missed, { kind: 'missed', call_id: '$n', participants: [alice, carol] });
@@ -137,5 +138,31 @@ describe('isCallOpeningMembership', () => {
     const a = member(alice, '$a', T0, {});
     assert.equal(isCallOpeningMembership(a, [a, ring('$r', '$a', T0 + 50)]), false);
     assert.equal(isCallOpeningMembership(a, [a, ring('$r', '$other', T0 + 50)]), true);
+  });
+});
+
+describe('end lines (BUG-34 / BUG-35)', () => {
+  const base = { endReason: 'hangup', rang: [] as string[], answered: false, lastToLeave: false, connectedAt: null as number | null };
+
+  test('missed: our ring timed out, or we hung up while still ringing; never after an answer or a decline', () => {
+    assert.equal(endLineFor({ ...base, endReason: 'no-answer', rang: [bob] }), 'missed');
+    assert.equal(endLineFor({ ...base, endReason: 'hangup', rang: [bob], connectedAt: 1 }), 'missed');
+    assert.equal(endLineFor({ ...base, endReason: 'hangup', rang: [bob], answered: true, lastToLeave: true, connectedAt: 1 }), 'ended');
+    assert.equal(endLineFor({ ...base, endReason: 'declined', rang: [bob] }), null);
+    assert.equal(endLineFor({ ...base, endReason: 'busy', rang: [bob] }), null);
+    assert.equal(endLineFor({ ...base, endReason: 'hangup', rang: [] }), null); // a drop-in start that rang nobody
+  });
+
+  test('ended: only the last one out of a connected call', () => {
+    assert.equal(endLineFor({ ...base, endReason: 'remote-hangup', answered: true, lastToLeave: true, connectedAt: 1 }), 'ended');
+    assert.equal(endLineFor({ ...base, endReason: 'hangup', answered: true, lastToLeave: false, connectedAt: 1 }), null);
+    assert.equal(endLineFor({ ...base, endReason: 'error', answered: true, lastToLeave: true, connectedAt: 1 }), 'ended');
+    assert.equal(endLineFor({ ...base, endReason: 'hangup', answered: true, lastToLeave: true, connectedAt: null }), null);
+  });
+
+  test('ended content carries every participant, de-duplicated', () => {
+    const c = buildCallLineContent({ kind: 'ended', callId: '$n', durationMs: 65_000, participants: [alice, bob, alice] });
+    assert.deepEqual(c, { kind: 'ended', call_id: '$n', duration_ms: 65000, participants: [alice, bob] });
+    assert.deepEqual(getCallLine(ev(c))!.participants, [alice, bob]);
   });
 });

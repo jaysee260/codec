@@ -167,3 +167,16 @@ export function disabledTitle(reason: string, message?: string): string {
   if (reason === 'busy') return "You're already in a call";
   return message || "Calls aren't available here";
 }
+
+/**
+ * A gate that lets each object through once (BUG-37): StrictMode runs an effect twice with the same store
+ * `lastError` object before `clearError()` lands, so the toast keys on the error's identity, not on the render.
+ */
+export function createOnceGate<T extends object>(): (item: T) => boolean {
+  const seen = new WeakSet<T>();
+  return (item) => {
+    if (seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  };
+}

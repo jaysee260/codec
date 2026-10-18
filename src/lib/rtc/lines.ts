@@ -8,8 +8,10 @@
  *   - "started"  is NOT this event: it is the Codec-built ring (`org.matrix.msc4075.rtc.notification`), or, for a
  *                drop-in call that rang nobody, the membership state event that opened the session (`isCallOpeningMembership`).
  *   - "declined" is NOT this event either: MSC4310 `org.matrix.msc4310.rtc.decline` (+ `io.codec.decline_reason: busy`).
- *   - "missed"   the caller sends it when the 60 s ring ends with nobody joined and nobody declined; `participants` = who was rung.
- *   - "ended"    the last participant to leave sends it, best effort, with `duration_ms` = its own connected time.
+ *   - "missed"   the caller sends it when its ring ends (60 s timeout, or the caller hanging up) with nobody joined and
+ *                nobody declined; `participants` = who was rung.
+ *   - "ended"    the last participant to leave sends it, best effort, with `duration_ms` = its own connected time and
+ *                `participants` = everyone who was in the call.
  * `getCallLine` also accepts `kind: 'started' | 'declined'` on the wire (the PM contract allows them) so a future sender
  * renders; Codec never sends those two. The event is never a thread root or reply; `previewText` shows "Missed call"
  * when a missed event lists the viewer (`callLinePreviewText`).
@@ -46,10 +48,33 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
 }
 
-/** Pure: the content of the event the store sends (`participants` for `missed`, `duration_ms` for `ended`). */
-export function buildCallLineContent(line: { kind: 'ended'; callId: string; durationMs: number } | { kind: 'missed'; callId: string; participants: string[] }): Record<string, unknown> {
-  if (line.kind === 'ended') return { kind: 'ended', call_id: line.callId, duration_ms: Math.max(0, Math.round(line.durationMs)) };
-  return { kind: 'missed', call_id: line.callId, participants: [...line.participants] };
+/**
+ * Pure: the content of the event the store sends. `participants` = who was in the call (`ended`, BUG-34) or who was
+ * rung and did not answer (`missed`); `duration_ms` for `ended`.
+ */
+export function buildCallLineContent(
+  line: { kind: 'ended'; callId: string; durationMs: number; participants: string[] } | { kind: 'missed'; callId: string; participants: string[] },
+): Record<string, unknown> {
+  const participants = [...new Set(line.participants)];
+  if (line.kind === 'ended') return { kind: 'ended', call_id: line.callId, duration_ms: Math.max(0, Math.round(line.durationMs)), participants };
+  return { kind: 'missed', call_id: line.callId, participants };
+}
+
+/**
+ * Pure (BUG-35): which line a caller / leaver owes when its call ends. `missed` when we rang and nobody ever joined or
+ * declined (the 60 s timeout, or hanging up while still ringing); `ended` when we were the last one out of a call that
+ * had connected; nothing otherwise (a decline / busy end has its own MSC4310 event; a mid-call leaver sends nothing).
+ */
+export function endLineFor(end: {
+  endReason: string | null;
+  rang: readonly string[];
+  answered: boolean;
+  lastToLeave: boolean;
+  connectedAt: number | null;
+}): 'missed' | 'ended' | null {
+  if (end.rang.length > 0 && !end.answered && (end.endReason === 'no-answer' || end.endReason === 'hangup')) return 'missed';
+  if (end.lastToLeave && end.connectedAt !== null && (end.endReason === 'hangup' || end.endReason === 'remote-hangup' || end.endReason === 'error')) return 'ended';
+  return null;
 }
 
 /**

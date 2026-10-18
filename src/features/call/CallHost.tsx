@@ -7,7 +7,7 @@
 import { useEffect } from 'react';
 import { useCallError, useCallStore } from '@/store/call.ts';
 import { showToast } from '@/store/toast.ts';
-import { errorText } from './model.ts';
+import { createOnceGate, errorText } from './model.ts';
 import { IncomingCallCard } from './IncomingCallCard.tsx';
 import { CallScreen } from './CallScreen.tsx';
 
@@ -21,10 +21,13 @@ export function CallHost() {
   );
 }
 
+/** Module-level, so it survives StrictMode's effect re-run and a remount (BUG-37: the toast fired twice). */
+const toastOnce = createOnceGate<object>();
+
 export function CallErrorToast() {
   const error = useCallError();
   useEffect(() => {
-    if (!error) return;
+    if (!error || !toastOnce(error)) return;
     showToast(errorText(error.code, error.message), 'error');
     useCallStore.getState().clearError();
   }, [error]);

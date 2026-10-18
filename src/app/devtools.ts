@@ -20,7 +20,7 @@ import { useSessionStore } from '@/store/session.ts';
 import { useTimelineStore, paginateBack, refreshThread, isRedactedThreadReply } from '@/store/timeline.ts';
 import { useThreadStore, getThreadSummary, getThreadModel, isThreadReady } from '@/store/threads.ts';
 import { useSecurityStore } from '@/store/security.ts';
-import { useCallStore, canCall, ringPolicy, enableCallsInRoom, activeCallStats } from '@/store/call.ts';
+import { useCallStore, canCall, ringPolicy, enableCallsInRoom, activeCallStats, setRingTimeoutMs, ringTimeoutMs } from '@/store/call.ts';
 import { ringtone } from '@/lib/audio/ringtone.ts';
 import { currentSpeakerphoneImpl, overrideSpeakerphone } from '@/lib/native.ts';
 import * as rtc from '@/lib/rtc/index.ts';
@@ -112,6 +112,9 @@ const callHook = Object.assign(useCallStore, {
   describeCallEvent: rtc.describeCallEvent,
   CALL_RING_MAX_MEMBERS: rtc.CALL_RING_MAX_MEMBERS,
   CALL_RING_TIMEOUT_MS: rtc.RING_TIMEOUT_MS,
+  /** STATUS request #24 (dev builds only, reset on reload): shorten the 60 s ring for the e2e missed-call cases. */
+  setRingTimeoutMs: (ms: number | null) => setRingTimeoutMs(ms),
+  ringTimeoutMs: () => ringTimeoutMs() ?? rtc.RING_TIMEOUT_MS,
   CALL_KEYS_TIMEOUT_MS: rtc.CALL_KEYS_TIMEOUT_MS,
   startCall: (roomId: string, opts?: { ring?: boolean }) => useCallStore.getState().startCall(roomId, opts),
   accept: (roomId: string) => useCallStore.getState().acceptCall(roomId),

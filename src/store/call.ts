@@ -28,7 +28,7 @@ import { MatrixRTCSessionEvent, MatrixRTCSessionManagerEvents, type MatrixRTCSes
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { ringtone } from '@/lib/audio/ringtone.ts';
 import { isNativeApp, onCallServiceHangup, setSpeakerphone, startCallService, stopCallService } from '@/lib/native.ts';
-import { buildCallLineContent, CALL_LINE_TYPE, setCallTimelineResolver } from '@/lib/rtc/lines.ts';
+import { buildCallLineContent, CALL_LINE_TYPE, endLineFor, setCallTimelineResolver } from '@/lib/rtc/lines.ts';
 import { bridgeGhostOnly, hasBridgeGhost, ringPolicy as ringPolicyOf, ringTargets, type RingPolicy } from '@/lib/rtc/policy.ts';
 import { useRoomStore } from './rooms.ts';
 import { appendHistory, HISTORY_STORAGE_KEY, makeHistoryEntry, missedOutcome, outcomeOf, parseStoredHistory } from '@/lib/rtc/history.ts';
@@ -158,11 +158,23 @@ function sendCallLine(roomId: string, content: Record<string, unknown>): void {
 /** The lines this device owes when its call ends: `missed` (our ring timed out), `ended` (we were the last one out). */
 function sendEndLines(snapshot: CallSessionSnapshot): void {
   if (!snapshot.callId) return;
-  if (snapshot.endReason === 'no-answer' && snapshot.rang.length > 0) {
+  const kind = endLineFor(snapshot);
+  if (kind === 'missed') {
     sendCallLine(snapshot.roomId, buildCallLineContent({ kind: 'missed', callId: snapshot.callId, participants: snapshot.rang }));
-  } else if (snapshot.lastToLeave && snapshot.connectedAt !== null && (snapshot.endReason === 'hangup' || snapshot.endReason === 'remote-hangup' || snapshot.endReason === 'error')) {
-    sendCallLine(snapshot.roomId, buildCallLineContent({ kind: 'ended', callId: snapshot.callId, durationMs: Date.now() - snapshot.connectedAt }));
+  } else if (kind === 'ended') {
+    sendCallLine(snapshot.roomId, buildCallLineContent({ kind: 'ended', callId: snapshot.callId, durationMs: Date.now() - (snapshot.connectedAt ?? Date.now()), participants: snapshot.everParticipants }));
   }
+}
+
+/** Test override of the 60 s ring (STATUS request #24): ring `lifetime`, no-answer timer, incoming expiry cap. */
+let ringTimeoutOverride: number | null = null;
+
+export function setRingTimeoutMs(ms: number | null): void {
+  ringTimeoutOverride = typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.round(ms) : null;
+}
+
+export function ringTimeoutMs(): number | undefined {
+  return ringTimeoutOverride ?? undefined;
 }
 
 function roomNameOf(roomId: string): string {
@@ -206,6 +218,7 @@ export const useCallStore = create<CallState>((set, get) => {
       ring: opts.ring,
       ringTargets: ringTargets(room, me),
       callId: opts.callId,
+      ringTimeoutMs: ringTimeoutMs(),
       onChange: (snapshot) => {
         if (session !== next) return;
         if (snapshot.state !== 'ended') peers = next.peerUserIds().length ? next.peerUserIds() : peers;
@@ -402,6 +415,10 @@ export function bindCalls(client: MatrixClient): void {
         saveHistory(next.history);
       }
       useCallStore.setState(next);
+    },
+  }, {
+    get ringTimeoutMs(): number | undefined {
+      return ringTimeoutMs();
     },
   });
 

@@ -67,6 +67,10 @@ export interface CallSessionSnapshot {
   lastToLeave: boolean;
   /** Who we rang (for the `missed` line); empty when we did not ring. */
   rang: string[];
+  /** Every user seen in the call at any point, self included (the `ended` line's `participants`). */
+  everParticipants: string[];
+  /** Another device joined at some point (false = our ring was never answered). */
+  answered: boolean;
 }
 
 export interface CallSessionOptions {
@@ -128,6 +132,7 @@ export class CallSession {
   private ownMembershipEventId: string | null = null;
   private lastToLeave = false;
   private rang: string[] = [];
+  private readonly everUsers = new Set<string>();
 
   private rtcSession: MatrixRTCSession | null = null;
   private lkRoom: LivekitRoom | null = null;
@@ -179,6 +184,8 @@ export class CallSession {
       callId: this.givenCallId ?? this.notifyEventId ?? this.ownMembershipEventId,
       lastToLeave: this.lastToLeave,
       rang: this.rang,
+      everParticipants: [this.userId, ...[...this.everUsers].filter((u) => u !== this.userId)],
+      answered: this.sawOthers,
     };
   }
 
@@ -570,6 +577,7 @@ export class CallSession {
       keysOverdue: this.keysOverdue(),
       selfMuted: this.muted,
     });
+    for (const p of this.participants) this.everUsers.add(p.userId);
     this.onChange(this.snapshot());
   }
 

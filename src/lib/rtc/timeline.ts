@@ -2,7 +2,7 @@
  * Phase 7: what the chat timeline shows for call events (pure, unit-tested; Dev B renders the rows).
  *
  * MatrixRTC leaves these events in the room:
- *   - `org.matrix.msc4075.rtc.notification`  the caller rang (DM ring / room ring)           -> "X started a call"
+ *   - `org.matrix.msc4075.rtc.notification`  the caller rang (DM ring / room ring)           -> "X started a voice call"
  *   - `org.matrix.msc4310.rtc.decline`       a callee declined (m.reference to the above)    -> "X declined"
  *   - `org.matrix.msc3401.call.member`       state: a device joined / left (hidden from the timeline, too chatty)
  *   - `org.matrix.msc4143.rtc.slot`          state: unused by Codec (Element-only semantics), hidden if ever seen
@@ -72,7 +72,7 @@ export function isCallEvent(event: EventLike): boolean {
 
 /**
  * Describe a call timeline event for a grey system row. `displayName` is the sender's name as the UI shows it;
- * `myUserId` turns "X started a call" into "You started a call"; `nameOf(userId)` names the other users of a
+ * `myUserId` turns "X started a voice call" into "You started a voice call"; `nameOf(userId)` names the other users of a
  * `missed` row ("No answer from bob and carol"), defaulting to the user id. Null for non-call events, hidden state
  * and malformed `dev.matrixpoc.call` content (AC-R7-4: render nothing).
  */
@@ -85,7 +85,7 @@ export function describeCallEvent(event: EventLike, opts: { displayName: string;
   const content = event.getContent();
   if (type === CALL_NOTIFICATION_TYPE) {
     const id = event.getId() ?? null;
-    return { kind: 'started', userId: sender, text: `${who} started a call`, notifyEventId: id, callId: id, missedByMe: false, previewText: 'Voice call' };
+    return { kind: 'started', userId: sender, text: `${who} started a voice call`, notifyEventId: id, callId: id, missedByMe: false, previewText: 'Voice call' };
   }
   if (type === CALL_DECLINE_TYPE) {
     const rel = content['m.relates_to'] as { event_id?: string } | undefined;
@@ -118,7 +118,7 @@ export function describeCallEvent(event: EventLike, opts: { displayName: string;
   }
   if (type === CALL_MEMBER_TYPE && isOpeningMembershipInRoom(event as unknown as MembershipEventLike)) {
     const id = event.getId() ?? null;
-    return { kind: 'started', userId: sender, text: `${who} started a call`, notifyEventId: null, callId: id, missedByMe: false, previewText: 'Voice call' };
+    return { kind: 'started', userId: sender, text: `${who} started a voice call`, notifyEventId: null, callId: id, missedByMe: false, previewText: 'Voice call' };
   }
   return null;
 }

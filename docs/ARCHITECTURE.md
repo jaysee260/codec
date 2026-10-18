@@ -24,10 +24,13 @@ chips; Dev B call button, incoming card, in-call screen, timeline rows.
     `org.matrix.msc3401.call.member` state event that opened the session (`isCallOpeningMembership`: nobody else held a
     live membership, no ring references it).
   - `declined` = MSC4310 `org.matrix.msc4310.rtc.decline` (`io.codec.decline_reason: "busy"` for the auto-decline).
-  - `ended` / `missed` = **`dev.matrixpoc.call`** `{ kind: 'ended' | 'missed', call_id, duration_ms?, participants? }`,
-    encrypted like a message. `missed` is sent by the caller when its 60 s ring ends with nobody joined and nobody
-    declined (`participants` = who was rung); `ended` by the last participant to leave, best effort (nobody else holds a
-    live membership after our leave; `duration_ms` = our connected time). `call_id` = the ring event id, else the
+  - `ended` / `missed` = **`dev.matrixpoc.call`** `{ kind: 'ended' | 'missed', call_id, duration_ms?, participants }`,
+    encrypted like a message. `missed` is sent by the caller when its ring ends with nobody joined and nobody declined:
+    the 60 s timeout **or the caller hanging up while still ringing** (BUG-35; `participants` = who was rung); `ended`
+    by the last participant to leave, best effort (nobody else holds a live membership after our leave; `duration_ms` =
+    our connected time, `participants` = everyone who was ever in the call, self first; BUG-34). The pure decision is
+    `endLineFor(snapshot)` in `lines.ts`. Test hook: `__matrixPoc.call.setRingTimeoutMs(ms)` (dev builds, reset on
+    reload) shortens the ring `lifetime`, the no-answer timer and the incoming expiry cap for new calls (STATUS #24). `call_id` = the ring event id, else the
     opening membership event id. `getCallLine` also accepts `kind: 'started' | 'declined'` and `missed: [...]` as an
     alias of `participants` (the PM contract), Codec never sends those.
   - `previewText` (room list) = "Missed call" for a `missed` line naming me, else "No answer" / "Call ended" /
