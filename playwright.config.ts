@@ -20,10 +20,10 @@ import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool
  *
  * | project | device | specs | outputDir |
  * |---|---|---|---|
- * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
+ * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation-*`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
  * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` | `e2e/results/mobile` |
  *
- * Phase 5 (QA-24..28): `e2ee-core`, `e2ee-media`, `e2ee-security` and smoke step 13 need no entry either (desktop
+ * Phase 5 (QA-24..28): `e2ee-core-*`, `e2ee-media`, `e2ee-security-*` and smoke step 13 need no entry either (desktop
  * only, not in `mobile`'s regex). They open a second browser context for the other device (separate IndexedDB =
  * separate crypto store), so they are slow (~10 min for the three): `npm run test:e2e:e2ee`.
  *

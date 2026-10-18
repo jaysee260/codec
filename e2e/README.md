@@ -16,16 +16,20 @@ QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..
 |---|---|---|
 | `shell.spec.ts` | desktop | AC-SH-1 .. AC-SH-5 (login, session, logout) |
 | `navigation.spec.ts` | desktop | AC-A1-1 .. AC-A9-1 (rail, channels, DMs, members, badges, create/invite) |
-| `conversation.spec.ts` | desktop | AC-B1-1 .. AC-B10-3 (timeline, composer, pagination, rich bodies, reactions, replies, receipts, upload, edit/delete, mentions) |
+| `conversation-timeline.spec.ts` | desktop | AC-B1 (timeline rendering, grouping), AC-B3 (backwards pagination), AC-B7 (typing indicator, read receipts) |
+| `conversation-compose.spec.ts` | desktop | AC-B2 (composer), AC-B6 (replies), AC-B8 (upload), AC-B9 (edit/delete), AC-B10 (mentions) |
+| `conversation-messages.spec.ts` | desktop | AC-B4 (rich bodies, images, sanitising), AC-B5 (reactions) |
 | `smoke.spec.ts` | desktop | the `docs/PLAN.md` demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` thread walk-through as step 11; serial, one screenshot per sub-step into `results/demo/` |
 | `voice.spec.ts` | mobile | AC-V1 .. AC-V6 recording/playback, with every sent event re-read through the API and the uploaded bytes checked by their container magic |
 | `mobile-nav.spec.ts` | mobile | AC-M1 .. AC-M6 (phone shell, drawers, header, touch targets, bottom sheets, viewport CSS) + the layout half of AC-V6 |
 | `mobile-smoke.spec.ts` | mobile | the `docs/PHASE2_PLAN.md` **phone** demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` phone thread walk-through as step 11; serial, one screenshot per sub-step into `e2e/demo-mobile/` |
 | `threads.spec.ts` | desktop | AC-T1 .. AC-T9: the thread wire contract, main-timeline hygiene, panel geometry, the summary row, Reply in thread, ThreadView, the Threads list, in-thread edits/reactions/delete/media |
 | `mobile-threads.spec.ts` | mobile | AC-T3-4, AC-T4-6, AC-T5-2, AC-T7-1/2/4/7, AC-T8-1..3, and the AC-V6-1 composer rules applied to `thread-composer-*` |
-| `e2ee-core.spec.ts` | desktop | Phase 5 AC-E1 (crypto boot, reload, logout wipe), AC-E2 (decrypt, UTD, late decryption, relations), AC-E6 (encrypted by default), AC-E7-3, + regressions |
+| `e2ee-core-boot.spec.ts` | desktop | Phase 5 AC-E1 (crypto boot, reload, logout wipe), the members-panel layout regression, AC-E6 (encrypted by default) |
+| `e2ee-core-timeline.spec.ts` | desktop | Phase 5 AC-E2 (decrypt, UTD, late decryption, relations), AC-E7-3, + regressions |
 | `e2ee-media.spec.ts` | desktop | Phase 5 AC-E3: encrypted image / file / voice (decrypted shape, ciphertext on the media repo, hash check, lazy load) |
-| `e2ee-security.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 on throwaway accounts: setup, SAS (match / mismatch / decline), recovery key and passphrase unlock, backup, + regressions |
+| `e2ee-security-chain.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 on throwaway accounts: the serial setup -> unlock -> SAS (match / mismatch / decline) -> backup chain, AC-E5-4 passphrase unlock |
+| `e2ee-security-regressions.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 regressions (banner, dialog close testids, unlock errorKind, verification requests, SAS via the store) |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
@@ -84,7 +88,7 @@ npm run test:android-build    # APK build + aapt checks (NOT a Playwright projec
 
 # one criterion — always name the project, the specs do not overlap
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile --reporter=list
-npx playwright test e2e/conversation.spec.ts -g "AC-B4-2" --project=desktop --reporter=list
+npx playwright test e2e/conversation-messages.spec.ts -g "AC-B4-2" --project=desktop --reporter=list
 npx playwright test e2e/threads.spec.ts -g "AC-T6-4" --project=desktop --reporter=list
 npx playwright test e2e/mobile-threads.spec.ts -g "AC-T8-1" --project=mobile --reporter=list
 ```
@@ -163,7 +167,7 @@ here", a failure says "the product is wrong", and the two must not be confused i
 
 Guarded (they cannot be judged without a pristine seed):
 
-- `conversation.spec.ts`: AC-B1-1, AC-B3-1;
+- `conversation-timeline.spec.ts`: AC-B1-1, AC-B3-1;
 - `navigation.spec.ts`: AC-A2-3 (it names `#random`'s *first* seeded message, and the criterion wants
   it on screen within a second of clicking the channel, so paging back is not an option);
 - `smoke.spec.ts`: demo steps 2, 3, 5 and 6 (the demo script is written against a fresh seed; steps 5
