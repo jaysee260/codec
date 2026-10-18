@@ -8,7 +8,8 @@ import styles from './UserFooter.module.css';
 
 /**
  * Bottom-left user pill: avatar, display name, user id, logout. testids: current-user, logout-button.
- * Phase 5: `data-verified` mirrors `useSecurityStore.status.verified` (`unknown` until the first status snapshot);
+ * Phase 5: `data-verified` mirrors `useSecurityStore.status.verified` (`unknown` until the first status snapshot and
+ * while the account has no cross-signing identity, AC-E4-1);
  * a verified session shows "Verified" with a shield under the name instead of the user id.
  */
 export function UserFooter() {
@@ -17,7 +18,9 @@ export function UserFooter() {
   const avatarMxc = useSessionStore((s) => s.avatarUrl);
   const logout = useSessionStore((s) => s.logout);
   const syncState = useSessionStore((s) => s.syncState);
-  const verified = useSecurityStore((s) => s.status?.verified ?? null);
+  // BUG-14 / AC-E4-1: "unknown" until the status snapshot lands *and* while the account has no cross-signing
+  // identity (nothing to be verified against); "false" = identity exists, this device is not signed; "true" = signed.
+  const verified = useSecurityStore((s) => (s.status && s.status.hasCrossSigningKeys ? s.status.verified : null));
   const avatar = mxcToHttp(avatarMxc, 32, 32, 'crop');
   const reconnecting = syncState === 'ERROR' || syncState === 'RECONNECTING';
 

@@ -757,6 +757,57 @@ async function main(): Promise<void> {
  * counterpart is missing from alice's `m.direct`, then merges the new room ids into seed/seed-output.json
  * (`rooms.vault`, `rooms.dm-alice-dave`). Existing rooms and history are untouched; re-running is a no-op.
  */
+/**
+ * Re-derive the keyed event ids of a room that was seeded by an earlier run (BUG-15: an additive run on a machine
+ * without seed-output.json must not leave `events` empty). Walks the room history from the start and matches each
+ * script step in order by sender + body (the original body for edited steps); thread replies are matched after
+ * their root. Keys that cannot be matched are left out (and reported) rather than guessed.
+ */
+async function recoverEvents(alice: Session, roomId: string, steps: Step[], events: Record<string, string>): Promise<string[]> {
+  type Msg = { event_id: string; sender: string; type: string; content: { body?: string; msgtype?: string; 'm.relates_to'?: { rel_type?: string } } };
+  const history: Msg[] = [];
+  let from: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const r = await api<{ chunk: Msg[]; end?: string }>('GET', `${V3}/rooms/${enc(roomId)}/messages`, {
+      token: alice.token,
+      query: { dir: 'b', limit: '200', ...(from ? { from } : {}) },
+    });
+    history.push(...r.chunk);
+    if (!r.end || r.chunk.length === 0) break;
+    from = r.end;
+  }
+  history.reverse(); // chronological
+  const messages = history.filter((m) => m.type === 'm.room.message' && m.content?.['m.relates_to']?.rel_type !== 'm.replace');
+  const matches = (m: Msg, who: string, body: string): boolean => m.sender === `@${who}:${SERVER}` && m.content.body === body;
+  const missing: string[] = [];
+  let cursor = 0;
+  for (const step of steps) {
+    const body = step.editFrom ?? step.body;
+    let i = cursor;
+    while (i < messages.length && !matches(messages[i]!, step.who, body)) i++;
+    if (i >= messages.length) {
+      if (step.key) missing.push(step.key);
+      for (let n = 1; n <= (step.thread?.length ?? 0); n++) if (step.threadKey) missing.push(`${step.threadKey}${n}`);
+      continue;
+    }
+    if (step.key) events[step.key] = messages[i]!.event_id;
+    cursor = i + 1;
+    let after = cursor;
+    for (let n = 0; n < (step.thread?.length ?? 0); n++) {
+      const reply = step.thread![n]!;
+      let j = after;
+      while (j < messages.length && !matches(messages[j]!, reply.who, reply.body)) j++;
+      if (j >= messages.length) {
+        if (step.threadKey) missing.push(`${step.threadKey}${n + 1}`);
+        continue;
+      }
+      if (step.threadKey) events[`${step.threadKey}${n + 1}`] = messages[j]!.event_id;
+      after = j + 1;
+    }
+  }
+  return missing;
+}
+
 async function addMissingRooms(sessions: Record<string, Session>, powerLevels: Json): Promise<void> {
   const alice = sessions.alice!;
   const added: Record<string, string> = {};
@@ -765,7 +816,15 @@ async function addMissingRooms(sessions: Record<string, Session>, powerLevels: J
     const spaceId = await resolveAlias(`#${space.alias}:${SERVER}`, alice.token);
     if (!spaceId) continue;
     for (const channel of space.channels) {
-      if ((await aliasState(`#${channel.alias}:${SERVER}`, alice)) === 'live') continue;
+      if ((await aliasState(`#${channel.alias}:${SERVER}`, alice)) === 'live') {
+        // Seeded earlier: re-record its keyed event ids so seed-output.json is complete on any machine (BUG-15).
+        const liveId = await resolveAlias(`#${channel.alias}:${SERVER}`, alice.token);
+        if (liveId && channel.script.some((st) => st.key || st.threadKey)) {
+          const missing = await recoverEvents(alice, liveId, channel.script, events);
+          console.log(`Channel #${channel.name}: event ids recovered${missing.length ? ` (not found: ${missing.join(', ')})` : ''}`);
+        }
+        continue;
+      }
       console.log(`Channel #${channel.name} (added)`);
       const roomId = await createRoom(alice, {
         name: channel.name,
@@ -825,9 +884,10 @@ async function addMissingRooms(sessions: Record<string, Session>, powerLevels: J
   const output = {
     users: Object.fromEntries(Object.entries(sessions).map(([k, s]) => [k, s.userId])),
     rooms: { ...(previous.rooms ?? {}), ...live, ...added },
+    // Recovered / newly recorded ids win over the file (the server is the truth; a stale file may be from elsewhere).
     events: { ...(previous.events ?? {}), ...events },
   };
-  const changed = JSON.stringify(output.rooms) !== JSON.stringify(previous.rooms ?? {});
+  const changed = JSON.stringify(output.rooms) !== JSON.stringify(previous.rooms ?? {}) || JSON.stringify(output.events) !== JSON.stringify(previous.events ?? {});
   if (Object.keys(added).length === 0 && !changed) {
     console.log('already seeded, nothing to add - run npm run seed:reset for a fresh dataset');
     return;

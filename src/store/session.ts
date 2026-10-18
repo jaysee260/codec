@@ -97,7 +97,9 @@ export const useSessionStore = create<SessionState>((set, get) => {
       onCryptoLoading: () => set({ loadingStage: 'crypto' }),
     });
     set({ loadingStage: 'sync' });
-    bindClient(client, { onSessionLoggedOut: () => void get().logout() });
+    // BUG-11 / AC-E1-4: a token rejected after boot (device deleted, M_UNKNOWN_TOKEN) wipes like a logout *and*
+    // tells the user why on the login form (`fail` keeps the message; `logout()` clears it).
+    bindClient(client, { onSessionLoggedOut: () => void fail(new MatrixError({ errcode: 'M_UNKNOWN_TOKEN', error: 'Session expired' }), 'error') });
     bindSecurity(client);
     await waitForPrepared(client, (message) => set({ error: message }));
     // Profile: cheap request, avoids depending on lazy-loaded member events.
