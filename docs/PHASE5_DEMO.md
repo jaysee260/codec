@@ -3,7 +3,7 @@
 The Phase 1-4 client (docs/DEMO.md, docs/PHASE2_DEMO.md, docs/PHASE3_DEMO.md, docs/PHASE4_DEMO.md), now encrypted: the Rust engine Element uses (`matrix-js-sdk` `initRustCrypto`, WebAssembly) runs in codec, keys live in the browser's IndexedDB per session, and new channels and DMs are encrypted by default. Final test numbers: docs/STATUS.md "Phase 5".
 
 ## 1. The three things to know
-1. **Every login is a new session** (device). A new session cannot read messages sent before it existed until it is **verified** (emoji check against another session) and **unlocked** with the account's **recovery key** (or passphrase), which restores the key backup. Codec shows one banner at a time telling you which of the two you need. Logging out wipes the session's keys; the next login starts over.
+1. **Every login is a new session** (device). A new session cannot read messages sent before it existed until it is **verified**: an emoji check against another session that is online, which also hands over the backup key, so old messages restore on their own. The **recovery key** (or passphrase) is only needed when there is no other session to verify with; entering it verifies the session and restores history in one step. Codec shows one banner at a time telling you which you need. Logging out wipes the session's keys; the next login starts over.
 2. **Testers keep their Element recovery key.** Codec never creates a new one on an account that already has secret storage: it only asks you to enter the existing key. "Set up encryption" appears only on brand-new accounts.
 3. **Media is encrypted before upload** (same scheme as Element), so the server never sees images, files or voice notes from encrypted rooms, and there are no server thumbnails for them: codec downloads and decrypts each image when it scrolls into view. GIFs in encrypted rooms are click-to-load so Klipy's CDN does not learn what you viewed.
 
@@ -19,13 +19,13 @@ The Phase 1-4 client (docs/DEMO.md, docs/PHASE2_DEMO.md, docs/PHASE3_DEMO.md, do
 
 ## 3. Your steps (user-only, on 704.chat)
 1. Sign in to codec with Keycloak. The banner says **Verify this session**.
-2. Either verify from Element (Settings > Sessions > the codec session > Verify, compare emoji), or click the banner and **Use recovery key**, then paste the recovery key or passphrase you set in Element. Both verify the session; the recovery key also restores history.
+2. Either verify from Element (Settings > Sessions > the codec session > Verify, compare emoji), or click the banner and **Use recovery key**, then paste the recovery key or passphrase you set in Element. Verifying from Element is enough: once verified, history restores by itself. The recovery key is for when no other device is available; it verifies and restores in one step.
 3. Open each of the 6 encrypted rooms: history should read, and a message sent from codec should appear decrypted in Element (and the other way round). Send an image and a voice note from codec; Element should show both.
 4. Charlie and Juanjo repeat 1-3. Fill in the manual checklist in docs/BUGS.md "Phase 5" (one result column per tester). Anything odd: screenshot + the row's reason text.
 5. Optional, new-account check: create a throwaway Keycloak user, sign in, click **Set up**, finish the sign-in popup, save the key it shows. This is the one flow (SSO cross-signing setup) nobody could test locally.
 
 ## 4. Local walkthrough
-The full desktop script (11 steps, three browser windows) is in docs/PHASE5_PLAN.md "Desktop demo script"; `e2e/smoke.spec.ts` step 13 replays it. Shortest version: log in as **alice**, click **Set up** on the banner, copy the key; open `#vault` (lock in the header), send a message; in an incognito window log in as alice again: the message shows as "Unlock with your recovery key...", verify with emoji from the first window, click **Unlock**, paste the key, watch the row turn into text without a reload.
+The full desktop script (11 steps, three browser windows) is in docs/PHASE5_PLAN.md "Desktop demo script"; `e2e/smoke.spec.ts` step 13 replays it. Shortest version: log in as **alice**, click **Set up** on the banner, copy the key; open `#vault` (lock in the header), send a message; in an incognito window log in as alice again: the message shows as "Unlock with your recovery key...", verify with emoji from the first window and watch the row turn into text without a reload (the recovery key is only needed when no other window is open).
 
 ## 5. Scripts
 | Command | What it does |
