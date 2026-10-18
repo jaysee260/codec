@@ -31,6 +31,56 @@
   }
 }
 
+/* Phase 5: encrypted image placeholder - the fitted box, filled while the bytes download and decrypt. */
+.encryptedBox {
+  display: block;
+  max-width: 100%;
+}
+.placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-height: 300px;
+  background: var(--bg-code);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+.placeholderIcon {
+  opacity: 0.6;
+}
+.placeholderError {
+  min-height: 72px;
+}
+.imageError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+.retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-input);
+  color: var(--text-normal);
+  font: inherit;
+  cursor: pointer;
+}
+.retry:hover {
+  border-color: var(--accent);
+}
+.fileButton {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .missing {
   color: var(--text-muted);
   font-style: italic;

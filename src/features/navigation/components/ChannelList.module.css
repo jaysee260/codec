@@ -122,3 +122,11 @@
     color: var(--text-heading);
   }
 }
+
+/* DEV-A-27: lock on encrypted rooms (decorative; the item's data-encrypted is the contract). */
+.lock {
+  flex-shrink: 0;
+  margin-left: 4px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}

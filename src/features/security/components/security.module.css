@@ -1,0 +1,229 @@
+/* Shared body styles of the three security dialogs (the frame is navigation's Dialog). */
+
+.text {
+  margin: 0;
+  color: var(--text-normal);
+  font-size: var(--font-size-message);
+  line-height: 1.4;
+}
+.muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+.center {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bg-accent-soft);
+  color: var(--accent);
+}
+.badgeOk {
+  background: rgba(35, 165, 89, 0.15);
+  color: var(--success);
+}
+.badgeBad {
+  background: rgba(242, 63, 67, 0.12);
+  color: var(--danger);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* "choose" options: two large rows. */
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-sidebar);
+  color: var(--text-normal);
+  text-align: left;
+  transition: background 0.12s ease-out;
+}
+.option:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.optionIcon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.optionTitle {
+  color: var(--text-heading);
+  font-weight: 600;
+}
+.optionSub {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* SAS emoji: 7 tiles, 4 + 3 on narrow widths. */
+.emojiGrid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.emojiTile {
+  flex: 0 0 calc(25% - 4.5px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sidebar);
+}
+.emojiSymbol {
+  font-size: 32px;
+  line-height: 1.1;
+}
+.emojiName {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+  word-break: break-word;
+}
+
+/* Recovery key: shown once (setup) and typed (unlock). */
+.keyBox {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-rail);
+  border: 1px solid var(--border-strong);
+  color: var(--text-heading);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  text-align: center;
+  word-spacing: 0.25em;
+  user-select: all;
+  overflow-wrap: anywhere;
+  /* Three rows of four groups, like Element. */
+  width: 100%;
+  max-width: calc(23ch + 26px);
+  align-self: center;
+}
+.keyInput {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.copyRow {
+  display: flex;
+  justify-content: center;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.progressBar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-rail);
+  overflow: hidden;
+}
+.progressFill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+.progressFillIndeterminate {
+  width: 30%;
+  animation: slide 1.1s ease-in-out infinite;
+}
+@keyframes slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.link {
+  color: var(--text-link);
+  font-size: var(--font-size-sm);
+}
+
+.footerSpacer {
+  flex: 1;
+}
+
+/* Phone (DEV-A-28): the frame is already a bottom sheet with 44 px footer buttons; body controls follow. */
+:root[data-layout='phone'] .option {
+  min-height: 60px;
+}
+:root[data-layout='phone'] .copyRow button {
+  min-height: var(--tap-target);
+  min-width: 120px;
+}
+:root[data-layout='phone'] .footerSpacer {
+  display: none;
+}
+:root[data-layout='phone'] .emojiSymbol {
+  font-size: 28px;
+}

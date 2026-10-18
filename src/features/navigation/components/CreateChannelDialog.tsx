@@ -1,13 +1,14 @@
 /**
  * DEV-A-6 create channel. Opened from `channel-add` and `space-menu-create-channel`.
- * testids: create-channel-dialog, create-channel-name, create-channel-topic, create-channel-submit, dialog-close
+ * testids: create-channel-dialog, create-channel-name, create-channel-topic, create-channel-submit, dialog-close,
+ *          create-channel-encrypted-note (Phase 5: `createChannel` encrypts by default; no toggle)
  */
 import { useState } from 'react';
 import { createChannel } from '@/lib/matrix/actions.ts';
 import { useRoomStore, waitForRoom } from '@/store/rooms.ts';
 import { showToast } from '@/store/toast.ts';
 import { serverErrorText } from '../errors.ts';
-import { Dialog, DialogField } from './Dialog.tsx';
+import { Dialog, DialogEncryptedNote, DialogField } from './Dialog.tsx';
 
 /** Discord channel names: lowercase, no whitespace (spaces become dashes). */
 function slugify(raw: string): string {
@@ -72,6 +73,7 @@ export function CreateChannelDialog({ spaceId, onClose }: { spaceId: string; onC
         placeholder="What is this channel about?"
         maxLength={200}
       />
+      <DialogEncryptedNote testId="create-channel-encrypted-note">This channel will be end-to-end encrypted</DialogEncryptedNote>
     </Dialog>
   );
 }

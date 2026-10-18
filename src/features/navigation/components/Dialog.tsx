@@ -17,8 +17,9 @@
  */
 import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { Lock, X } from 'lucide-react';
 import { useIsPhone } from '@/store/hooks.ts';
+import { registerBackHandler } from '@/store/layout.ts';
 import styles from './Dialog.module.css';
 
 export interface DialogProps {
@@ -29,13 +30,24 @@ export interface DialogProps {
   /** Error text shown above the footer; pass the testid QA expects (`invite-error`, ...). */
   error?: string | null;
   errorTestId?: string;
-  submitLabel: string;
-  submitTestId: string;
+  /** Default footer (Cancel + submit). Required unless `footer` replaces it. */
+  submitLabel?: string;
+  submitTestId?: string;
   submitDisabled?: boolean;
   busy?: boolean;
   onSubmit(): void;
   onClose(): void;
   children: ReactNode;
+  /** Phase 5 (security dialogs): replaces the default footer; its submit button still submits the form. */
+  footer?: ReactNode;
+  /** testid on the corner X button (`verify-close`, ...). */
+  closeTestId?: string;
+  /** Escape handler (defaults to `onClose`). */
+  onEscape?(): void;
+  /** Extra `data-*` attributes on the dialog root (`data-phase`, ...). */
+  dataAttrs?: Record<`data-${string}`, string>;
+  /** Phone: the Android back button closes this dialog first (`registerBackHandler`). */
+  closeOnBack?: boolean;
 }
 
 export function Dialog({
@@ -51,22 +63,39 @@ export function Dialog({
   onSubmit,
   onClose,
   children,
+  footer,
+  closeTestId,
+  onEscape,
+  dataAttrs,
+  closeOnBack = false,
 }: DialogProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
   const isPhone = useIsPhone();
+  const escape = onEscape ?? onClose;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
-      onClose();
+      escape();
     };
     // Capture phase: dialogs win over the composer's Escape (AC-B6-4) while they are open.
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+  }, [escape]);
+
+  // Android back closes the dialog before the thread panel / drawers underneath (opt-in, DEV-A-28).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!closeOnBack) return;
+    return registerBackHandler(() => {
+      closeRef.current();
+      return true;
+    });
+  }, [closeOnBack]);
 
   useEffect(() => {
     const first = cardRef.current?.querySelector<HTMLElement>('input, textarea');
@@ -95,6 +124,7 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby={titleId}
         ref={cardRef}
+        {...dataAttrs}
       >
         {isPhone && <span className={styles.handle} aria-hidden="true" />}
         <form
@@ -119,17 +149,21 @@ export function Dialog({
             </div>
           )}
 
-          <footer className={styles.footer}>
-            <button type="button" className="u-btn u-btn--ghost" data-testid="dialog-close" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="u-btn" data-testid={submitTestId} disabled={submitDisabled || busy}>
-              {busy ? 'Working...' : submitLabel}
-            </button>
-          </footer>
+          {footer !== undefined ? (
+            footer && <footer className={styles.footer}>{footer}</footer>
+          ) : (
+            <footer className={styles.footer}>
+              <button type="button" className="u-btn u-btn--ghost" data-testid="dialog-close" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="u-btn" data-testid={submitTestId} disabled={submitDisabled || busy}>
+                {busy ? 'Working...' : submitLabel}
+              </button>
+            </footer>
+          )}
         </form>
 
-        <button type="button" className={styles.x} aria-label="Close" title="Close" onClick={onClose}>
+        <button type="button" className={styles.x} aria-label="Close" title="Close" data-testid={closeTestId} onClick={onClose}>
           <X size={20} />
         </button>
       </div>
@@ -178,5 +212,15 @@ export function DialogField({
       </span>
       {hint && <span className={styles.hint}>{hint}</span>}
     </label>
+  );
+}
+
+/** One-line note with a lock under the fields (Phase 5: `create-channel-encrypted-note`, `new-dm-encrypted-note`). */
+export function DialogEncryptedNote({ testId, children }: { testId: string; children: ReactNode }) {
+  return (
+    <p className={styles.note} data-testid={testId}>
+      <Lock size={14} aria-hidden="true" className={styles.noteIcon} />
+      <span>{children}</span>
+    </p>
   );
 }

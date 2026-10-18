@@ -176,3 +176,12 @@
 :global(:root[data-layout='phone']) .track {
   height: 36px;
 }
+
+/* Phase 5: the encrypted note's download is a button (there is no URL to link to). */
+.downloadButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}

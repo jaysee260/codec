@@ -38,6 +38,7 @@ import { loginAs } from './auth.ts';
 import { asUser, type ApiUser } from './matrix-api.ts';
 import { tapRoom } from './mobile.ts';
 import { resolveRoom, type UserKey } from './seed.ts';
+import { workerOrigin } from './pool.ts';
 import { openChannel } from './ui.ts';
 
 export { MOCK_EMPTY_QUERIES, MOCK_ERROR_QUERY };
@@ -622,7 +623,7 @@ export async function stubKlipyAll(
 export interface SendGifOptions {
   /** Fixture id to post. Default the first in the catalogue. */
   id?: string;
-  /** Origin the mock URLs point at. Default `http://localhost:5173`. */
+  /** Origin the mock URLs point at. Default: this worker's app origin (`workerOrigin()`). */
   origin?: string;
   /** Phase 3 thread relation. */
   threadRoot?: string;
@@ -650,7 +651,7 @@ export async function sendGifMessage(
   opts: SendGifOptions = {},
 ): Promise<SentGif> {
   const id = opts.id ?? MOCK_IDS[0]!;
-  const origin = opts.origin ?? 'http://localhost:5173';
+  const origin = opts.origin ?? workerOrigin();
   const gif = { ...expectedMockGif(id, origin), ...(opts.overrides ?? {}) };
   const body = opts.body ?? expectedMockBody(id, origin);
   const extra: Record<string, unknown> = {
@@ -844,7 +845,7 @@ async function probeGifUi(page: Page, touch: boolean): Promise<GifUiReport> {
     const dev = await resolveRoom('dev');
     const bob = await asUser('bob');
     // Post a GIF before logging in so the row is in the first sync.
-    const sent = await sendGifMessage(bob, dev, { id: MOCK_IDS[0]!, origin: 'http://localhost:5173' });
+    const sent = await sendGifMessage(bob, dev, { id: MOCK_IDS[0]!, origin: workerOrigin() });
 
     await loginAs(probe, 'alice');
     // Both layouts must land in **#dev**, where the probe posted its event: the phone opens #general

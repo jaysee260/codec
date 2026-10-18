@@ -1,14 +1,14 @@
 /**
  * DEV-A-9 new DM. Opened from `dm-new`. `createDm` reuses the room recorded in `m.direct`, so
  * running this twice for the same user lands on the same conversation (AC-A9-1).
- * testids: new-dm-dialog, new-dm-user-id, new-dm-submit, dialog-close
+ * testids: new-dm-dialog, new-dm-user-id, new-dm-submit, dialog-close, new-dm-encrypted-note (Phase 5)
  */
 import { useState } from 'react';
 import { createDm } from '@/lib/matrix/actions.ts';
 import { useRoomStore, waitForRoom } from '@/store/rooms.ts';
 import { isUserId, serverErrorText } from '../errors.ts';
 import { exampleServer, resolveUserName } from '../userLookup.ts';
-import { Dialog, DialogField } from './Dialog.tsx';
+import { Dialog, DialogEncryptedNote, DialogField } from './Dialog.tsx';
 
 /** `m.direct` account data can land a beat after the room itself; wait so the item shows in `dm-list`. */
 function waitForDmListing(roomId: string, timeoutMs = 6000): Promise<void> {
@@ -76,6 +76,7 @@ export function NewDmDialog({ onClose }: { onClose(): void }) {
         placeholder={`@dave:${exampleServer()}`}
         maxLength={255}
       />
+      <DialogEncryptedNote testId="new-dm-encrypted-note">This DM will be end-to-end encrypted</DialogEncryptedNote>
     </Dialog>
   );
 }

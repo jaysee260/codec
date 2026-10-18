@@ -25,7 +25,7 @@ npm run test:e2e:mobile                                     # Phase 2 phone suit
 npm run test:e2e:threads                                    # Phase 3 thread specs (both projects)
 npm run test:e2e:gif                                        # Phase 4 GIF specs (both projects)
 npm run test:android-build                                  # APK build + manifest checks
-npx playwright test e2e/conversation.spec.ts -g "AC-B3-2" --project=desktop
+npx playwright test e2e/conversation-timeline.spec.ts -g "AC-B3-2" --project=desktop
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile
 npx playwright show-trace e2e/results/<project>/<test-dir>/trace.zip
 ```
@@ -242,6 +242,89 @@ with the registry composer, `thread-root`, `thread-replies-divider`, `thread-mes
 | D-1 | `src/store/thread.ts`, `useThreadStore` with `open: { roomId, rootId } \| null` plus `openThreadRootId` | `src/store/threads.ts`, `useThreadStore` with `openThreadRootId` / `openThreadRoomId` fields and a `useOpenThread()` selector returning `{ roomId, threadRootId }` | Internal only, and QA asserts the DOM contract (`app-shell[data-thread-open]`, `thread-panel[data-root]`) rather than the store, so nothing in the suite depends on it. **Resolved during Wave 8**: docs/ARCHITECTURE.md now has the "Phase 3 deltas (threads)" section AC-T10-4 asks for, which records these renames. Left here as the record of what QA checked. |
 | D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. **Closed** (Dev A, 2026-10-08): `relativeTime.ts` deleted, `ThreadList.tsx` imports `formatRelative` from `@/lib/format.ts`; one implementation of the pinned strings. |
 | D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
+
+## Phase 5 (end-to-end encryption)
+
+```
+npm run test:e2e:e2ee                                              # e2ee-core-* + e2ee-media + e2ee-security-* (desktop)
+npx playwright test e2e/smoke.spec.ts --project=desktop -g "step 13" # Phase 5 demo walk-through -> e2e/results/demo/13-*
+npx playwright test e2e/e2ee-security-chain.spec.ts --project=desktop -g "AC-E5-2"
+```
+Prefix with `PLAYWRIGHT_BROWSERS_PATH=/tmp/claude-0/pwb` in the build container. Security chains and the demo run on
+**throwaway accounts** (`freshUser()`): cross-signing cannot be undone, so alice's account is never set up by a test.
+
+**S1 on sight (Phase 5):** plaintext reaches the wire in an encrypted room · a raw encrypted mxc is navigated to ·
+keys survive logout · setup offers a new key on an account that already has secret storage.
+
+| BUG | AC ref | Sev | Owner | Found | Expected | Actual | Status |
+|---|---|---|---|---|---|---|---|
+| BUG-11 | AC-E1-4 | S3 | Principal (`src/store/session.ts`) | `e2ee-core` AC-E1-4 | A token rejected after boot shows "Session expired" on the login form | Wipe is correct, but `onSessionLoggedOut` -> plain `logout()`: no message (only the boot-time path says it) | Fixed (session expired message on token rejection); regression `e2ee-core` AC-E1-4 |
+| BUG-12 | AC-SH layout, AC-T6 | S1 | Principal (`src/app/Shell.tsx`) | thread panel `hidden` in AC-E2-5 | Members / thread panel beside `main` | `security-dialogs-host` was a grid child: panels pushed to a 2nd row, height 0 | Fixed 21179cb; regression `e2ee-core` "(21179cb a)" |
+| BUG-13 | AC-E2-5 | - | PM | `e2ee-core` AC-E2-5 | Reactions `m.room.encrypted` on the wire | `m.reaction` in clear: matrix-js-sdk never encrypts reactions (Element parity) | **Resolved** (PM, 2026-10-18): AC-E2-5 reworded (edits, replies and thread replies `m.room.encrypted`; reactions in the clear, Element parity), limitation recorded in PHASE5_PLAN.md and PHASE5_DEMO.md; test asserts the clear relation only |
+| BUG-14 | AC-E4-1 | S3 | Principal (`UserFooter`) or PM | `e2ee-security` AC-E4-1 | `current-user[data-verified="unknown"]` on an account with no cross-signing | `"false"` once status lands | Fixed (`unknown` without cross-signing); regression `e2ee-security` AC-E4-1 |
+| BUG-15 | AC-E8-3 (Phase 1 suites) | S2 | Principal (`seed/`) | fixture load | `seed/seed-output.json` keeps the 11 seeded event ids | `"events": {}` since the additive `npm run seed` (2026-10-17 23:54): `conversation.spec` and smoke steps 3+ throw "has no event" | Fixed (seed re-records event ids); regression guard in `e2e/fixtures/seed.ts` loadSeed |
+| BUG-16 | registry | S3 | Dev A or PM | helpers | `verify-close` / `recovery-close` / `setup-close` | One shared `dialog-close` in all three | Not a bug: the corner X has its own id since c59d1f8, footer buttons keep `dialog-close`; pinned by the BUG-16 regression test |
+| BUG-17 | demo rows 8-9 | S3 | PM (docs/PHASE5_PLAN.md) | smoke step 13 | After the emoji match, window 3 offers Unlock and the user pastes the key | Window 1 holds the backup key, so the SAS hands it over and the restore runs by itself; the banner flashes `unlock` then disappears | **Fixed** (PM, 2026-10-18): demo rows 8-9 reworded (row 8: history restores by itself after the emoji match; row 9: the recovery-key path with window 1 closed), Recovery decision row, AC-E4-4, AC-E2-6, AC-E5-1, AC-E5-2 and PHASE5_DEMO.md aligned; step 13 accepts both |
+| BUG-18 | AC-A1-2, AC-E8-3 (smoke step 1, Phase 1-4 suites) | S2 | Principal (`src/store/rooms.ts` `recomputeRooms`, `src/store/bridge.ts`) | full regression 2026-10-18 | A fresh login (no `nav.selection`) lands on Acme HQ / #general | Lands on Home / DM Bob in 3 of 4 tries (`navigation` AC-A1-2 `--repeat-each=4`). Likely: the first-load rule (`firstReady && spaces.length > 0`) runs on a debounced recompute fired mid initial sync (Phase 5 decryption / state events), before the spaces are known, so it falls back to `dms[0]`. Apply the first-load landing only once the initial sync is `Prepared` | Fixed 31f965d (no room recompute before the initial sync is prepared); regression `navigation` AC-A1-2, smoke step 1 |
+| BUG-19 | AC-V6-6 | S3 | QA (`e2e/mobile-nav.spec.ts`) | mobile-nav, about 1 in 3 | The anchor stays put while older rows are prepended | "anchor drift 44 px" or "pagination did not add rows": the 44 px phone security banner (correct for an account without encryption) mounts ~1 s after the shell, after the test scrolled and measured | Fixed (test): `loginAs()` now waits for the security status and the banner (`settleSecurityBanner`). The AC-V6-6 drift is also measured inside `message-list`. Same 48 px shift on desktop broke `conversation` AC-B3-2 (3/4 red); both now pass 4/4 |
+| BUG-20 | AC-E8-3 | S2 | QA (`e2e/auth-media.spec.ts`) | full regression 2 | Every test's browser contexts closed at its end | The SSO login-token test never closed its `browser.newContext()`, so a logged-in alice synced (with crypto) for the whole run; later logins took 16 s+ in "Setting up encryption" / "Syncing" and missed the 20 s shell timeout (5 desktop tests) | Fixed (test): context closed in `finally` |
+| BUG-21 | AC-E8-3, AC-SH-2 | S2 | QA (`e2e/fixtures/auth.ts`) + coordinator (homeserver data) | full regression 3 | Test logins leave no devices behind | `loginAs` never logged out: alice has **1206 devices, 790 with device keys**. Since Phase 5 every login queries and every encrypted send shares keys with all of them. Logins slow down over a run (shell > 20 s, AC-SH-2 11.6 s, AC-E5-6 backup count stuck) | Test half fixed: `loginAs` logs out the sessions of earlier tests (`navigation` run: +2 devices for 29 tests). Server reset 2026-10-18 cleared them. Run 4 holds: alice 1 -> 11 devices over 290 tests (6 web, 4 API-helper logins) |
+| BUG-22 | AC-G8-1, demo step 7 | S3 | QA (`gif.spec`, `mobile-gif.spec`, `smoke.spec`) | full regression 4 | GIF decoded / thumbnail box <= 400 px | Read once right after mount: `naturalWidth` 0 (decode not done) and `boundingBox()` null (bubble re-rendering). Flaky in long runs; the dev server watching `e2e/results` (Faster test runs thread) widens the window | Fixed (test): both polled. AC-G7-1 3/3, smoke demo chain and mobile-gif green in isolation |
+| BUG-23 | AC-B1-1, AC-B3-1, AC-A2-3, smoke steps 2/3/5/6 | S2 | QA (`e2e/fixtures/fresh.ts`) | issue #2 run 1 (also with 1 worker) | The fresh-seed guard lets its 7 tests run on a pristine seed | Always skipped "requires a fresh seed" since 6cb6989: the seed posts a `late` thread reply into #general after `general.last`, and the probe took the newest event of any kind | Fixed (test): the probe ignores `m.thread` replies; regression `test-harness` BUG-23 |
+| BUG-24 | same as BUG-23 | S3 | QA (`fresh.ts`) + `e2e/global-setup.ts` | issue #2 run 1, fix wave | A guarded test is judged on the server state its spec file started from | One verdict per worker: re-probed after a restart (spurious skips), and reused by later files on a server earlier files had dirtied (smoke step 3 failed after navigation) | Fixed (test): verdict per (pool instance, spec file), probed at the file's first guarded test; after a pool restore persisted as `e2e/tmp/fresh-w<i>-<file>.json` (cleared by global setup); regression `test-harness` BUG-24 (x2) Skip reasons name the first write after the seed and the spec file using the server then (`fixtures/run-log.ts`, PERF-3 ruling); regression `test-harness` PERF-3 |
+| BUG-25 | PERF-1, PERF-6 | S2 | coordinator (`vite.config.ts`) | issue #2 run 1 (load avg 19 on 4 cores) | Idle Vite dev servers cost ~nothing during a run | Each Vite's watcher stat-ed Playwright trace files in `e2e/results` (~6400 statx/s, ~45% of a core per Vite, x N workers); logins timed out at 20 s | Fixed: `server.watch.ignored` (e2e/results, playwright-report, homeserver, ...); regression `test-harness` BUG-25 |
+| BUG-26 | smoke step 2 (AC-A2-1) | S3 | QA (`e2e/smoke.spec.ts`) | issue #2, pristine seed after BUG-23 | Acme channel list = the seed's [general, random, dev, vault] | Spec expected [general, random, dev]: stale since Phase 5 added #vault, masked by the BUG-23 skip | Fixed (test): expectation lists #vault (Advisor ruling) |
+| BUG-27 | AC-A5-2 | S2 | Principal (`scripts/hs-pool.mjs`) + PM (`docs/SEED_DATA.md`) | issue #2, pristine snapshot | Pristine seed: alice's only Acme unread is #random, so reading it clears the Acme dot | The snapshot bakes in `send-encrypted-sample.mjs`, leaving 4 unread in #vault (seed contract: created empty); the dot stays | **Fixed** (002be00): the snapshot build marks #vault read for alice (receipt + `m.fully_read`); spec unchanged (Advisor ruling); AC-A5-2 green in run 3 |
+| BUG-28 | AC-B1-1 | S2 | Principal (message list scroll pinning, `src/`) | issue #2 run 2, pristine seed (red since the guard stopped skipping it) | #general opens scrolled to the bottom and stays there | The list pins to the bottom before the 48 px security banner mounts; when the banner shrinks the list (clientHeight 580 -> 532) nothing re-pins, so it rests 48 px short and the newest message is cut off by 31 px. A viewport resize does not re-pin either. Deterministic with 1 or 3 workers | Fixed afb6209 (`MessageList.tsx` ResizeObserver re-pins while stuck to the bottom); AC-B1-1 + regression `conversation-timeline` BUG-28 green in run 3 (3 workers) |
+| BUG-29 | AC-B3-2 | S3 | QA (`e2e/conversation-timeline.spec.ts`) | issue #2 fix wave, fresh pool server (4/6 red with 1 worker) | The test sees `timeline-loading` while the page request is in flight | On a freshly restored server the request takes ~80 ms, so the indicator is mounted for ~85 ms and the polling `waitFor` missed it; pagination and the no-jump anchor were correct | Fixed (test): a MutationObserver installed with the scroll records the rendered indicator; 8/8 green. Same assertion |
+
+The literal `${MARKER}` line in `homeserver/homeserver.yaml` (unparsable YAML since f6fce71) is fixed by PR #5, regression `homeserver-config.spec.ts`.
+
+**Known limit (not a bug):** a *redacted* encrypted edit seen from history renders as "Message deleted": room v11
+redaction empties the whole `m.room.encrypted` content, so no client can tell it was an edit (Element does the same).
+Live, it is hidden (regression test). **Dev only:** a Vite HMR wave during boot can leave the page on
+"Setting up encryption..." (seen once while devs were saving files); not reproducible in a build.
+
+Regression tests for fixes found by others (JC's rule): Dev B's redacted relations and stuck "Decrypting..." reply
+quote; the Principal's 21179cb (a) grid, (b) no rows for edits / reactions, (c) banner with no rooms, (d) `errorKind`,
+(e) newest incoming request, (f) `unlock` hint for secret storage without cross-signing. All in `e2ee-core` / `e2ee-security`.
+
+Not automated: AC-E2-8 (`decrypting` lasts milliseconds), AC-E4-2 wrong password (first upload needs no UIA, so no
+password is ever asked), AC-E5-7 (needs 50+ sessions in one backup). All `test.fixme` with the reason.
+
+**Full regression 2026-10-18 (61e6cef, `--output e2e/results/qa-regression-1018-0136`).** Desktop 121 passed /
+53 failed / 35 skipped; mobile 37 / 34 / 10. All red but two tests is BUG-18: the test lands on DM Bob, or it cannot find a
+`channel-item-*` of Acme HQ. QA fixes in the tests: `navigation` AC-A3-1 now expects the m.direct rooms alice is
+*joined* to (e2ee suites leave their throwaway DMs), AC-A6-3 expects an encrypted channel (AC-E6-1 supersedes
+"unencrypted"; PM: please reword AC-A6-3), and the `e2ee-core` AC-E6-1 teardown also leaves the #general that comes
+with a new space. Five orphan encrypted "general" rooms from earlier runs are still in alice's Other Rooms. They need
+cleanup by someone allowed to change shared homeserver data.
+
+**Regression runs 2 and 3 (31f965d).** Run 2: desktop 175/7/27, mobile 78/3/0 (BUG-19, BUG-20, AC-V4-4 404
+allowlist). Run 3, with those fixed (`e2e/results/qa-regression3-1018-0446`): desktop 179/7/23, mobile 79/2/0. 7 of the 9
+red tests are slow logins or syncs (BUG-21). The other two, AC-V6-6 (1474 px jump) and AC-B3-2 (`timeline-loading`
+not seen), pass in isolation; I'll re-judge them after the device cleanup.
+
+**Regression run 4 (df1a7ca, fresh homeserver, `e2e/results/qa-regression4-1018-0949`).** Desktop 189/2/18 (40 min),
+mobile 81/0/0 (10 min). The 2 red were BUG-22. AC-V6-6 and AC-B3-2 passed (the run-3 failures were BUG-21 load).
+
+### Manual 704.chat checklist (AC-E8-4)
+Real server: https://matrix.704.chat, SSO via Keycloak, Element on the side. Mark `ok` / `fail: <what>`.
+
+| # | AC | Check | JC | Charlie | Juanjo |
+|---|---|---|---|---|---|
+| 1 | AC-E5-8 | Log in via Keycloak; banner says **Verify** (never **Set up**); unlock with the recovery key you have in Element | | | |
+| 2 | AC-E5-8 | Same with the **passphrase** instead of the key (if you have one) | | | |
+| 3 | AC-E5-8 | All 6 encrypted rooms read: old history decrypted, no "Unable to decrypt" left after the restore | | | |
+| 4 | AC-E5-8 | Element still unlocks with the same key afterwards (key unchanged) | | | |
+| 5 | AC-E4-8 | Verify codec from Element (Element starts): same 7 emoji, both say verified | | | |
+| 6 | AC-E4-8 | Verify from codec (codec starts, Element accepts) | | | |
+| 7 | AC-E4-8 | Element's session list shows the codec session with a green shield | | | |
+| 8 | AC-E4-8 | Brand-new SSO account: **Set up** opens the Keycloak popup ("Finish signing in in the window that opened"), the key appears after the popup closes | | | |
+| 9 | interop | Text from codec decrypts in Element, and Element's text decrypts in codec | | | |
+| 10 | AC-E3-7 | Image from Element (with a thumbnail) renders in codec; voice note from Element plays in codec | | | |
+| 11 | interop | Image, file and voice note sent from codec open / play in Element | | | |
+| 12 | AC-E1-3 | Log out of codec, log in again: new session, banner back (DevTools > Application > IndexedDB: no old `matrix-poc-crypto:` store) | | | |
 
 ## Phase 4 (GIF picker)
 

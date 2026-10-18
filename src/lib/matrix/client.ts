@@ -3,7 +3,8 @@
  * Owned by the Principal. Devs consume `getClient()` and the stores; they never call
  * `startClient` or construct clients themselves.
  *
- * No crypto is ever initialised (E2EE is out of scope); every room is created unencrypted.
+ * Phase 5: the Rust crypto engine starts between `createClient` and `startClient` (`crypto.ts`), with an
+ * IndexedDB store per user+device so keys survive reloads; logout and a rejected token wipe that store.
  */
 import {
   createClient,
@@ -15,9 +16,11 @@ import {
 } from 'matrix-js-sdk';
 import type { ISyncStateData } from 'matrix-js-sdk/lib/sync.js';
 import { DEVICE_DISPLAY_NAME, getHsUrl, SESSION_STORAGE_KEY } from './config.ts';
+import { clearSecretStorageKeyCache, cryptoCallbacks, initCrypto, VERIFICATION_METHODS, wipeCryptoStore } from './crypto.ts';
 import { probeAuthenticatedMedia } from './media.ts';
 
 export { mxcToHttp } from './mxc.ts';
+export { getCryptoError, cryptoDatabasePrefix } from './crypto.ts';
 
 export interface StoredSession {
   baseUrl: string;
@@ -27,6 +30,8 @@ export interface StoredSession {
 }
 
 let client: MatrixClient | null = null;
+/** The session the live client was started from (for the crypto store prefix on teardown). */
+let clientSession: StoredSession | null = null;
 
 /** The live, started client. Throws when nobody is logged in. */
 export function getClient(): MatrixClient {
@@ -37,6 +42,11 @@ export function getClient(): MatrixClient {
 /** Same as getClient() but returns null instead of throwing. */
 export function getClientOrNull(): MatrixClient | null {
   return client;
+}
+
+/** The session behind the live client, or null. */
+export function getCurrentSession(): StoredSession | null {
+  return clientSession;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,16 +213,25 @@ export async function register(username: string, password: string): Promise<Stor
 export interface StartOptions {
   /** Called on every sync state change (the store uses this to surface errors). */
   onSyncState?: (state: SyncState, prev: SyncState | null, data?: ISyncStateData) => void;
+  /** Phase 5: called while the crypto engine loads (WASM download + IndexedDB open), for the loading screen. */
+  onCryptoLoading?: () => void;
 }
 
 /**
- * Create the client for a session and start syncing. Resolves once the client is created and
- * `startClient` has been called; use `waitForPrepared()` to wait for the first sync.
+ * Create the client for a session, start the crypto engine, and start syncing. Resolves once `startClient`
+ * has been called; use `waitForPrepared()` to wait for the first sync.
+ *
+ * Phase 5: `initRustCrypto` runs between `createClient` and `startClient` (the SDK requires that order) with
+ * `cryptoDatabasePrefix(session)`, so the device's keys persist across reloads. A crypto failure does not block
+ * login: the client runs without encryption and `getCryptoError()` says why (see crypto.ts).
  */
 export async function startClientFromSession(session: StoredSession, opts: StartOptions = {}): Promise<MatrixClient> {
   if (client) {
+    // Switching sessions without a logout (e.g. a second SSO return): stop the old client but keep its store;
+    // its device is still valid server-side and would reuse the same prefix if it ever came back.
     await teardownClient(client);
     client = null;
+    clientSession = null;
   }
   const c = createClient({
     baseUrl: session.baseUrl,
@@ -220,11 +239,17 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     accessToken: session.accessToken,
     deviceId: session.deviceId,
     timelineSupport: true,
+    // Phase 5: the SDK asks these for the recovery key whenever it touches secret storage (crypto.ts).
+    cryptoCallbacks,
+    verificationMethods: VERIFICATION_METHODS,
   });
   if (opts.onSyncState) c.on(ClientEvent.Sync, opts.onSyncState);
   // Runs alongside the first sync; nothing renders media before the client is prepared.
   const mediaProbe = probeAuthenticatedMedia(session.baseUrl);
   client = c;
+  clientSession = session;
+  opts.onCryptoLoading?.();
+  await initCrypto(c, session);
   await c.startClient({
     initialSyncLimit: 30,
     lazyLoadMembers: true,
@@ -232,7 +257,6 @@ export async function startClientFromSession(session: StoredSession, opts: Start
     // Phase 3: threads. In matrix-js-sdk v43 this is a startClient option (not createClient). It makes the
     // SDK partition `m.thread` replies out of the main live timeline into `room.getThread(rootId)` models,
     // add `thread_id` to read receipts, and request `unread_thread_notifications` in the sync filter.
-    // No crypto, ever.
     threadSupport: true,
   });
   await mediaProbe;
@@ -274,13 +298,18 @@ export function waitForPrepared(c: MatrixClient, onError?: (message: string) => 
   });
 }
 
-async function teardownClient(c: MatrixClient): Promise<void> {
+/**
+ * Stop a client. With `wipe`, also delete its crypto store (must happen after `stopClient`: the SDK refuses to
+ * clear stores while running, and two engines on one IndexedDB corrupt it).
+ */
+async function teardownClient(c: MatrixClient, wipe?: StoredSession | null): Promise<void> {
   try {
     c.stopClient();
   } catch {
     /* ignore */
   }
   c.removeAllListeners();
+  if (wipe) await wipeCryptoStore(c, wipe);
   try {
     await c.store.destroy();
   } catch {
@@ -289,18 +318,21 @@ async function teardownClient(c: MatrixClient): Promise<void> {
 }
 
 /**
- * Log out: best-effort server-side logout, stop syncing, drop the client, clear localStorage.
- * Never throws.
+ * Log out: best-effort server-side logout, stop syncing, drop the client, clear localStorage, and delete the
+ * device's crypto store (Phase 5: the device is gone server-side, its keys must not outlive it). Never throws.
  */
 export async function logout(): Promise<void> {
   const c = client;
+  const session = clientSession;
   client = null;
+  clientSession = null;
   clearSession();
+  clearSecretStorageKeyCache();
   if (!c) return;
   try {
     await c.logout(true);
   } catch {
     /* token may already be invalid; ignore */
   }
-  await teardownClient(c);
+  await teardownClient(c, session);
 }

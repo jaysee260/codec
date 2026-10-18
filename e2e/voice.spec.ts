@@ -558,7 +558,10 @@ test('AC-V4-4 — a redacted voice message shows message-redacted, no bubble, no
   // The SDK probes /org.matrix.msc4143/rtc/transports once per startClient and it 404s by design
   // (docs/ARCHITECTURE.md). Anything else 404ing — a media fetch for the redacted note — is a bug.
   expect(
-    notFound.filter((u) => !/msc4143|rtc\/transports/.test(u)),
+    // Phase 5: the crypto start-up probes 404 by design on an account with no key backup / secret storage.
+    notFound.filter(
+      (u) => !/msc4143|rtc\/transports|room_keys\/version|account_data\/m\.secret_storage\.default_key/.test(u),
+    ),
     'no unexpected 404 while redacting a voice note',
   ).toEqual([]);
 });

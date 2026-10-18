@@ -20,6 +20,7 @@
 import { expect, test } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import { resolveRoom } from './fixtures/seed.ts';
+import { workerOrigin } from './fixtures/pool.ts';
 import { annotate } from './fixtures/state.ts';
 import { messageList } from './fixtures/ui.ts';
 import {
@@ -76,7 +77,7 @@ import {
 } from './fixtures/gif.ts';
 import { settledEventId, row } from './fixtures/ui.ts';
 
-const ORIGIN = 'http://localhost:5173';
+const ORIGIN = workerOrigin();
 
 let DEV = '';
 
@@ -233,10 +234,12 @@ test.describe('GIF sheet — mock provider (QA-20)', () => {
     await expect(messageGif(gifRow)).toHaveAttribute('data-gif-id', target.id);
     await expect(await expectGifPlaying(gifRow)).toHaveAttribute('src', mockGifUrl(target.id, ORIGIN));
     await expect(messageGifBadge(gifRow)).toHaveText('GIF');
-    expect(
-      await messageGifImg(gifRow).evaluate((el) => (el as HTMLImageElement).naturalWidth),
-      'the GIF must actually load on the phone layout',
-    ).toBeGreaterThan(0);
+    // Polled, as in gif.spec AC-G8-1: the decode may finish after the <img> mounts (BUG-22).
+    await expect
+      .poll(() => messageGifImg(gifRow).evaluate((el) => (el as HTMLImageElement).naturalWidth), {
+        message: 'the GIF must actually load on the phone layout',
+      })
+      .toBeGreaterThan(0);
 
     // The image must not overflow the phone viewport (AC-B4 / AC-V6-1 spirit).
     const imgBox = await box(messageGifImg(gifRow), 'message-gif-img');

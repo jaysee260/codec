@@ -3,7 +3,43 @@
 This document is the contract between the Principal-owned core (`src/lib`, `src/store`, `src/app`,
 `seed`, `scripts`, `homeserver`, and since Phase 2 `capacitor.config.ts`, `android/`, `ios/`) and the
 feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md` /
-`docs/PHASE4_TICKETS.md` "Shared API", **this file wins**; the differences are listed first.
+`docs/PHASE4_TICKETS.md` / `docs/PHASE5_TICKETS.md` "Shared API", **this file wins**; the differences are listed first.
+
+## Phase 5 deltas (end-to-end encryption)
+
+What the Phase 5 brief, docs/PHASE5_PLAN.md, docs/PHASE5_TICKETS.md (PRIN-17..23) and docs/PHASE5_ACCEPTANCE.md say versus
+what is shipped, and why. The core API is in "Encryption (Phase 5)" at the end of this file; the traps in "Encryption gotchas (Phase 5)".
+Verified end to end with a throwaway Playwright script against a throwaway Synapse 1.163 (login, UTD history,
+key import, live send/receive both ways, encrypted upload, reload, setup, SAS self-verification, logout wipe, unlock).
+
+| Topic | Brief / plan / tickets / acceptance say | What is actually shipped | Why |
+|---|---|---|---|
+| Boot order | `initRustCrypto` before `startClient`, per-user/device store | `createClient({ cryptoCallbacks, verificationMethods })` -> `initCrypto()` (`initRustCrypto({ cryptoDatabasePrefix })`, prefix `matrix-poc-crypto:<userId>:<deviceId>`; IndexedDB name `matrix-poc-crypto:@alice:localhost:<deviceId>::matrix-sdk-crypto`) -> `startClient`. A crypto failure never blocks login: `getCryptoError()` is set, `useSecurityStore.cryptoReady` stays false, the app runs unencrypted (sends into encrypted rooms throw `EncryptionNotReadyError`). | Advisor risk 1 (one store per device; a fresh SSO device must never reuse an old device's keys). |
+| Store at rest | - | **Not encrypted at rest** (no `storageKey` / `storagePassword`): the browser profile is the trust boundary of this POC, same as the access token in `localStorage`. | Documented choice; a passphrase prompt on every boot is out of scope. |
+| Wipe | `clearStores` on logout and the token-rejected path | `logout()` and `fail()`: `stopClient()` -> `removeAllListeners` -> `clearStores({ cryptoDatabasePrefix })` -> `store.destroy()`; the secret-storage key cache is cleared too. The wait for `indexedDB.deleteDatabase` is bounded (4 s): an in-flight backup upload can keep the Rust engine's connection open a few seconds past `stopClient()`, the delete stays queued in the browser and the prefix is recorded in `localStorage['matrix-poc.pendingCryptoWipes']`, which `initCrypto` retries before the next boot. Verified: the store was gone 17 s after the login form appeared, and the next boot deletes it at the latest. A session *switch* without logout keeps the old store (the old device still exists). | `clearStores` throws while the client runs; found in verification right after `setupRecovery`. |
+| Token rejected after boot | wipe like logout, "Session expired" on the login form (AC-E1-4) | `bindClient({ onSessionLoggedOut })` -> `fail(MatrixError M_UNKNOWN_TOKEN, 'error')`: same wipe as logout, status `error` with "Session expired, please log in again" (BUG-11; the plain `logout()` path clears the message). | - |
+| First-load landing (BUG-18) | land on the first space / #general on a fresh login | `bindClient` ignores every `scheduleRooms()` until the initial sync is `Prepared` (the `Prepared` handler does the first full `recomputeRooms`), and `recomputeRooms` returns early while `client.getSyncState()` is null. Before: account data / presence / device and decryption events during the (now longer, Phase 5) initial sync fired the debounced recompute on a partial world (probe: 0 rooms, sync `null`), `ready` flipped, the first-load rule saw no spaces, chose Home + the first DM and **persisted** it. Probe after the fix: 6/6 first snapshots at `PREPARED` with all rooms. | S2: 85 of 87 red tests in the first full Phase 5 run. |
+| Loading | `app-loading[data-stage]` | `useSessionStore.loadingStage: 'crypto' \| 'sync' \| null`; `LoadingScreen` renders `data-stage` and "Setting up encryption..." during `crypto`. | AC-E1-5. |
+| Decrypted re-render | bridge listens to `MatrixEventEvent.Decrypted` | `bridge.ts` `onDecrypted`: schedules the event's room (or thread) snapshot, `scheduleRooms()` (previews) and bumps `threadsVersion`. Rows memoised on `event.getId()` must include `useRoomTimeline().version`. | Advisor risk 2. |
+| UTD events | `isDisplayableEvent` keeps `m.room.encrypted`; `getDisplayBody` gains `decryption` | Shipped as specified, minus encrypted **relations**: an `m.room.encrypted` whose wire `m.relates_to` is `m.replace` / `m.annotation` (or an `m.reaction`) is never a row, and neither is one redacted after this session saw it as a relation (`isEncryptedRelation`, ids remembered by the bridge via `noteEncryptedRelation`; same rule as Dev B's `isHiddenEncryptedRelation`). Residual: a relation redacted before this session loaded shows as "Message deleted". `getDecryptionState(event)`, `describeDecryptionFailure(code)` (table below), `DisplayBody { isEncrypted, decryption?, file?, thumbnailFile? }`; a failed row is `msgtype: 'm.bad.encrypted'`, `text` = the reason; a row still decrypting is `msgtype: 'm.room.encrypted'`, `text: 'Decrypting...'`; `previewText` -> `Unable to decrypt` / `Decrypting...`. Relations stay on `getWireContent()` (threads, replies, reactions work before decryption). | - |
+| Attachments | `attachments.ts` (WebCrypto, no npm install), `useMediaObjectUrl`, `mediaSourceOf` | `src/lib/matrix/attachment-crypto.ts` (pure: `encryptAttachment`, `decryptAttachment`, `isEncryptedFile`, types; Node-loadable) + `attachments.ts` (re-exports those and adds `fetchDecryptedMedia`, `fetchDecryptedBlob`, `releaseDecryptedMedia`). Hook is `useDecryptedMediaUrl(file, mimetype)`; `useMediaObjectUrl` is an alias; `mediaSourceOf(body)` in `media.ts`. `uploadEncryptedMedia(blob)`, `uploadFile(file, { encrypt?, roomId? })`. | The scripts import the pure module (the app one pulls `config.ts` / `import.meta.env`). |
+| Voice notes | `VoiceMessageInfo.file?` | Encrypted voice events carry `file` at the top level **and** `org.matrix.msc1767.file: { file, name, mimetype, size }`; `getVoiceMessage` reads either; `url` is `''` when encrypted. | Element compatibility. |
+| Encrypted by default | `createChannel` / `createDm` add `m.room.encryption` | `createChannel({ ..., encrypted? = true })`, `createDm(userId, { encrypted? = true })`, `createSpace({ ..., encrypted? = false })` (spaces stay plain), `enableRoomEncryption(roomId)`, `prepareToEncrypt(roomId)` (no-op in plain rooms), `isRoomEncrypted(roomId)`, `RoomSummary.encrypted`, `useRoomEncrypted(roomId)`. | AC-E6. |
+| `securityHint` rule | tickets: `setup` = no cross-signing keys **and** no secret storage; `unlock` = verified but no backup key | `setup` = no cross-signing keys **and** no secret storage; `unlock` = no cross-signing keys but a recovery key exists (AC-E5-5: `unlockWithRecoveryKey` bootstraps the identity from / into 4S; `setupRecovery` throws "A recovery key already exists" unless `reset`); `verify` = identity exists, this device is not cross-signed; `unlock` = verified, a key backup exists and its key is not cached; else null (in that order). | What the SDK can answer offline; "verified but no backup key" is the second `unlock` case. |
+| `hint` timing | refreshed on `CryptoEvent.*` | Also refreshed on `ClientEvent.Sync` `Prepared`: `status` is `null` until the first sync and its `/keys/query` landed (~1 s after `app-shell`). QA: wait for `status !== null`. | Found in verification. |
+| UIA | `makeUiaCallback({ passwordPrompt })`; SSO via the fallback page after a 704.chat spike | `makeUiaCallback({ password?, sso? })`: null auth first (spec v1.11: the first cross-signing upload needs no UIA; verified on Synapse 1.163), then `m.login.password` (`prompt.kind: 'password'`), then `m.login.sso` through the fallback page `/_matrix/client/v3/auth/m.login.sso/fallback/web?session=` in a popup (`prompt.kind: 'sso'`, `url`, `popupBlocked`); resubmits `{ session }` when the popup posts `authDone`, closes, or the user presses Done. **The SSO path is not spiked on 704.chat** (no reachable SSO server from the build environment): manual check owed, see docs/BUGS.md checklist. | Advisor risk 5. |
+| Recovery | `unlockWithRecovery`, `setUpEncryption`, `backup.state` | Names: `unlockWithRecoveryKey(input)` (key **or** passphrase when the key description has one; wrong key -> `RecoveryKeyError('wrong')` -> store returns false + `recovery.error`), `restoreFromBackup()`, `setupRecovery({ passphrase?, reset? })`; backup state is the `KeyBackupSummary { version, trusted, keyCached, enabled }` object (no `state` enum). Unlock = check key -> `bootstrapCrossSigning` (imports the private keys from 4S, signs this device) -> `restoreKeyBackup` with `recovery.progress { imported, total }` -> `recovery.lastRestore`. | - |
+| Dev hook | `__matrixPoc.security` / `__matrixPoc.crypto` | Both names, same object: the whole `security.ts` module + `{ store: useSecurityStore, cryptoDatabasePrefix, getCryptoError, importRoomKeys(json), exportRoomKeys() }`; also `__matrixPoc.securityStore`, `attachments` (module), `cryptoLifecycle` (`crypto.ts`). | - |
+| Seed | `#vault` + `rooms.vault`, do not reset | `#vault` (alias `#vault:localhost`, topic "Encrypted. Say it here.", alice/bob/dave, `m.room.encryption` in `initial_state`, no script messages) and an encrypted DM `dm-alice-dave`. `npm run seed` on an already-seeded server is **additive**: it creates only the rooms whose alias / DM is missing, refreshes every room id from the server and **re-records the keyed event ids** of the existing channels from their history (sender + body match, in script order; BUG-15: a machine without `seed-output.json` gets a complete file; `e2e/fixtures/seed.ts` refuses to load a file missing any of the 11 `general.*` ids). | Never `seed:reset`. |
+| Scripts | `e2ee:sample`, `verify:e2ee` | `scripts/send-encrypted-sample.mjs` (`--as bob --room '#vault:localhost' --count 3 [--no-image] [--keys seed/e2ee-keys.json] [--image path]`; prints `{ roomId, eventIds, keys }`, merges this device's Megolm sessions into `seed/e2ee-keys.json`, logs the device out), `scripts/verify-e2ee.mjs` (attachment round trip + tamper, room state, wire shape, decrypts the sample with the keys file, media bytes are ciphertext with the right SHA-256), `scripts/lib/e2ee-api.mjs`. `seed/e2ee-keys.json` is gitignored. | AC-E7. |
+| Shell | `security-banner-host`, `security-dialogs-host` | Both hosts render on both layouts (banner above `channel-header`, and above the `empty-state` when no room is selected, so a fresh account with no rooms still sees "Set up encryption"; dialogs once per page: a **sibling after the desktop grid**, after the drawers on phone); both are `display: contents`, so they never take a grid / flex cell (an earlier cut put the dialogs host inside the grid and pushed the member / thread panels to a second row). `SecurityDialogs` must render `position: fixed` overlays or nothing; `@/features/security` is resolved through `import.meta.glob` + `lazy`, so the shell builds before Dev A's module exists and renders nothing then. `current-user[data-verified]`: `"unknown"` until the status snapshot lands **and** while the account has no cross-signing identity (AC-E4-1, BUG-14), `"false"` = identity exists but this device is not signed, `"true"` = signed (+ `current-user-verified` line). | PRIN-23. |
+
+### Advisor consultations (Phase 5, Principal)
+
+| Topic | Outcome |
+|---|---|
+| `/tmp/claude-0/team/advisor-risks.md` (relayed by the coordinator) | Risk 1 `clearStores` on logout + per-device prefix: done. Risk 2 `Decrypted` listener in the bridge: done. Risk 3 attachments not in the SDK: own WebCrypto implementation, round trip + tamper checked in `verify:e2ee`. Risk 4 `cryptoCallbacks.getSecretStorageKey` at `createClient`: done (session cache + store prompt). Risk 5 SSO UIA: fallback-page popup implemented, **not** spiked on 704.chat. Risk 6 Vite `optimizeDeps.exclude` for the wasm: done, `.wasm` emitted once (7.8 MB) by `npm run build`. |
+| Direct consult | None this wave (the risk list covered the open questions). |
 
 ## Phase 4 deltas (GIF picker)
 
@@ -146,10 +182,10 @@ src/
   app/                         (Principal) session gate + shell
     App.tsx                    status -> LoginScreen | LoadingScreen | Shell; boots initNative(); dev hooks
     LoginScreen.tsx            login/register form + Advanced > Homeserver URL (Phase 2)
-    LoadingScreen.tsx          data-testid=app-loading until PREPARED
-    Shell.tsx                  desktop: 72 | 240 | 1fr | auto grid; phone: full-screen column + two drawers (Phase 2)
+    LoadingScreen.tsx          data-testid=app-loading until PREPARED; (Phase 5) data-stage=crypto|sync
+    Shell.tsx                  desktop: 72 | 240 | 1fr | auto grid; phone: full-screen column + two drawers (Phase 2); (Phase 5) security hosts
     Drawer.tsx                 off-canvas drawer container (phone), data-testid nav-drawer / member-drawer
-    UserFooter.tsx             bottom-left user pill + logout
+    UserFooter.tsx             bottom-left user pill + logout; (Phase 5) data-verified + "Verified" line
     Toast.tsx                  global toasts
     devtools.ts                window.__matrixPoc in dev builds only
     theme.css                  design tokens (the only CSS variables features may use) incl. --safe-*, --tap-target, --vvh
@@ -175,24 +211,31 @@ src/
     matrix/
       config.ts                getHsUrl/setHsUrl/hasHsUrlOverride/normalizeHsUrl, DEFAULT_HS_URL, storage keys, localpartOf, serverNameOf
       mxc.ts                   mxcToHttp (pure; resolves getHsUrl() per call)
-      client.ts                getClient, login, register, logout, session persistence, startClient
-      actions.ts               every write + a few aggregate readers (members, reactions); sendVoiceMessage (Phase 2); sendGif (Phase 4)
-      utils.ts                 read helpers over SDK objects (display names, avatars, getDisplayBody, getVoiceMessage, getGifContent, ...)
+      client.ts                getClient, login, register, logout, session persistence, startClient; (Phase 5) initCrypto before startClient, wipe on logout
+      crypto.ts                (Phase 5) engine lifecycle: cryptoDatabasePrefix, initCrypto, wipeCryptoStore, cryptoCallbacks, secret-storage key cache
+      security.ts              (Phase 5) CryptoApi wrappers: status, SAS verification, UIA (password / SSO fallback), recovery key, backup
+      attachment-crypto.ts     (Phase 5) pure AES-256-CTR + SHA-256 attachment scheme (WebCrypto); Node-loadable
+      attachments.ts           (Phase 5) EncryptedFile, encrypt/decryptAttachment (re-exported), fetchDecryptedMedia -> blob: URL cache
+      media.ts                 authenticated media (service worker); (Phase 5) MediaSource, mediaSourceOf, encrypted openMedia / downloadMedia
+      actions.ts               every write + a few aggregate readers (members, reactions); sendVoiceMessage (Phase 2); sendGif (Phase 4); (Phase 5) encrypted uploads, encrypted-by-default rooms
+      utils.ts                 read helpers over SDK objects (display names, avatars, getDisplayBody, getVoiceMessage, getGifContent, ...); (Phase 5) isRoomEncrypted, getDecryptionState
   store/
-    session.ts                 useSessionStore
-    rooms.ts                   useRoomStore + recomputeRooms + waitForRoom + onRoomSelected (Phase 2)
+    session.ts                 useSessionStore; (Phase 5) loadingStage, binds/unbinds the security store
+    security.ts                (Phase 5) useSecurityStore: status, hint, verification flow, recovery, prompts; bindSecurity/unbindSecurity/resetSecurity
+    rooms.ts                   useRoomStore + recomputeRooms + waitForRoom + onRoomSelected (Phase 2); (Phase 5) RoomSummary.encrypted
     layout.ts                  (Phase 2) useLayoutStore, useIsPhone, useViewport, detectIsPhone; stamps <html data-layout>, --vvh; (Phase 4) registerBackHandler, runBackHandlers
     timeline.ts                useTimelineStore + refreshTimeline + setTypingForRoom; (Phase 3) TimelineSource, thread snapshots, paginateBack(source), ensureThreadTimeline
     threads.ts                 (Phase 3) useThreadStore (open thread), useThreadSummary, useThreadRoot, useRoomThreads, useThreadUnread, useOpenThread(RootId)
     thread.ts                  (Phase 3) re-export of threads.ts (docs/PHASE3_TICKETS.md name)
-    bridge.ts                  bindClient/unbindClient: SDK events -> stores (debounced); (Phase 3) thread timeline sets, per-room ThreadEvent.*, thread local echo
-    hooks.ts                   useRoomTimeline, useTyping, useMembers, useRoomSummary, useSelectedRoom, useMyUserId (+ re-exports useIsPhone, useViewport); (Phase 3) useTimeline(source) + thread hooks re-exported
+    bridge.ts                  bindClient/unbindClient: SDK events -> stores (debounced); (Phase 3) thread timeline sets, per-room ThreadEvent.*, thread local echo; (Phase 5) MatrixEventEvent.Decrypted
+    hooks.ts                   useRoomTimeline, useTyping, useMembers, useRoomSummary, useSelectedRoom, useMyUserId (+ re-exports useIsPhone, useViewport); (Phase 3) useTimeline(source) + thread hooks re-exported; (Phase 5) useRoomEncrypted, useDecryptionState, useDecryptedMediaUrl (= useMediaObjectUrl), security hooks re-exported
     toast.ts                   useToastStore, showToast, withToast
     index.ts                   re-exports
   features/
     navigation/                (Dev A) index.ts exports SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel, useNavUiStore
     conversation/              (Dev B) index.ts exports Conversation and (Phase 3) ThreadView (placeholder by the Principal; Dev B replaces the internals)
     gif/                       (Dev A, Phase 4) GifPicker (search, trending, grid, keyboard, sheet variant)
+    security/                  (Dev A, Phase 5) index.ts exports SecurityBanner, SecurityDialogs (the Shell resolves it lazily; absent = renders nothing)
 public/gif-fixtures/           (Phase 4) mock-1..8.gif (animated GIF89a) + mock-1..8.png stills, generated by scripts/make-gif-fixtures.mjs
 capacitor.config.ts            (Phase 2) appId com.acme.matrixpoc, webDir dist, androidScheme http + cleartext, Keyboard native, StatusBar dark
 android/                       (Phase 2) generated by `cap add android` (Capacitor 7); committed minus build outputs; manifest has RECORD_AUDIO etc.
@@ -206,6 +249,9 @@ scripts/cap-build-android.mjs  (Phase 2) vite build (VITE_HS_URL) + cap sync + g
 scripts/send-voice-sample.mjs  (Phase 2) post a contract-shaped voice message via the API, validate it (npm run voice:sample)
 scripts/verify-phone-shell.mjs (Phase 2) Pixel 7 Playwright check + screenshots + voice round trip (npm run verify:phone)
 scripts/send-thread-sample.mjs (Phase 3) post a thread (root + replies, exact wire shape) via the API, validate the server bundle (npm run thread:sample)
+scripts/send-encrypted-sample.mjs (Phase 5) bob posts encrypted texts + an encrypted PNG into #vault with the Node crypto engine, exports keys (npm run e2ee:sample)
+scripts/verify-e2ee.mjs        (Phase 5) attachment round trip, room state, wire shape, decrypt with seed/e2ee-keys.json, ciphertext on the server (npm run verify:e2ee)
+scripts/lib/e2ee-api.mjs       (Phase 5) Node crypto client helpers, loginWithDevice, downloadMedia, mergeRoomKeys, quietLogger
 scripts/verify-thread-shell.mjs (Phase 3) desktop + Pixel 7 Playwright check of the thread core on :5183 + screenshots (npm run verify:threads)
 scripts/make-gif-fixtures.mjs  (Phase 4) pure-Node GIF89a + PNG encoder rendering the MOCK_FIXTURES catalogue into public/gif-fixtures (npm run gif:fixtures)
 scripts/send-gif-sample.mjs    (Phase 4) bob posts a contract GIF message to #dev via the API using the client's buildGifContent (npm run gif:sample)
@@ -222,7 +268,7 @@ e2e/, playwright.config.ts     (QA)
 | Owner | Owns | Must not edit |
 |---|---|---|
 | Principal | `src/app/**`, `src/store/**`, `src/lib/**` (incl. `audio/**`, `gif/**`, `native.ts`), `public/**`, `src/styles/**`, `index.html`, `capacitor.config.ts`, `android/**`, `ios/**`, `seed/**`, `scripts/**`, `homeserver/**`, `package.json`, `.env.example`, `docs/ARCHITECTURE.md`, `docs/MOBILE.md`, root configs | - |
-| Dev A | `src/features/navigation/**`, (Phase 4) `src/features/gif/**` | anything else |
+| Dev A | `src/features/navigation/**`, (Phase 4) `src/features/gif/**`, (Phase 5) `src/features/security/**` | anything else |
 | Dev B | `src/features/conversation/**` | anything else |
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:e2e*` script lines in `package.json` | anything else |
 
@@ -932,3 +978,69 @@ npm run verify:gif                 # no browser: mock contract, fixtures, wire s
 - **`/relations` order is newest first**; the SDK inserts by timestamp. A reply arriving while the initial fetch is in
   flight is replayed afterwards (`replayEvents`).
 - **No thread-scoped typing** exists in Matrix/Synapse; `useTyping({ roomId, threadRootId })` is the room list.
+
+## Encryption (Phase 5)
+
+Boot: `startClientFromSession(session, { onSyncState?, onCryptoLoading? })` -> `createClient({ ..., cryptoCallbacks, verificationMethods: ['m.sas.v1'] })` -> `initCrypto` -> `startClient` -> `bindClient` -> `bindSecurity` -> Prepared. Logout: `unbindSecurity` -> `unbindClient` -> `logout()` (stop, wipe) -> `reset*` stores.
+
+### `src/lib/matrix/crypto.ts` (engine lifecycle; features never import it)
+`CRYPTO_DB_PREFIX`, `cryptoDatabasePrefix({ userId, deviceId })`, `VERIFICATION_METHODS`, `initCrypto(client, session): Promise<boolean>`,
+`getCryptoError(): string | null`, `wipeCryptoStore(client, session)`, `cryptoCallbacks` (`getSecretStorageKey` = cached key, else the registered
+prompt; `cacheSecretStorageKey`), `setSecretStorageKeyPrompt(fn | null)`, `cacheSecretStorageKey`, `hasCachedSecretStorageKey`,
+`clearSecretStorageKeyCache`, `resolveRecoveryInput(input, keyInfo)` (recovery key or passphrase -> raw key, checked against the description).
+
+### `src/lib/matrix/security.ts` (CryptoApi wrappers; the store calls these)
+- `getCryptoApi()`, `isCryptoReady()`, `getOwnDeviceStatus(): Promise<OwnDeviceStatus>`, `getKeyBackupSummary()`, `getEventEncryptionInfo(event)`.
+- `OwnDeviceStatus { deviceId, verified, hasCrossSigningKeys, crossSigningReady, secretStorageReady, defaultKeyId, backup: KeyBackupSummary { version: string | null, trusted, keyCached, enabled } }`.
+- Verification: `requestOwnUserVerification()`, `requestDeviceVerification(userId, deviceId)`, `onVerificationRequestReceived(listener) => off`, `startSas(request)`.
+- UIA: `UiaOptions { password?: () => Promise<string | null>; sso?: (url, popupBlocked) => Promise<void> }`, `makeUiaCallback(opts)`, `ssoFallbackUrl(session)`.
+- Recovery: `RecoveryKeyError { kind: 'none' | 'invalid' | 'wrong' }`, `checkRecoveryKey(input) => { keyId, key }`, `unlockWithRecoveryKey(input, { uia?, onProgress? }) => KeyBackupRestoreResult`, `restoreFromBackup(onProgress?)` (`{ total: 0, imported: 0 }` when there is no backup), `setupRecovery({ passphrase?, reset?, uia? }) => recoveryKey` (cross-signing first, then secret storage + backup; throws when secret storage already exists and `reset` is not set).
+
+### `useSecurityStore` (`src/store/security.ts`; re-exported from `@/store`)
+State `{ cryptoReady, cryptoError, status: OwnDeviceStatus | null, hint: 'setup' | 'verify' | 'unlock' | null, verification: VerificationFlow | null, recovery: RecoveryState, prompt: PendingPrompt | null, newRecoveryKey: string | null, backupRemaining: number | null, version }` (`backupRemaining` = keys still to upload, from `CryptoEvent.KeyBackupSessionsRemaining`; show "Backing up N keys" while > 0).
+- `VerificationFlow { stage: 'requested' | 'ready' | 'started' | 'sas' | 'done' | 'cancelled', initiatedByMe, isSelf, otherUserId, otherDeviceId?, sas: { emoji: [symbol, name][] (7), decimal? } | null, error }`. One flow at a time; the SAS starts by itself once both sides are ready; verified: both call `confirmSas()`.
+- `RecoveryState { busy: 'unlock' | 'restore' | 'setup' | null, progress: { imported, total } | null, lastRestore: { imported, total } | null, error, errorKind?: 'none' | 'invalid' | 'wrong' }` (`errorKind` = `RecoveryKeyError.kind` when the key itself failed: no recovery key on the account / not a key or passphrase / does not open secret storage; absent for other failures. Match on it, never on `error` text).
+- Incoming requests: `bindSecurity` tracks every live `VerificationRequestReceived`; a finished (`done` / `cancelled`) flow is replaced, and an active one is cancelled (`request.cancel()`) so the newest request wins (AC-E4-7). **Engine rule** (verified, Rust crypto 18.9): a second concurrent request from the *same user* is refused: it arrives already cancelled (`m.user`) and the engine cancels the first one with `m.user` too, so the store shows the active flow as `cancelled` ("Cancelled (m.user)") and ignores the dead newcomer; the other device simply requests again (that request is tracked). The replace-on-arrival path applies to requests the engine lets through (another user, or after the earlier flow ended).
+- `PendingPrompt { kind: 'password' | 'recovery-key' | 'sso', message, url?, popupBlocked? }`: render while non-null, answer with `answerPrompt(value | null)` (`'done'` for `sso`; null cancels).
+- Actions: `refresh()`, `startSelfVerification()`, `acceptVerification()`, `cancelVerification()`, `confirmSas()`, `mismatchSas()`, `dismissVerification()`, `unlockWithRecoveryKey(input): Promise<boolean>`, `restoreFromBackup()`, `setupRecovery({ passphrase?, reset? }): Promise<string | null>` (the key is also in `newRecoveryKey` until `dismissRecoveryKey()`), `answerPrompt(value)`.
+- `securityHint(status)`, `useSecurityHint()`; `bindSecurity(client)` / `unbindSecurity()` / `resetSecurity()` are called by the session store.
+
+### Timeline (`src/lib/matrix/utils.ts`, `src/store/hooks.ts`)
+`MEGOLM_ALGORITHM`, `isRoomEncrypted(roomId)`, `useRoomEncrypted(roomId)`, `getDecryptionState(event): DecryptionState { status: 'none' | 'decrypting' | 'decrypted' | 'failed', code?: DecryptionFailureCode, message?, historical? }`, `useDecryptionState(event)`, `describeDecryptionFailure(code)`:
+
+| `code` | `message` | `historical` |
+|---|---|---|
+| `HISTORICAL_MESSAGE_NO_KEY_BACKUP` | Sent before you signed in here, and this account has no key backup | yes |
+| `HISTORICAL_MESSAGE_BACKUP_UNCONFIGURED` | Sent before you signed in here. Enter your recovery key to read it | yes |
+| `HISTORICAL_MESSAGE_WORKING_BACKUP` | Sent before you signed in here. Restoring from backup... | yes |
+| `HISTORICAL_MESSAGE_USER_NOT_JOINED` | You weren't in the room when this was sent | yes |
+| `MEGOLM_UNKNOWN_INBOUND_SESSION_ID`, `OLM_UNKNOWN_MESSAGE_INDEX` | Waiting for this message's key | no |
+| `MEGOLM_KEY_WITHHELD` | The sender withheld the key for this message | no |
+| `MEGOLM_KEY_WITHHELD_FOR_UNVERIFIED_DEVICE` | The sender only shares keys with verified sessions. Verify this session | no |
+| `SENDER_IDENTITY_PREVIOUSLY_VERIFIED` | The sender's verified identity has changed | no |
+| `UNSIGNED_SENDER_DEVICE`, `UNKNOWN_SENDER_DEVICE` | Sent from an unverified or unknown device | no |
+| anything else (`UNKNOWN_ENCRYPTION_ALGORITHM`, `UNKNOWN_ERROR`, ...) | Unable to decrypt this message | no |
+
+### Attachments (`src/lib/matrix/attachments.ts`, `attachment-crypto.ts`, `media.ts`)
+`EncryptedFile { url, key: { kty: 'oct', alg: 'A256CTR', ext: true, key_ops, k (base64url, unpadded) }, iv (base64, 8 random + 8 zero bytes), hashes: { sha256 (unpadded base64 of the ciphertext) }, v: 'v2' }`; `EncryptedFileInfo = Omit<EncryptedFile, 'url'>`.
+`encryptAttachment(ArrayBuffer) => { data, info }`, `decryptAttachment(ciphertext, file)` (hash checked first, throws on mismatch), `isEncryptedFile(v)`,
+`fetchDecryptedMedia(file, mimetype?) => Promise<blob: URL>` (cached per mxc url + type for the session; never revoke it yourself), `fetchDecryptedBlob`, `releaseDecryptedMedia(file)`,
+`useDecryptedMediaUrl(file | null, mimetype?) => { url, loading, error }` (= `useMediaObjectUrl`), `MediaSource = string | EncryptedFile`, `mediaSourceOf(body)`, `fetchMediaBlob(source, mimetype?)`, `openMedia(e, source, name?, mimetype?)`, `downloadMedia(e, source, name, mimetype?)`.
+Sending (`actions.ts`): `uploadEncryptedMedia(blob) => EncryptedFile` (uploads `application/octet-stream`, filename `encrypted`), `uploadFile(file, { encrypt?, roomId? })`, `sendFile` / `sendVoiceMessage` put `file` instead of `url` in encrypted rooms; no server thumbnails for encrypted media (`info.thumbnail_file` only when the sender made one). SVG / HTML / XML / JS mimetypes are neutralised to `application/octet-stream` on the decrypted blob.
+
+### Scripts
+`npm run e2ee:sample` (bob -> `#vault`, 3 texts + 1 encrypted PNG, keys -> `seed/e2ee-keys.json`), `npm run verify:e2ee`; both honour `HS_URL` / `PASSWORD` and use the Node crypto engine in memory (`initRustCrypto({ useIndexedDB: false })`). In the browser: `__matrixPoc.security.importRoomKeys(json)` decrypts the sample history at once.
+
+## Encryption gotchas (Phase 5, matrix-js-sdk v43 + Rust crypto)
+
+- **Plaintext if the room is unknown**: `sendMessage` only encrypts when the client's `Room` has the `m.room.encryption` state. A room created a moment ago (before `/sync` delivered it) or whose state is still lazy-loading sends **plaintext**. `createChannel` / `createDm` wait for the room; `prepareToEncrypt(roomId)` is a no-op until then; `sendRoomMessage` throws `EncryptionNotReadyError` when the room is encrypted and crypto is off.
+- **Wipe can lag**: right after `setupRecovery` (backup upload in flight) the crypto IndexedDB can outlive the logout by 10-20 s (measured 17 s) until the engine's connection closes, and is deleted at the next boot at the latest; QA polls `indexedDB.databases()` for up to 30 s instead of reading it once (AC-E1-4).
+- **`verified` can lag a tick after unlock / SAS**: the store refreshes right after the action and again on `UserTrustStatusChanged` / `KeysChanged`; assert with a poll, not a single read (seen once: `hint: 'verify'` for a moment after `unlockWithRecoveryKey` resolved true).
+- **Status is late**: `useSecurityStore.status` is `null` until the first `/sync` and `/keys/query` finish; `current-user[data-verified]` is `"unknown"` meanwhile.
+- **First upload needs no UIA**: Synapse (spec v1.11) lets the first `bootstrapCrossSigning` upload go without auth; only a *reset* (`setupRecovery({ reset: true })`) triggers `prompt.kind: 'password'` / `'sso'`.
+- **Backup upload is lazy**: the SDK starts uploading keys up to 10 s after the backup is enabled (random start delay) and `backup.enabled` says nothing about progress; a logout before `backupRemaining` reaches 0 leaves those keys out of the backup for good. Verified: unlocking a new device right after a hasty logout restored `{ total: 0 }`.
+- **New device = new keys**: a device cannot read messages sent before it existed unless it restores the backup (`unlockWithRecoveryKey`) or imports keys; the first device of an account must `setupRecovery()` or nothing is ever backed up. Verifying a device via SAS cross-signs it but does **not** hand it the backup key unless the verifying side has it cached (`KeyBackupDecryptionKeyCached` -> `restoreFromBackup()` runs by itself).
+- **`m.bad.encrypted`**: a failed event's `getContent()` is `{ msgtype: 'm.bad.encrypted', body: '** Unable to decrypt ... **' }`; branch on `event.isDecryptionFailure()` / `getDecryptionState`, never on the body text. `event.getType()` becomes `m.room.message` once decrypted; relations stay on `getWireContent()`.
+- **Node logger**: `createClient({ logger })` silences the client, not the Rust engine's own `WARN` lines or MatrixRTC; the scripts accept that.
+- **Secure context**: `crypto.subtle` is missing on plain-http LAN origins (`http://192.168.x.x:5173`); encrypted attachments then reject with "Encrypted attachments need a secure context" (text still works). The APK (`http://localhost`) and `localhost` dev servers are fine.
+- **Playwright**: the repo's Playwright 1.63 wants Chromium 1243; the box has 1194 under `/opt/pw-browsers` (`chromium.launch({ executablePath })`).

@@ -16,13 +16,20 @@ QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..
 |---|---|---|
 | `shell.spec.ts` | desktop | AC-SH-1 .. AC-SH-5 (login, session, logout) |
 | `navigation.spec.ts` | desktop | AC-A1-1 .. AC-A9-1 (rail, channels, DMs, members, badges, create/invite) |
-| `conversation.spec.ts` | desktop | AC-B1-1 .. AC-B10-3 (timeline, composer, pagination, rich bodies, reactions, replies, receipts, upload, edit/delete, mentions) |
+| `conversation-timeline.spec.ts` | desktop | AC-B1 (timeline rendering, grouping), AC-B3 (backwards pagination), AC-B7 (typing indicator, read receipts) |
+| `conversation-compose.spec.ts` | desktop | AC-B2 (composer), AC-B6 (replies), AC-B8 (upload), AC-B9 (edit/delete), AC-B10 (mentions) |
+| `conversation-messages.spec.ts` | desktop | AC-B4 (rich bodies, images, sanitising), AC-B5 (reactions) |
 | `smoke.spec.ts` | desktop | the `docs/PLAN.md` demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` thread walk-through as step 11; serial, one screenshot per sub-step into `results/demo/` |
 | `voice.spec.ts` | mobile | AC-V1 .. AC-V6 recording/playback, with every sent event re-read through the API and the uploaded bytes checked by their container magic |
 | `mobile-nav.spec.ts` | mobile | AC-M1 .. AC-M6 (phone shell, drawers, header, touch targets, bottom sheets, viewport CSS) + the layout half of AC-V6 |
 | `mobile-smoke.spec.ts` | mobile | the `docs/PHASE2_PLAN.md` **phone** demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` phone thread walk-through as step 11; serial, one screenshot per sub-step into `e2e/demo-mobile/` |
 | `threads.spec.ts` | desktop | AC-T1 .. AC-T9: the thread wire contract, main-timeline hygiene, panel geometry, the summary row, Reply in thread, ThreadView, the Threads list, in-thread edits/reactions/delete/media |
 | `mobile-threads.spec.ts` | mobile | AC-T3-4, AC-T4-6, AC-T5-2, AC-T7-1/2/4/7, AC-T8-1..3, and the AC-V6-1 composer rules applied to `thread-composer-*` |
+| `e2ee-core-boot.spec.ts` | desktop | Phase 5 AC-E1 (crypto boot, reload, logout wipe), the members-panel layout regression, AC-E6 (encrypted by default) |
+| `e2ee-core-timeline.spec.ts` | desktop | Phase 5 AC-E2 (decrypt, UTD, late decryption, relations), AC-E7-3, + regressions |
+| `e2ee-media.spec.ts` | desktop | Phase 5 AC-E3: encrypted image / file / voice (decrypted shape, ciphertext on the media repo, hash check, lazy load) |
+| `e2ee-security-chain.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 on throwaway accounts: the serial setup -> unlock -> SAS (match / mismatch / decline) -> backup chain, AC-E5-4 passphrase unlock |
+| `e2ee-security-regressions.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 regressions (banner, dialog close testids, unlock errorKind, verification requests, SAS via the store) |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
@@ -47,22 +54,41 @@ covers the prompt, the grant covers the Permissions API). The reference pipeline
 
 ## Running
 
-```bash
-npm run hs:up                 # Synapse on http://localhost:8008
-npm run seed                  # writes seed/seed-output.json (room + event ids the fixtures read)
-npm run test:e2e:fixtures     # regenerates test-image.png / test-file.txt / test-voice.wav
+One-time: a Synapse backend for the server pool, either a venv (Linux/macOS; Windows needs Docker or uses the
+WSL1 fallback below) or Docker (`docker info` works; image `SYNAPSE_IMAGE`, default `ghcr.io/element-hq/synapse:latest`):
 
-npm run test:e2e              # both projects
+```bash
+python3 -m venv homeserver/.venv && homeserver/.venv/bin/pip install 'matrix-synapse[url-preview]'
+# elsewhere: SYNAPSE_PYTHON=/path/to/venv/bin/python   force a backend: HS_POOL_BACKEND=native|docker
+```
+
+Then `npm run test:e2e`. Every run starts fresh: `globalSetup` restores one seeded Synapse per worker
+(`8008+i`, Vite on `5173+i`) from a cached snapshot (`scripts/hs-pool.mjs`; re-seeded only when the seed
+inputs or the Synapse version change, ~minutes the first time) and stops them at the end. No `hs:up` / `seed` needed.
+
+- `E2E_WORKERS=N` sizes the run (default `min(4, cores-1)`, max 8); use it, not `--workers`.
+  `E2E_WORKERS=1` is the old layout (8008 / 5173) and reuses a homeserver already answering on 8008.
+- `E2E_REUSE_SERVERS=1` starts and stops nothing: dev loops against servers you keep up
+  (`npm run hs:pool:up -- --workers N` / `hs:pool:down`, or `hs:up` + `seed` with `E2E_WORKERS=1`).
+- Windows with only the WSL1 homeserver (no venv, no Docker): the run drops to 1 worker against the server on
+  8008 (start it with `npm run hs:up`) and says so in one line. That server is not reset: `npm run test:e2e:fresh`.
+- Logs: `homeserver/data/pool/hs-<i>/synapse.log` (kept after the run), seeding in
+  `homeserver/data/pool/snapshot-build.log`; `npm run hs:pool:status` shows what is running.
+
+```bash
+npm run test:e2e              # both projects, fresh servers   <-- the intended full run
 npm run test:e2e:desktop      # Phase 1 suite only          (= playwright test --project=desktop)
 npm run test:e2e:mobile       # Phase 2 phone suites only    (= playwright test --project=mobile)
 npm run test:e2e:smoke        # the desktop demo script only
 npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
-npm run test:e2e:fresh        # seed:reset + both projects   <-- the intended full run
+npm run test:e2e:e2ee         # Phase 5 E2EE specs, desktop (helpers: fixtures/e2ee.ts, fixtures/e2ee-api.ts)
+npm run test:e2e:fresh        # rebuild the seed snapshot, then both projects (WSL1: seed:reset instead)
+npm run test:e2e:fixtures     # regenerates test-image.png / test-file.txt / test-voice.wav
 npm run test:android-build    # APK build + aapt checks (NOT a Playwright project; see below)
 
 # one criterion — always name the project, the specs do not overlap
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile --reporter=list
-npx playwright test e2e/conversation.spec.ts -g "AC-B4-2" --project=desktop --reporter=list
+npx playwright test e2e/conversation-messages.spec.ts -g "AC-B4-2" --project=desktop --reporter=list
 npx playwright test e2e/threads.spec.ts -g "AC-T6-4" --project=desktop --reporter=list
 npx playwright test e2e/mobile-threads.spec.ts -g "AC-T8-1" --project=mobile --reporter=list
 ```
@@ -80,8 +106,9 @@ works (the scripts resolve `~/jdk21` and `~/android-sdk` themselves). Note its o
 AC-C1-4 check rebuilds `dist/` *without* `VITE_HS_URL`, so never run a bare `npx cap sync` straight
 afterwards expecting the LAN URL — go through `npm run cap:build:android:lan`, which rebuilds first.
 
-**Do not run two suites at once.** Each invocation wipes its project's `outputDir` on start and the
-config reuses whatever dev server is on 5173, so a concurrent run deletes the first run's traces
+**Do not run two suites at once.** A second run's `globalSetup` stops the first run's server pool, each
+invocation wipes its project's `outputDir` on start, and the config reuses whatever dev servers are on
+5173+, so a concurrent run breaks the first one and deletes its traces
 mid-flight — which shows up as a teardown failure like
 `browserContext.close: ENOENT ... .playwright-artifacts-N/traces/...network` on a test that actually
 passed. (The per-project `outputDir` means `--project=desktop` and `--project=mobile` no longer
@@ -97,10 +124,13 @@ specs. For a flake pass use
 
 ## The full suite is meant to run on a fresh seed
 
+`npm run test:e2e` now always gets one (restored from the snapshot), so the guard below only matters for
+single-server runs against a live homeserver (`E2E_WORKERS=1` reusing 8008, `E2E_REUSE_SERVERS`, WSL1).
+
 This section is about the **Phase 1 (`desktop`) suite**. The Phase 2 phone suites are
 freshness-independent throughout and have no guarded criteria — see "Phase 2 additions" below.
 
-`npm run test:e2e:fresh` = `npm run seed:reset && npm run test:e2e`. **A green run of every criterion
+`npm run test:e2e:fresh` rebuilds the seed snapshot (WSL1 fallback: `seed:reset`) and runs both projects; with the server pool every run already starts from a fresh copy. **A green run of every criterion
 is only defined on a pristine seed**, because two of the seeded preconditions are consumed by use and
 cannot be put back on a live homeserver:
 
@@ -137,7 +167,7 @@ here", a failure says "the product is wrong", and the two must not be confused i
 
 Guarded (they cannot be judged without a pristine seed):
 
-- `conversation.spec.ts`: AC-B1-1, AC-B3-1;
+- `conversation-timeline.spec.ts`: AC-B1-1, AC-B3-1;
 - `navigation.spec.ts`: AC-A2-3 (it names `#random`'s *first* seeded message, and the criterion wants
   it on screen within a second of clicking the channel, so paging back is not an option);
 - `smoke.spec.ts`: demo steps 2, 3, 5 and 6 (the demo script is written against a fresh seed; steps 5

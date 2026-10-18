@@ -22,6 +22,7 @@
  * thread on top of `main`. See {@link ReceiptMap} and `notifiesUser`.
  */
 import { readFileSync } from 'node:fs';
+import { noteServerUse } from './run-log.ts';
 import { HS_URL, PASSWORD, SERVER_NAME, type UserKey } from './seed.ts';
 
 const V3 = `${HS_URL}/_matrix/client/v3`;
@@ -62,6 +63,7 @@ interface RequestOptions {
 }
 
 async function request<T>(method: string, url: string, opts: RequestOptions = {}): Promise<T> {
+  noteServerUse();
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(opts.query ?? {})) {
     if (v !== undefined) qs.set(k, String(v));

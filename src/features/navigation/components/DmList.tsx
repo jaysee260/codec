@@ -4,10 +4,11 @@
  * a numeric unread badge. Pending invites and space-less rooms are listed underneath so nothing is
  * unreachable.
  *
- * testids: dm-list, dm-item-{roomId}, dm-unread-{roomId}, dm-new
+ * testids: dm-list, dm-item-{roomId} (+data-encrypted, Phase 5), dm-unread-{roomId}, dm-new
+ * DEV-A-27: encrypted rooms carry a small muted lock after the name.
  */
 import { useState } from 'react';
-import { Search } from 'lucide-react';
+import { Lock, Search } from 'lucide-react';
 import { useRoomStore, waitForRoom, type RoomSummary } from '@/store/rooms.ts';
 import { joinRoom } from '@/lib/matrix/actions.ts';
 import { hapticTap } from '@/lib/native.ts';
@@ -84,6 +85,7 @@ function DmItem({ room, testIdPrefix = 'dm-item' }: { room: RoomSummary; testIdP
       data-testid={`${testIdPrefix}-${room.roomId}`}
       data-name={room.name}
       data-selected={selected ? 'true' : 'false'}
+      data-encrypted={room.encrypted ? 'true' : 'false'}
       title={room.dmUserId ?? room.name}
       // selectRoom only: the layout store closes the nav drawer on phone (docs/ARCHITECTURE.md).
       onClick={() => {
@@ -95,6 +97,7 @@ function DmItem({ room, testIdPrefix = 'dm-item' }: { room: RoomSummary; testIdP
         {room.avatarUrl ? <img src={room.avatarUrl} alt="" /> : initialsOf(room.name)}
       </span>
       <span className={`${styles.name} u-truncate`}>{room.name}</span>
+      {room.encrypted && <Lock className={styles.lock} size={12} aria-hidden="true" />}
       {unread > 0 && (
         <span className={styles.badge} data-testid={`dm-unread-${room.roomId}`} data-count={unread}>
           {badgeText(unread)}

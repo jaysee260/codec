@@ -236,7 +236,11 @@ test.describe('DEV-A-3 DM list', () => {
   test('AC-A3-1 the DM list is built from m.direct and shows display names with avatars', async ({ page }) => {
     await openHome(page);
     const direct = await admin.directMap();
-    const expectedRoomIds = new Set(Object.values(direct).flat());
+    // m.direct keeps rooms alice has left (the e2ee suites leave their throwaway DMs); the list shows joined ones.
+    const expectedRoomIds = new Set<string>();
+    for (const id of Object.values(direct).flat()) {
+      if ((await admin.membership(id, ALICE).catch(() => undefined)) === 'join') expectedRoomIds.add(id);
+    }
     noteSeedDrift('AC-A3-1 (DM count)', 2, expectedRoomIds.size);
 
     await expect(byName(page.getByTestId('dm-list'), DISPLAY_NAMES.bob)).toBeVisible();
@@ -450,7 +454,7 @@ test.describe('DEV-A-6 create channel', () => {
     await expect(page.getByTestId('create-channel-name')).toBeFocused();
   });
 
-  test('AC-A6-2/AC-A6-3 creating a channel selects it, and bob sees it as a public unencrypted child', async ({
+  test('AC-A6-2/AC-A6-3 creating a channel selects it, and bob sees it as a public encrypted child', async ({
     page,
   }) => {
     test.setTimeout(60_000);
@@ -469,7 +473,8 @@ test.describe('DEV-A-6 create channel', () => {
     await expect(page.getByTestId('channel-header-name')).toContainText(name);
     await expect(page.getByTestId('channel-header-topic')).toContainText('Only the dankest');
 
-    // AC-A6-3: as bob, the room is a child of Gaming, public and unencrypted.
+    // AC-A6-3: as bob, the room is a child of Gaming and public. Phase 5 AC-E6-1 supersedes "unencrypted":
+    // a new channel is encrypted from the start.
     const roomId = (await item.getAttribute('data-testid'))!.replace('channel-item-', '');
     created.push({ roomId, parentSpaceId: R.gaming });
 
@@ -482,7 +487,9 @@ test.describe('DEV-A-6 create channel', () => {
 
     const child = (await bob.hierarchy(R.gaming)).rooms.find((r) => r.room_id === roomId)!;
     expect(child.join_rule, 'the new channel must be public').toBe('public');
-    expect(await admin.stateEvent(roomId, 'm.room.encryption'), 'must be unencrypted').toBeUndefined();
+    expect(await admin.stateEvent(roomId, 'm.room.encryption'), 'encrypted by default (AC-E6-1)').toEqual({
+      algorithm: 'm.megolm.v1.aes-sha2',
+    });
     const parent = await admin.stateEvent(roomId, 'm.space.parent', R.gaming);
     expect(parent, 'm.space.parent must point at Gaming').toBeTruthy();
   });

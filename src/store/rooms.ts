@@ -37,6 +37,8 @@ export interface RoomSummary {
   highlight: number;
   /** Phase 3: some thread in the room has unread notifications (`unread_thread_notifications`, cleared by threaded receipts). */
   threadUnread: boolean;
+  /** Phase 5: the room has `m.room.encryption` (lock icon; sends are encrypted). Recomputed when the state event arrives. */
+  encrypted: boolean;
 }
 
 export type SpaceSelection = string | 'home';
@@ -220,6 +222,7 @@ function summarize(room: Room, dmUserId: string | undefined, parentSpaceId: stri
     unread: room.getRoomUnreadNotificationCount(NotificationCountType.Total),
     highlight: room.getRoomUnreadNotificationCount(NotificationCountType.Highlight),
     threadUnread: room.hasThreadUnreadNotification(),
+    encrypted: room.hasEncryptionStateEvent(),
   };
 }
 
@@ -227,6 +230,9 @@ function summarize(room: Room, dmUserId: string | undefined, parentSpaceId: stri
 export function recomputeRooms(): void {
   const client = getClientOrNull();
   if (!client) return;
+  // BUG-18 belt and braces: before the initial sync has landed (`getSyncState()` is null) the SDK holds a partial
+  // room list; computing (and marking `ready`, which triggers the first-load landing) from it is always wrong.
+  if (client.getSyncState() === null) return;
 
   const dmUserByRoom = new Map<string, string>();
   for (const [userId, roomIds] of Object.entries(getDirectMap())) {

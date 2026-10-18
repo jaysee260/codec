@@ -29,11 +29,17 @@
  * the user taps play, not at mount.
  *
  * Only one note plays at a time (AC-V3-6): a tiny module-level registry pauses the previous one.
+ *
+ * Phase 5 (DEV-B-28, AC-E3-4): an encrypted note (`voice.file`, `voice.url === ''`) is fetched the same way,
+ * on the first tap, through `fetchDecryptedBlob` (download + SHA-256 check + AES-CTR decrypt), and plays from
+ * that blob; `data-encrypted="true"`. A hash or key failure is `voice-error`, whose download button decrypts
+ * through `downloadMedia` with the file source (never a link to the ciphertext).
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Download, Pause, Play } from 'lucide-react';
 import { formatDuration, type VoiceMessageInfo } from '@/lib/matrix/utils.ts';
 import { downloadMedia, fetchMedia } from '@/lib/matrix/media.ts';
+import { fetchDecryptedBlob } from '@/lib/matrix/attachments.ts';
 import styles from './VoiceMessage.module.css';
 
 /** Bars drawn when the sender gave no waveform (flat placeholder, AC-V4-3). */
@@ -110,6 +116,13 @@ export function VoiceMessage({ voice }: { voice: VoiceMessageInfo }) {
   /** Download once; the object URL is what makes the note seekable. Throws on a bad download. */
   const ensureSource = useCallback(async (): Promise<string> => {
     if (objectUrlRef.current) return objectUrlRef.current;
+    if (voice.file) {
+      const plain = await fetchDecryptedBlob(voice.file, voice.mimetype);
+      if (disposedRef.current) throw new Error('unmounted');
+      const url = URL.createObjectURL(plain);
+      objectUrlRef.current = url;
+      return url;
+    }
     const res = await fetchMedia(voice.url);
     if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
     const blob = await res.blob();
@@ -118,7 +131,7 @@ export function VoiceMessage({ voice }: { voice: VoiceMessageInfo }) {
     const url = URL.createObjectURL(typed);
     objectUrlRef.current = url;
     return url;
-  }, [voice.url, voice.mimetype]);
+  }, [voice.url, voice.file, voice.mimetype]);
 
   const toggle = (): void => {
     const el = audioRef.current;
@@ -200,14 +213,16 @@ export function VoiceMessage({ voice }: { voice: VoiceMessageInfo }) {
       data-position-ms={positionMs}
       data-mimetype={voice.mimetype}
       data-voice={voice.isVoice ? 'true' : 'false'}
+      data-encrypted={voice.file ? 'true' : undefined}
     >
       <audio
         ref={audioRef}
         // No src until the first tap when the event carries a duration (nothing to look up, and a
         // broken download must only surface after the tap). Without a duration we need metadata, so
         // the plain http URL is loaded up front and swapped for the object URL on play.
-        src={voice.durationMs > 0 ? undefined : voice.url}
-        preload={voice.durationMs > 0 ? 'none' : 'metadata'}
+        // An encrypted note has no fetchable URL at all: nothing loads before the tap.
+        src={voice.durationMs > 0 || voice.file ? undefined : voice.url}
+        preload={voice.durationMs > 0 || voice.file ? 'none' : 'metadata'}
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d) && d > 0) setMetaDurationMs(Math.round(d * 1000));
@@ -279,10 +294,21 @@ export function VoiceMessage({ voice }: { voice: VoiceMessageInfo }) {
       {state === 'error' && (
         <div className={styles.error} data-testid="voice-error" role="alert">
           <span>Can&apos;t play this voice message.</span>
-          <a className={styles.download} href={voice.url} download={voice.name} onClick={(e) => downloadMedia(e, voice.url, voice.name)} target="_blank" rel="noopener noreferrer">
-            <Download size={13} aria-hidden="true" />
-            Download
-          </a>
+          {voice.file ? (
+            <button
+              type="button"
+              className={`${styles.download} ${styles.downloadButton}`}
+              onClick={(e) => downloadMedia(e, voice.file!, voice.name, voice.mimetype)}
+            >
+              <Download size={13} aria-hidden="true" />
+              Download
+            </button>
+          ) : (
+            <a className={styles.download} href={voice.url} download={voice.name} onClick={(e) => downloadMedia(e, voice.url, voice.name)} target="_blank" rel="noopener noreferrer">
+              <Download size={13} aria-hidden="true" />
+              Download
+            </a>
+          )}
         </div>
       )}
     </div>

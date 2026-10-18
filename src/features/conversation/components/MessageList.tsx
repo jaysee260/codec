@@ -188,6 +188,23 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     if (stick.current) el.scrollTop = el.scrollHeight;
   }, [items, isPaginating, version, applyAnchor]);
 
+  /*
+   * Stay pinned when the list's own box changes size (BUG-28). The list pins to the bottom on open; the 48 px
+   * security banner then mounts above the header and shrinks it, which fires no scroll event, so the newest
+   * message ended up cut off by exactly the banner's height. Same for a viewport resize or the phone keyboard.
+   * Only while stuck to the bottom and no history pin is live: a reader scrolled up keeps their row
+   * (`applyAnchor` owns that case), so pagination anchoring (AC-B3-*) and the thread panel are untouched.
+   */
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(() => {
+      if (stick.current && !anchor.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const onScroll = (): void => {
     const el = containerRef.current;
     if (!el) return;

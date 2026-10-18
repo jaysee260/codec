@@ -27,6 +27,14 @@
   max-width: 45%;
 }
 
+.lock {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  margin-left: -2px;
+}
+
 .divider {
   flex-shrink: 0;
   width: 1px;
@@ -172,14 +180,15 @@
   font-size: 20px;
 }
 :root[data-layout='phone'] .name {
-  /* No topic on phone, so the name may use the whole middle. */
+  /* No topic on phone, so the name may use the whole middle (it shrinks first; the spacer takes the rest so the
+   * Phase 5 lock stays right after the name). */
   max-width: none;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: var(--font-size-message);
 }
 :root[data-layout='phone'] .spacer {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-width: 0;
 }
 

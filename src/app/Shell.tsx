@@ -20,7 +20,7 @@
  * the covered conversation stays mounted (scroll kept) and is `inert` + `aria-hidden`; drawers still work on top.
  * `app-shell[data-thread-open]` mirrors the state. Android back closes the thread first, then drawers.
  */
-import { useEffect, useRef, type TouchEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, type ComponentType, type TouchEvent } from 'react';
 import { useRoomStore } from '@/store/rooms.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useThreadStore } from '@/store/threads.ts';
@@ -29,6 +29,41 @@ import { Conversation, ThreadView } from '@/features/conversation';
 import { UserFooter } from './UserFooter.tsx';
 import { Drawer } from './Drawer.tsx';
 import styles from './Shell.module.css';
+
+/**
+ * Phase 5: Dev A's security UI (`@/features/security`: `SecurityBanner` above the channel header on both layouts,
+ * `SecurityDialogs` once per page). Resolved through a glob so the shell builds before that module exists: an
+ * empty glob renders nothing, and the module is code-split when present. Both hosts are `display: contents`, so
+ * they never take a grid / flex cell themselves; the dialogs host also sits **outside** the desktop grid (a
+ * sibling of it), so whatever Dev A renders there cannot push the member / thread panels to a second row.
+ * `SecurityDialogs` renders overlays (`position: fixed`) or nothing.
+ */
+type SecurityModule = { SecurityBanner?: ComponentType; SecurityDialogs?: ComponentType };
+const securityModules = import.meta.glob<SecurityModule>('../features/security/index.ts');
+const loadSecurity = Object.values(securityModules)[0];
+const Nothing: ComponentType = () => null;
+const SecurityBanner = loadSecurity ? lazy(async () => ({ default: (await loadSecurity()).SecurityBanner ?? Nothing })) : Nothing;
+const SecurityDialogs = loadSecurity ? lazy(async () => ({ default: (await loadSecurity()).SecurityDialogs ?? Nothing })) : Nothing;
+
+function SecurityBannerHost() {
+  return (
+    <div className={styles.securityHost} data-testid="security-banner-host">
+      <Suspense fallback={null}>
+        <SecurityBanner />
+      </Suspense>
+    </div>
+  );
+}
+
+function SecurityDialogsHost() {
+  return (
+    <div className={styles.securityHost} data-testid="security-dialogs-host">
+      <Suspense fallback={null}>
+        <SecurityDialogs />
+      </Suspense>
+    </div>
+  );
+}
 
 /** Touches starting within this many px of a screen edge may open a drawer. */
 const EDGE_PX = 28;
@@ -67,15 +102,20 @@ function Navigation() {
 
 function MainColumn({ roomId }: { roomId: string | null }) {
   if (!roomId) {
+    // The banner shows here too: a user with no rooms yet (fresh account) must still be told to set up encryption.
     return (
-      <div className={styles.empty} data-testid="empty-state">
-        <div className={styles.emptyTitle}>No channel selected</div>
-        <div className={styles.emptyText}>Pick a channel on the left, or start a DM.</div>
-      </div>
+      <>
+        <SecurityBannerHost />
+        <div className={styles.empty} data-testid="empty-state">
+          <div className={styles.emptyTitle}>No channel selected</div>
+          <div className={styles.emptyText}>Pick a channel on the left, or start a DM.</div>
+        </div>
+      </>
     );
   }
   return (
     <>
+      <SecurityBannerHost />
       <ChannelHeader roomId={roomId} />
       <Conversation roomId={roomId} />
     </>
@@ -85,22 +125,25 @@ function MainColumn({ roomId }: { roomId: string | null }) {
 function DesktopShell({ roomId }: { roomId: string | null }) {
   const threadRootId = useOpenThreadFor(roomId);
   return (
-    <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'}>
-      <Navigation />
-      <main className={styles.main}>
-        <MainColumn roomId={roomId} />
-      </main>
-      {roomId && threadRootId && (
-        <aside className={styles.threadPanel} aria-label="Thread" data-testid="thread-panel-container">
-          <ThreadView key={`${roomId}|${threadRootId}`} roomId={roomId} rootId={threadRootId} />
-        </aside>
-      )}
-      {roomId && !threadRootId && (
-        <aside className={styles.members} aria-label="Members">
-          <MemberPanel roomId={roomId} />
-        </aside>
-      )}
-    </div>
+    <>
+      <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'}>
+        <Navigation />
+        <main className={styles.main}>
+          <MainColumn roomId={roomId} />
+        </main>
+        {roomId && threadRootId && (
+          <aside className={styles.threadPanel} aria-label="Thread" data-testid="thread-panel-container">
+            <ThreadView key={`${roomId}|${threadRootId}`} roomId={roomId} rootId={threadRootId} />
+          </aside>
+        )}
+        {roomId && !threadRootId && (
+          <aside className={styles.members} aria-label="Members">
+            <MemberPanel roomId={roomId} />
+          </aside>
+        )}
+      </div>
+      <SecurityDialogsHost />
+    </>
   );
 }
 
@@ -176,6 +219,7 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
       <main className={styles.phoneMain}>
         {roomId ? (
           <>
+            <SecurityBannerHost />
             <ChannelHeader roomId={roomId} />
             <div className={styles.phoneBody}>
               {/* The conversation stays mounted under the thread (scroll position kept); inert while covered. */}
@@ -206,6 +250,7 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
       <Drawer side="right" open={membersOpen} label="Members" testId="member-drawer">
         {roomId && <MemberPanel roomId={roomId} />}
       </Drawer>
+      <SecurityDialogsHost />
     </div>
   );
 }

@@ -11,17 +11,23 @@
  *   animated GIF instead of the "<title> <url>" body that field duplicates, which is what keeps other
  *   clients (and the server's URL preview) working off exactly the same event. See `GifMessage.tsx`.
  *
+ * Phase 5 (DEV-B-27): an event that is still encrypted renders `message-decrypting`, one that failed
+ * `message-undecryptable` (both *instead of* `message-body`); a redaction wins over both (AC-E2-4).
+ * Encrypted media goes through the decrypting attachment components, and a GIF in an encrypted room
+ * waits for a click before the provider's CDN sees a request (AC-E6-5).
+ *
  * `message-body` contains the message text and nothing else: the `(edited)` marker is a sibling so
  * reading the body's text gives exactly what the sender wrote (AC-B1-4).
  */
 import { useMemo } from 'react';
 import { MsgType, type Room } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
-import { displayNameOf, type DisplayBody } from '@/lib/matrix/utils.ts';
+import { displayNameOf, isRoomEncrypted, type DisplayBody } from '@/lib/matrix/utils.ts';
 import { linkify, sanitizeHtml } from '@/lib/format.ts';
 import { GifMessage } from './GifMessage.tsx';
 import { ImageAttachment, FileAttachment } from './ImageAttachment.tsx';
 import { VoiceMessage } from './VoiceMessage.tsx';
+import { DecryptingBody, UndecryptableBody } from './UndecryptableBody.tsx';
 import styles from './MessageBody.module.css';
 
 const MATRIX_TO_USER = /^https?:\/\/matrix\.to\/#\/(@[^/?#]+)/;
@@ -69,6 +75,10 @@ export function MessageBody({ roomId, body }: { roomId: string; body: DisplayBod
     );
   }
 
+  const decryption = body.decryption;
+  if (decryption?.status === 'failed') return <UndecryptableBody decryption={decryption} />;
+  if (decryption?.status === 'decrypting') return <DecryptingBody />;
+
   // Any playable m.audio becomes a voice bubble (DEV-B-14): `body.voice` is `getVoiceMessage(event)`,
   // non-null for voice notes *and* plain audio files. An m.audio without media falls through to the
   // file row.
@@ -92,7 +102,7 @@ export function MessageBody({ roomId, body }: { roomId: string; body: DisplayBod
         data-testid="message-body"
       >
         {gif ? (
-          <GifMessage gif={gif} />
+          <GifMessage gif={gif} clickToLoad={body.isEncrypted || isRoomEncrypted(roomId)} />
         ) : voice ? (
           <VoiceMessage voice={voice} />
         ) : isImage ? (

@@ -3,8 +3,10 @@
  * rendered with a literal `#` prefix, a hover/selected background, a bold white name while unread and
  * a numeric red badge.
  *
- * testids: channel-list, channel-item-{roomId}, channel-unread-{roomId}, channel-add
+ * testids: channel-list, channel-item-{roomId} (+data-encrypted, Phase 5), channel-unread-{roomId}, channel-add
+ * DEV-A-27: encrypted rooms carry a small muted lock after the name (no text, so innerText stays `#name`).
  */
+import { Lock } from 'lucide-react';
 import { useRoomStore, type RoomSummary } from '@/store/rooms.ts';
 import { hapticTap } from '@/lib/native.ts';
 import { badgeText, useUnread } from '../hooks/useUnread.ts';
@@ -46,6 +48,7 @@ function ChannelItem({ channel }: { channel: RoomSummary }) {
       data-testid={`channel-item-${channel.roomId}`}
       data-name={channel.name}
       data-selected={selected ? 'true' : 'false'}
+      data-encrypted={channel.encrypted ? 'true' : 'false'}
       title={channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`}
       // `selectRoom` only: the layout store closes the nav drawer on phone via `onRoomSelected`
       // (docs/ARCHITECTURE.md). Never close it here - a space tap must leave it open (AC-M2-4).
@@ -62,6 +65,7 @@ function ChannelItem({ channel }: { channel: RoomSummary }) {
         </span>
         {channel.name}
       </span>
+      {channel.encrypted && <Lock className={styles.lock} size={12} aria-hidden="true" />}
       {unread > 0 && (
         <span className={styles.badge} data-testid={`channel-unread-${channel.roomId}`} data-count={unread}>
           {badgeText(unread)}

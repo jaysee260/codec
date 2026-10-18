@@ -50,6 +50,11 @@
   display: none;
 }
 
+/* Phase 5: the security banner / dialogs hosts are layout-transparent (never a grid or flex item of their own). */
+.securityHost {
+  display: contents;
+}
+
 .empty {
   flex: 1;
   display: grid;
