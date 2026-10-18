@@ -1,4 +1,4 @@
-# Matrix POC on a phone - Demo Handoff (Phase 2)
+# Codec on a phone - Demo Handoff (Phase 2)
 
 The Phase 1 web client (docs/DEMO.md), now in a phone layout with voice notes, wrapped as an Android app. Everything runs on this PC; the phone only needs the same Wi-Fi. Details and troubleshooting: docs/MOBILE.md.
 
@@ -21,7 +21,7 @@ This PC's Wi-Fi address today is **192.168.1.127** (`hs:lan` prints the current 
 ### Path B - the Android app
 1. APK: `android/app/build/outputs/apk/debug/app-debug.apk` (build it with `npm run cap:build:android:lan` so the LAN homeserver URL is baked in).
 2. Install over USB (Developer options > USB debugging on): `~/android-sdk/platform-tools/adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. Or copy the file to the phone, open it from Files and allow "Install unknown apps" for that source (debug build; Play Protect may ask to confirm).
-3. Open **Matrix POC**. If the homeserver is not prefilled (different network than the build), use **Advanced > Homeserver URL** = `http://192.168.1.127:8009`. Log in as **alice** / **password123**.
+3. Open **Codec**. If the homeserver is not prefilled (different network than the build), use **Advanced > Homeserver URL** = `http://192.168.1.127:8009`. Log in as **alice** / **password123**.
 
 ## 2. The walkthrough (as alice, about three minutes)
 | # | Do | You should see |

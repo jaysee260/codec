@@ -1,4 +1,4 @@
-# Matrix POC threads - Demo Handoff (Phase 3)
+# Codec threads - Demo Handoff (Phase 3)
 
 The Phase 1 web client and the Phase 2 phone app (docs/DEMO.md, docs/PHASE2_DEMO.md), now with threads: reply to any message in a side thread, as in Slack and Element, presented the way Discord does it. Everything runs on this PC. Final test numbers: see docs/STATUS.md "Phase 3".
 

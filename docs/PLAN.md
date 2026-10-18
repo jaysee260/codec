@@ -1,4 +1,4 @@
-# Matrix POC — Charter
+# Codec — Charter
 
 **Goal.** Ship a browser chat client on Matrix/Synapse that a stakeholder can open, log in to, and use for two minutes without noticing it is not Discord. Optimise for feel, not completeness. If it lands, more features follow.
 
