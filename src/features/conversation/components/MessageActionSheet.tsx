@@ -7,13 +7,15 @@
  *   message-action-react / -reply / -thread / -edit / -delete   the same testids as the desktop toolbar, so
  *       only one of the two is ever mounted for a row (MessageRow branches on `useIsPhone()`).
  *   message-action-sheet-reaction-{emoji}   quick reactions inside the sheet (addition to the registry)
+ *   message-action-seen-by          "Seen by" (read receipts, DEV-B-R2): the caller closes this sheet and opens
+ *       the Seen by bottom sheet; absent on redacted rows
  *
  * Rendered in a portal: the message list is an `overflow: auto` container and would clip a sheet
  * anchored to the viewport.
  */
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { FaceSlightlySmilingPlus, MessageSquareReply, Pencil, Reply, Trash } from 'lucide-react';
+import { Eye, FaceSlightlySmilingPlus, MessageSquareReply, Pencil, Reply, Trash } from 'lucide-react';
 import { hapticTap } from '@/lib/native.ts';
 import { REACTION_KEYS } from './ReactionPicker.tsx';
 import styles from './MessageActionSheet.module.css';
@@ -34,6 +36,8 @@ export interface MessageActionSheetProps {
   onThread?(): void;
   onEdit(): void;
   onDelete(): void;
+  /** Close this sheet and open the Seen by sheet for the row. Omitted on redacted rows (AC-R4-2). */
+  onSeenBy?(): void;
 }
 
 export function MessageActionSheet({
@@ -47,6 +51,7 @@ export function MessageActionSheet({
   onThread,
   onEdit,
   onDelete,
+  onSeenBy,
 }: MessageActionSheetProps) {
   // Haptic confirmation that the press registered (no-op on the web).
   useEffect(() => {
@@ -122,6 +127,12 @@ export function MessageActionSheet({
           >
             <Trash size={20} aria-hidden="true" />
             <span>Delete</span>
+          </button>
+        )}
+        {onSeenBy && (
+          <button type="button" className={styles.action} data-testid="message-action-seen-by" onClick={onSeenBy}>
+            <Eye size={20} aria-hidden="true" />
+            <span>Seen by</span>
           </button>
         )}
       </div>

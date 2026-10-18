@@ -6,8 +6,12 @@
  * (AC-T5-1). Both are omitted inside the thread panel - threads do not nest and in-thread quote
  * replies are out of scope - so `onThread`/`onReply` are optional and the button follows the handler
  * (AC-T5-3).
+ *
+ * Read receipts (DEV-B-R2): `message-action-seen-by` ("Seen by") is appended **after** delete as a direct
+ * button (no overflow menu, Advisor consult 2); it opens the row's Seen by / Not seen yet list, which is how
+ * "who has not seen this" is reachable for a message nobody has read. Omitted (no handler) on redacted rows.
  */
-import { FaceSlightlySmilingPlus, MessageSquareReply, Pencil, Reply, Trash } from 'lucide-react';
+import { Eye, FaceSlightlySmilingPlus, MessageSquareReply, Pencil, Reply, Trash } from 'lucide-react';
 import styles from './MessageActions.module.css';
 
 export interface MessageActionsProps {
@@ -20,9 +24,11 @@ export interface MessageActionsProps {
   onThread?(): void;
   onEdit(): void;
   onDelete(): void;
+  /** Open the Seen by list anchored to the button. Omitted on redacted rows (AC-R4-2). */
+  onSeenBy?(trigger: HTMLElement): void;
 }
 
-export function MessageActions({ canEdit, canDelete, onReact, onReply, onThread, onEdit, onDelete }: MessageActionsProps) {
+export function MessageActions({ canEdit, canDelete, onReact, onReply, onThread, onEdit, onDelete, onSeenBy }: MessageActionsProps) {
   return (
     <div className={styles.actions} data-testid="message-actions">
       <button
@@ -81,6 +87,18 @@ export function MessageActions({ canEdit, canDelete, onReact, onReply, onThread,
           onClick={onDelete}
         >
           <Trash size={18} />
+        </button>
+      )}
+      {onSeenBy && (
+        <button
+          type="button"
+          className={styles.action}
+          data-testid="message-action-seen-by"
+          title="Seen by"
+          aria-label="Seen by"
+          onClick={(e) => onSeenBy(e.currentTarget)}
+        >
+          <Eye size={18} />
         </button>
       )}
     </div>
