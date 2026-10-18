@@ -42,7 +42,7 @@ describe('select-e2e', () => {
 
   test('a voice change runs voice, encrypted media and threads, plus smoke', () => {
     const s = pick(['src/lib/audio/encode.ts', 'src/features/conversation/components/VoiceMessage.tsx']);
-    for (const spec of ['e2e/voice.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts', ...SMOKE]) assert.ok(s.includes(spec), spec);
+    for (const spec of ['e2e/voice.spec.ts', 'e2e/voice-compat.spec.ts', 'e2e/ogg-remux.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts', ...SMOKE]) assert.ok(s.includes(spec), spec);
     assert.ok(!s.includes('e2e/gif.spec.ts'));
   });
 

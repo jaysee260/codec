@@ -56,7 +56,7 @@ const E2EE = [
   'e2e/e2ee-security-chain.spec.ts',
   'e2e/e2ee-security-regressions.spec.ts',
 ];
-const VOICE = ['e2e/voice.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts'];
+const VOICE = ['e2e/voice.spec.ts', 'e2e/voice-compat.spec.ts', 'e2e/ogg-remux.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts'];
 const THREADS = ['e2e/threads.spec.ts', 'e2e/mobile-threads.spec.ts', 'e2e/e2ee-core-timeline.spec.ts'];
 const LINK_PREVIEW = ['e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts'];
 const GIF = ['e2e/gif.spec.ts', 'e2e/mobile-gif.spec.ts'];
