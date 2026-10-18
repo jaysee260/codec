@@ -322,6 +322,32 @@ test.describe('regressions', () => {
     await expect(banner(page)).toHaveAttribute('data-need', 'setup');
   });
 
+  test('BUG-16 each security dialog exposes its own close testid, and clicking it closes the dialog', async ({ page }) => {
+    const u = await freshUser('qaclose');
+    await loginWith(page, { username: u.username, password: u.password, displayName: u.username });
+    await waitForStatus(page);
+    // setup-dialog from the banner (fresh account -> `setup`).
+    await expect(banner(page)).toHaveAttribute('data-need', 'setup', { timeout: 15_000 });
+    await page.getByTestId('security-banner-action').click();
+    // verify-dialog / recovery-dialog are opened the way Dev B's placeholder actions do (`openSecurityDialog`).
+    const open = (kind: 'setup' | 'verify' | 'unlock') =>
+      page.evaluate(async (k) => {
+        const url = '/src/features/security/index.ts'; // Vite dev serves the module; a variable keeps tsc out of it
+        const m = (await import(/* @vite-ignore */ url)) as { openSecurityDialog(kind: string): void };
+        m.openSecurityDialog(k);
+      }, kind);
+    for (const [kind, id] of [['setup', 'setup'], ['verify', 'verify'], ['unlock', 'recovery']] as const) {
+      if (kind !== 'setup') await open(kind);
+      const dialog = page.getByTestId(`${id}-dialog`);
+      await expect(dialog).toBeVisible();
+      const close = dialog.getByTestId(`${id}-close`);
+      await expect(close, `${id}-dialog has ${id}-close`).toBeVisible();
+      await close.click();
+      await expect(dialog).toBeHidden({ timeout: 5_000 });
+    }
+    await expect(banner(page)).toHaveAttribute('data-need', 'setup'); // closing changed nothing (AC-E4-5)
+  });
+
   test('(d) unlockWithRecoveryKey reports errorKind invalid for garbage and wrong for another well-formed key', async ({ page }) => {
     const u = await freshUser('qaerrkind');
     await loginWith(page, { username: u.username, password: u.password, displayName: u.username });
