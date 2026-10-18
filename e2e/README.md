@@ -3,6 +3,13 @@
 QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..13 and
 `docs/PHASE3_TICKETS.md` QA-14..18). Specs are `*.spec.ts`, helpers live in `fixtures/`.
 
+## Which specs CI runs
+
+Pushes to master run everything. A pull request runs the two smoke walk-throughs plus the specs for the areas it
+changes (`scripts/select-e2e.mjs`; shared code such as `src/lib/matrix`, `src/store` or `e2e/fixtures` runs
+everything). Label a PR `full-e2e` to force the whole suite. **A new spec must be added to an area there**:
+`npm run test:unit` fails until it is.
+
 ## Projects
 
 `playwright.config.ts` declares two projects. A spec belongs to exactly one of them.

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test:unit": "node --test \"src/**/*.test.ts\"",
+    "test:unit": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",
     "seed": "node seed/seed.ts",
     "seed:reset": "node scripts/hs.mjs reset && node seed/seed.ts",
     "hs:up": "node scripts/hs.mjs up",
