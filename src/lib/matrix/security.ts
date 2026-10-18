@@ -22,7 +22,8 @@ import {
 } from 'matrix-js-sdk/lib/crypto-api/index.js';
 import type { VerificationRequest, Verifier } from 'matrix-js-sdk/lib/crypto-api/verification.js';
 import { getClient, getClientOrNull } from './client.ts';
-import { cacheSecretStorageKey, resolveRecoveryInput, SecretStorageKeyMissError } from './crypto.ts';
+import { cacheSecretStorageKey, hasCachedSecretStorageKey, resolveRecoveryInput, SecretStorageKeyMissError } from './crypto.ts';
+import { decryptMegolmKeyExport } from './key-export.ts';
 
 /** `client.getCrypto()` or null when nobody is logged in or the engine failed to start (`getCryptoError()`). */
 export function getCryptoApi(): CryptoApi | null {
@@ -57,6 +58,8 @@ export interface KeyBackupSummary {
 }
 
 export interface OwnDeviceStatus {
+  /** The signed-in user (with `deviceId`: the key of per-device UI flags such as a dismissed banner). */
+  userId: string;
   deviceId: string;
   /** This device is cross-signed by the account identity (what Element calls "verified"). */
   verified: boolean;
@@ -69,6 +72,11 @@ export interface OwnDeviceStatus {
   /** Id of the default secret storage key, or null when none is set up. */
   defaultKeyId: string | null;
   backup: KeyBackupSummary;
+  /**
+   * Other devices of this account verified by its identity (Codec or Element): they can share keys by emoji
+   * verification and answer room key requests. Local device list, no request.
+   */
+  otherVerifiedDevices: number;
 }
 
 /** One snapshot of this device's trust and backup state (several SDK calls; the store caches it). */
@@ -76,14 +84,18 @@ export async function getOwnDeviceStatus(): Promise<OwnDeviceStatus> {
   const { client, crypto } = requireCrypto();
   const userId = client.getSafeUserId();
   const deviceId = client.getDeviceId() ?? '';
-  const [device, hasCrossSigningKeys, crossSigningReady, defaultKeyId, backup] = await Promise.all([
+  const [device, hasCrossSigningKeys, crossSigningReady, defaultKeyId, backup, otherVerifiedDevices] = await Promise.all([
     crypto.getDeviceVerificationStatus(userId, deviceId),
-    crypto.userHasCrossSigningKeys(userId, false).catch(() => false),
+    // Downloaded, not the local list (empty on a fresh device until its first key query): a guess of "no identity"
+    // would offer setup to an account that has one. On failure assume one exists: never offer setup on a guess.
+    crypto.userHasCrossSigningKeys(userId, true).catch(() => true),
     crypto.isCrossSigningReady().catch(() => false),
     client.secretStorage.getDefaultKeyId().catch(() => null),
     getKeyBackupSummary(),
+    countOtherVerifiedDevices(crypto, userId, deviceId).catch(() => 0),
   ]);
   return {
+    userId,
     deviceId,
     verified: !!device?.crossSigningVerified,
     hasCrossSigningKeys,
@@ -91,7 +103,20 @@ export async function getOwnDeviceStatus(): Promise<OwnDeviceStatus> {
     secretStorageReady: !!defaultKeyId,
     defaultKeyId,
     backup,
+    otherVerifiedDevices,
   };
+}
+
+/** Devices of `userId` other than `deviceId` that its identity signed (from the local device list). */
+async function countOtherVerifiedDevices(crypto: CryptoApi, userId: string, deviceId: string): Promise<number> {
+  const devices = (await crypto.getUserDeviceInfo([userId])).get(userId);
+  let n = 0;
+  for (const id of devices?.keys() ?? []) {
+    if (id === deviceId) continue;
+    const status = await crypto.getDeviceVerificationStatus(userId, id).catch(() => null);
+    if (status?.crossSigningVerified) n += 1;
+  }
+  return n;
 }
 
 export async function getKeyBackupSummary(): Promise<KeyBackupSummary> {
@@ -244,8 +269,14 @@ function ssoFallback(session: string, ui?: (url: string, popupBlocked: boolean) 
 
 /** Thrown by `checkRecoveryKey` / `unlockWithRecoveryKey`: `kind` says what went wrong, `message` is user text. */
 export class RecoveryKeyError extends Error {
+  /**
+   * `none` = the account has no recovery key, `invalid` = not a recovery key / passphrase shape, `wrong` = does not
+   * open the default secret storage key, `unusable` = it does, but the identity (cross-signing) keys are not stored
+   * under it (missing from secret storage, or only under an old key), so it cannot verify this device: use emoji
+   * verification from another device instead.
+   */
   constructor(
-    readonly kind: 'none' | 'invalid' | 'wrong',
+    readonly kind: 'none' | 'invalid' | 'wrong' | 'unusable',
     message: string,
   ) {
     super(message);
@@ -300,6 +331,9 @@ export interface UnlockResult {
 /** `restoreFromBackup` that never throws: the result, or why it failed (`RestoreFailureReason`). */
 export type RestoreAttempt = Pick<UnlockResult, 'restore' | 'restoreError'>;
 
+const UNUSABLE_KEY_TEXT = "This recovery key can't verify this device. Verify it from your other device instead.";
+const SETUP_HAS_IDENTITY_TEXT = 'This account already has encryption set up elsewhere. Verify this device from your other device instead.';
+
 const RESTORE_FAILURE_TEXT: Record<Exclude<RestoreFailureReason, 'failed'>, string> = {
   cancelled: 'The key backup is protected by a different recovery key, and it was not entered',
   'wrong-key': 'The key backup is protected by a different recovery key',
@@ -311,13 +345,62 @@ const RESTORE_FAILURE_TEXT: Record<Exclude<RestoreFailureReason, 'failed'>, stri
  * secret storage (which signs this device: it becomes verified), then, best effort, loads the backup key and
  * restores old room keys. Verification is the success condition: errors of `checkRecoveryKey` (RecoveryKeyError)
  * and `bootstrapCrossSigning` throw; a failed restore resolves with `restore: null` and `restoreError` (the backup
- * key may be encrypted under another 4S key whose prompt the user cancelled: the session is still verified).
+ * key may be encrypted under another 4S key, which is never asked for here: the session is still verified).
+ *
+ * Nothing destructive on the way in: when the account has an identity but its private keys are neither on this
+ * device nor in secret storage under the default key, `bootstrapCrossSigning` would either fail ("Content is not
+ * encrypted!", or a secret under a key nobody is asked for) or, with the secrets missing altogether, create a new
+ * identity. So that case throws `RecoveryKeyError('unusable')` up front ("verify from your other device"), and any
+ * such SDK failure is mapped to it. No silent retry. A device that is already verified (emoji) skips the identity
+ * step entirely and goes straight to the restore: its identity secrets may sit under an old key, which is fine.
  */
 export async function unlockWithRecoveryKey(input: string, opts: { uia?: UiaOptions; onProgress?: (p: ImportRoomKeyProgressData) => void } = {}): Promise<UnlockResult> {
-  const { crypto } = requireCrypto();
+  const { client, crypto } = requireCrypto();
   await checkRecoveryKey(input);
-  await crypto.bootstrapCrossSigning({ authUploadDeviceSigningKeys: makeUiaCallback(opts.uia) });
+  // Already verified (e.g. by emoji): nothing to restore identity-wise, whatever key the identity secrets sit under.
+  const own = await crypto.getDeviceVerificationStatus(client.getSafeUserId(), client.getDeviceId() ?? '').catch(() => null);
+  if (own?.crossSigningVerified) return { verified: true, ...(await attemptRestoreFromBackup(opts.onProgress)) };
+  await assertIdentityRecoverable(crypto, UNUSABLE_KEY_TEXT);
+  try {
+    await crypto.bootstrapCrossSigning({ authUploadDeviceSigningKeys: makeUiaCallback(opts.uia) });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof SecretStorageKeyMissError || /Content is not encrypted|none of the keys it is encrypted with/i.test(message)) {
+      console.warn('[security] recovery key cannot restore the identity keys', e);
+      throw new RecoveryKeyError('unusable', UNUSABLE_KEY_TEXT);
+    }
+    throw e;
+  }
   return { verified: true, ...(await attemptRestoreFromBackup(opts.onProgress)) };
+}
+
+/**
+ * Refuse to let `bootstrapCrossSigning` run when it could only fail or replace the account's identity: the identity
+ * exists (asked from the server, not just the local device list, which is empty on a fresh device until its first
+ * key query) but its private keys are neither on this device nor in secret storage under the default key. Throws
+ * `RecoveryKeyError('unusable', message)`. Without this, `bootstrapCrossSigning({ setupNewCrossSigning: false })`
+ * throws "Content is not encrypted!" or, with the secrets missing altogether, silently calls `resetCrossSigning`
+ * (CrossSigningIdentity.js:86-88): a new identity on the way in.
+ */
+export async function assertIdentityRecoverable(crypto: CryptoApi, message: string): Promise<IdentityKeysState> {
+  const state = await identityKeysState(crypto);
+  if (state.identityExists && !state.localKeys && !state.inSecretStorage) throw new RecoveryKeyError('unusable', message);
+  return state;
+}
+
+export interface IdentityKeysState {
+  /** The account has published cross-signing keys (downloaded: `userHasCrossSigningKeys(userId, true)`). */
+  identityExists: boolean;
+  /** This device holds all three cross-signing private keys. */
+  localKeys: boolean;
+  /** All three are in secret storage under the default key. */
+  inSecretStorage: boolean;
+}
+
+async function identityKeysState(crypto: CryptoApi): Promise<IdentityKeysState> {
+  const [identityExists, cs] = await Promise.all([crypto.userHasCrossSigningKeys(undefined, true), crypto.getCrossSigningStatus()]);
+  const local = cs.privateKeysCachedLocally;
+  return { identityExists, localKeys: local.masterKey && local.selfSigningKey && local.userSigningKey, inSecretStorage: cs.privateKeysInSecretStorage };
 }
 
 /**
@@ -355,6 +438,101 @@ export async function restoreFromBackup(onProgress?: (p: ImportRoomKeyProgressDa
   return crypto.restoreKeyBackup(onProgress ? { progressCallback: onProgress } : undefined);
 }
 
+export interface KeyImportResult {
+  /** Sessions the engine accepted (new or better than what it had). */
+  imported: number;
+  /** Sessions in the file. */
+  total: number;
+}
+
+/**
+ * Import an Element key export (Settings > Encryption > Advanced > Export keys): decrypt it with the
+ * passphrase (key-export.ts; throws `KeyExportError` kind `passphrase` / `format`) and hand the sessions to the
+ * engine (`importRoomKeysAsJson`, progress as `load_keys` like a backup restore). The engine retries decrypting
+ * the timeline's undecryptable events as the keys land. The way into history when the key backup is locked under
+ * a lost secret storage key and no device gossips the backup key. Then `checkKeyBackupAndEnable()` so the imported
+ * sessions are uploaded to the current backup. Nothing is persisted besides the room keys.
+ */
+export async function importRoomKeysFromFile(
+  fileText: string,
+  passphrase: string,
+  onProgress?: (p: ImportRoomKeyProgressData) => void,
+): Promise<KeyImportResult> {
+  const { crypto } = requireCrypto();
+  const json = await decryptMegolmKeyExport(fileText, passphrase);
+  const total = (JSON.parse(json) as unknown[]).length;
+  // Rust reports load_keys progress *before* each key, so `successes` peaks at total - 1, and the JS SDK drops
+  // Rust's final RoomKeyImportResult. The import resolves only once every key is processed, so count them all.
+  await crypto.importRoomKeysAsJson(json, { progressCallback: onProgress });
+  const imported = total;
+  // Upload the imported sessions to the current backup (it only needs the backup's public key, which we trust
+  // through our identity): without this they would sit on this device only.
+  await crypto.checkKeyBackupAndEnable().catch((e: unknown) => console.warn('[security] enabling key backup after import failed', e));
+  return { imported, total };
+}
+
+// ---------------------------------------------------------------------------
+// Key storage self-heal / backup reachability
+// ---------------------------------------------------------------------------
+
+/** Secrets `syncSecretsToDefaultKey` re-stored: the three cross-signing keys (as one) and / or the backup key. */
+export type HealedSecret = 'cross-signing' | 'm.megolm_backup.v1';
+
+/**
+ * Self-heal out-of-sync key storage, silently: when this device is verified, the account's *default* secret
+ * storage key is cached (a successful unlock) and this device holds a secret locally (the cross-signing private
+ * keys; the backup decryption key matching the current backup) that secret storage does not have under the
+ * default key (another client re-created 4S and left it under an old key), re-store it under the default key so
+ * the next device unlocks with the current recovery key alone.
+ *
+ * Done by `crypto.bootstrapSecretStorage({})` (rust-crypto.js:706-769): with an AES default key present it never
+ * creates a key (no `createSecretStorageKey` is passed, so it would throw rather than create), re-stores the
+ * cross-signing keys only when they are not all under the default key, and stores the backup key when the cached
+ * one matches the current backup. `secretStorage.store` writes the secret under the default key only (the copy
+ * under the old key is replaced: secret-storage.js:249-289). The default key is cached by id, so it never prompts.
+ * Never resets, never creates keys. Resolves the secrets it re-stored ([] when nothing to do / not possible).
+ */
+export async function syncSecretsToDefaultKey(): Promise<HealedSecret[]> {
+  const { client, crypto } = requireCrypto();
+  const defaultKeyId = await client.secretStorage.getDefaultKeyId();
+  if (!defaultKeyId || !hasCachedSecretStorageKey(defaultKeyId)) return [];
+  const device = await crypto.getDeviceVerificationStatus(client.getSafeUserId(), client.getDeviceId() ?? '');
+  if (!device?.crossSigningVerified) return [];
+  const [cs, backupInfo, backupKey, backupStored] = await Promise.all([
+    crypto.getCrossSigningStatus(),
+    crypto.getKeyBackupInfo().catch(() => null),
+    crypto.getSessionBackupPrivateKey().catch(() => null),
+    client.secretStorage.isStored('m.megolm_backup.v1').catch(() => null),
+  ]);
+  const missing: HealedSecret[] = [];
+  const local = cs.privateKeysCachedLocally;
+  if (local.masterKey && local.selfSigningKey && local.userSigningKey && !cs.privateKeysInSecretStorage) missing.push('cross-signing');
+  if (backupInfo?.version && backupKey && !(backupStored && defaultKeyId in backupStored)) {
+    const trust = await crypto.isKeyBackupTrusted(backupInfo).catch(() => null);
+    if (trust?.matchesDecryptionKey) missing.push('m.megolm_backup.v1');
+  }
+  if (!missing.length) return [];
+  await crypto.bootstrapSecretStorage({});
+  return missing;
+}
+
+/**
+ * Can this account's key backup be opened with the *current* recovery key? True when there is no backup, or its
+ * decryption key (`m.megolm_backup.v1`) is stored in secret storage under the default key; false when it only sits
+ * under other (old) 4S keys or is not in secret storage at all. Reads cached account data (no request after the
+ * first sync).
+ */
+export async function isBackupSecretOnDefaultKey(): Promise<boolean> {
+  const { client, crypto } = requireCrypto();
+  const info = await crypto.getKeyBackupInfo().catch(() => null);
+  if (!info?.version) return true;
+  const [defaultKeyId, stored] = await Promise.all([
+    client.secretStorage.getDefaultKeyId().catch(() => null),
+    client.secretStorage.isStored('m.megolm_backup.v1').catch(() => null),
+  ]);
+  return !!defaultKeyId && !!stored && defaultKeyId in stored;
+}
+
 export interface SetupRecoveryOptions {
   /** Derive the recovery key from a passphrase as well (the user can type either later). */
   passphrase?: string;
@@ -365,17 +543,28 @@ export interface SetupRecoveryOptions {
 
 /**
  * First-time setup (or reset): create cross-signing keys for the account (this device signs itself), create
- * secret storage with a fresh recovery key, store the cross-signing keys in it, and create a key backup.
+ * secret storage with a fresh recovery key, store the cross-signing keys in it, and create a key backup. Without
+ * `reset` it never creates an identity over an existing one (`assertIdentityRecoverable`; an identity whose keys
+ * this device lacks throws "A recovery key already exists..." or `RecoveryKeyError('unusable')`) and never
+ * replaces an existing server backup.
  * Returns the recovery key to show the user **once** (`encodedPrivateKey`, `EsTc ...` form).
  */
 export async function setupRecovery(opts: SetupRecoveryOptions = {}): Promise<string> {
   const { crypto } = requireCrypto();
+  if (!opts.reset) {
+    // Never a new identity or a replaced backup without `reset` (B1): an existing identity whose keys this device
+    // lacks is unlocked or verified, not set up.
+    const state = await assertIdentityRecoverable(crypto, SETUP_HAS_IDENTITY_TEXT);
+    if (state.identityExists && !state.localKeys) throw new Error('A recovery key already exists for this account; enter it instead');
+  }
   await crypto.bootstrapCrossSigning({ setupNewCrossSigning: !!opts.reset, authUploadDeviceSigningKeys: makeUiaCallback(opts.uia) });
   let generated: GeneratedSecretStorageKey | undefined;
-  const active = await crypto.getActiveSessionBackupVersion();
+  const serverBackup = await crypto.getKeyBackupInfo().catch(() => null);
   await crypto.bootstrapSecretStorage({
     setupNewSecretStorage: !!opts.reset,
-    setupNewKeyBackup: !!opts.reset || active === null,
+    // `setupNewKeyBackup` goes through `resetKeyBackup`, which deletes every server backup version: only on reset,
+    // or when the server has no backup at all (not merely "this device is not backing up").
+    setupNewKeyBackup: !!opts.reset || !serverBackup,
     createSecretStorageKey: async () => {
       generated = await crypto.createRecoveryKeyFromPassphrase(opts.passphrase || undefined);
       return generated;

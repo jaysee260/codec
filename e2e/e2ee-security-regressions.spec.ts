@@ -13,9 +13,10 @@
  * two halves can run on different Playwright workers; tests moved verbatim. Other half: `e2ee-security-chain.spec.ts`.
  */
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { createRoom, freshUser, hasCrossSigning, type Credentials } from './fixtures/e2ee-api.ts';
+import { createForeignKeyBackup, createRoom, freshUser, hasCrossSigning, keyBackup, masterKeyId, type Credentials } from './fixtures/e2ee-api.ts';
 import {
   banner,
+  cryptoApiCall,
   cryptoState,
   e2eeAfterEach,
   loginWith,
@@ -164,5 +165,84 @@ test.describe('regressions', () => {
     expect(r.emojiNew).toHaveLength(7);
     expect(r.emojiNew).toEqual(r.emojiVerified);
     await waitForCrypto(N.page, (s) => !!s.status?.verified, 'new device verified', 30_000);
+  });
+
+  /* ---------------------------------------------------------------- review B1: setup is never destructive */
+
+  test('B1a fresh device on an account with an identity but no secret storage: never `setup`; a forced setup creates no identity', async ({ page, browser }) => {
+    const U = await freshAccount('qab1a');
+    // Device A: cross-signing only (first upload needs no UIA), no secret storage, no backup.
+    const A = await device(browser, U);
+    await A.page.evaluate(async () => {
+      const api = (window as any).__matrixPoc.security.getCryptoApi();
+      await api.bootstrapCrossSigning({ authUploadDeviceSigningKeys: async (makeRequest: (a: unknown) => Promise<unknown>) => void (await makeRequest(null)) });
+    });
+    const master = await masterKeyId(U.token, U.userId);
+    expect(master, 'A published an identity').toBeTruthy();
+    await A.close();
+
+    await loginWith(page, U.acct);
+    await waitForStatus(page);
+    // The banner never offers setup on an account that has an identity (sampled for ~5 s).
+    const needs = new Set<string>();
+    for (let i = 0; i < 10; i += 1) {
+      const n = await banner(page).getAttribute('data-need', { timeout: 500 }).catch(() => null);
+      if (n) needs.add(n);
+      await page.waitForTimeout(500);
+    }
+    expect([...needs], 'banner needs seen').not.toContain('setup');
+
+    // Forced open anyway: setup-start must not create an identity (or a backup).
+    await page.evaluate(async () => {
+      const url = '/src/features/security/index.ts'; // Vite dev serves the module; a variable keeps tsc out of it
+      const m = (await import(/* @vite-ignore */ url)) as { openSecurityDialog(kind: string): void };
+      m.openSecurityDialog('setup');
+    });
+    const setup = page.getByTestId('setup-dialog');
+    const recovery = page.getByTestId('recovery-dialog');
+    await expect(setup.or(recovery)).toBeVisible({ timeout: 10_000 });
+    if (await setup.isVisible()) {
+      await page.getByTestId('setup-start').click();
+      await expect(page.getByTestId('setup-error').or(recovery)).toBeVisible({ timeout: 30_000 });
+      if (await page.getByTestId('setup-error').isVisible()) {
+        await expect(page.getByTestId('setup-error')).toHaveText('This account already has encryption set up elsewhere. Verify this device from your other device instead.');
+      }
+    }
+    await expect(page.getByTestId('setup-key'), 'no new recovery key was shown').toHaveCount(0);
+    expect(await masterKeyId(U.token, U.userId), 'the master key on the server is unchanged').toBe(master);
+    expect(await keyBackup(U.token), 'no backup was created').toBeNull();
+    expect((await cryptoState(page)).status?.verified, 'this device is not verified by a new identity').toBe(false);
+  });
+
+  test('B1b a setup on an account that already has a server backup keeps that backup version', async ({ page }) => {
+    const U = await freshAccount('qab1b');
+    await loginWith(page, U.acct);
+    await waitForStatus(page);
+    // This device holds the identity (cross-signing only, no secret storage) ...
+    await page.evaluate(async () => {
+      const api = (window as any).__matrixPoc.security.getCryptoApi();
+      await api.bootstrapCrossSigning({ authUploadDeviceSigningKeys: async (makeRequest: (a: unknown) => Promise<unknown>) => void (await makeRequest(null)) });
+    });
+    const master = await masterKeyId(U.token, U.userId);
+    // ... and the server already has a backup this device does not use (made by another client).
+    const version = await createForeignKeyBackup(U.token);
+    await waitForCrypto(page, (s) => !!s.status?.verified, 'this device is verified by its own identity', 20_000);
+    expect(await cryptoApiCall<string | null>(page, 'getActiveSessionBackupVersion'), 'this device is not backing up to it').toBeNull();
+    // What the SDK reports before the setup (its server-backup check ran at startup, before this backup existed).
+    const seen = await page.evaluate(async () => ((await (window as any).__matrixPoc.security.getCryptoApi().getKeyBackupInfo()) as { version?: string } | null)?.version ?? null);
+    annotate('B1b', `server backup v${version}; getKeyBackupInfo() on this device before setup: ${seen === null ? 'null' : `v${seen}`}`);
+
+    // Non-reset setup through the UI (forced open: the banner says unlock for this state).
+    await page.evaluate(async () => {
+      const url = '/src/features/security/index.ts';
+      const m = (await import(/* @vite-ignore */ url)) as { openSecurityDialog(kind: string): void };
+      m.openSecurityDialog('setup');
+    });
+    await expect(page.getByTestId('setup-dialog')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('setup-start').click();
+    await expect(page.getByTestId('setup-key').or(page.getByTestId('setup-error'))).toBeVisible({ timeout: 30_000 });
+    // Whatever the dialog ends in, the server backup is the same version (never deleted / replaced).
+    expect((await keyBackup(U.token))?.version, 'same server backup version').toBe(version);
+    expect(await masterKeyId(U.token, U.userId), 'same identity').toBe(master);
   });
 });

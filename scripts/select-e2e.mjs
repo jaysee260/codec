@@ -52,6 +52,7 @@ const E2EE = [
   'e2e/e2ee-core-boot.spec.ts',
   'e2e/e2ee-core-timeline.spec.ts',
   'e2e/e2ee-media.spec.ts',
+  'e2e/e2ee-recovery-lost-backup.spec.ts',
   'e2e/e2ee-recovery-second-key.spec.ts',
   'e2e/e2ee-security-chain.spec.ts',
   'e2e/e2ee-security-regressions.spec.ts',

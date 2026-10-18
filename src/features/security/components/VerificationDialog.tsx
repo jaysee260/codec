@@ -6,14 +6,15 @@
  *   incoming    another device (Element, another codec) asked us                     verify-accept / verify-decline
  *   sas         7 verify-emoji-item (text = emoji, data-name = SAS name)             verify-match / verify-mismatch / verify-cancel
  *   confirming  we clicked "They match", waiting for the other side                  verify-cancel
- *   done        verify-done ("Verified"); offers the unlock dialog when the backup is still locked
+ *   done        verify-done ("Verified"); Done (`dialog-close`) only closes, never opens the recovery-key form (the
+ *               backup key may still arrive from the other device; the banner says what next after the grace)
  *   cancelled   verify-error = the reason; error = the request could not even start (crypto off, no other device)
  *
  * Escape cancels the flow (and stays open on `cancelled`) in requested / sas / confirming; it closes otherwise.
  * The corner X (`verify-close`) and the backdrop cancel any live flow, then close.
  * testids: verify-dialog (+data-phase, data-direction), the ones above, verify-close
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, ShieldCheck, ShieldX, Smartphone } from 'lucide-react';
 import { useSecurityStore, type VerificationFlow } from '@/store';
 import { Dialog } from '@/features/navigation';
@@ -235,24 +236,18 @@ export function VerificationDialog() {
             {direction === 'incoming' ? 'Your other session is verified' : 'This session is verified'}
           </p>
           {direction === 'outgoing' && hint === 'unlock' && (
-            <p className={styles.muted}>Unlock your message history with your recovery key to read older messages.</p>
+            <p className={styles.muted}>Older messages unlock here as your other device shares their keys.</p>
           )}
         </div>
       );
-      footer =
-        direction === 'outgoing' && hint === 'unlock' ? (
-          <>
-            {closeButton('Later')}
-            <button type="submit" className="u-btn" data-testid="verify-unlock">
-              Unlock history
-            </button>
-          </>
-        ) : (
-          <button type="submit" className="u-btn" data-testid="dialog-close">
-            Done
-          </button>
-        );
-      onSubmit = direction === 'outgoing' && hint === 'unlock' ? () => openSecurityDialog('unlock') : close;
+      // Done only closes: no recovery-key form right after the emoji match (the other device may still be handing
+      // the backup key over). The banner carries the next step once the store's gossip grace has passed.
+      footer = (
+        <button type="submit" className="u-btn" data-testid="dialog-close">
+          Done
+        </button>
+      );
+      onSubmit = close;
       break;
 
     case 'cancelled':
@@ -292,7 +287,8 @@ export function VerificationDialog() {
       onSubmit={onSubmit}
       onClose={close}
       onEscape={escape}
-      footer={footer}
+      // Keyed by phase so one phase's button node is never reused for the next phase's (see RecoveryDialog).
+      footer={footer == null ? footer : <Fragment key={phase}>{footer}</Fragment>}
       closeTestId="verify-close"
       closeOnBack
       dataAttrs={{ 'data-phase': phase, 'data-direction': direction }}
