@@ -483,6 +483,7 @@ when avatars / the check appear. `S3`: cosmetic.
 | REV-R1 | S1 | AC-R7-2 (review finding 1) | Toggle "Send read receipts" OFF, then receive a message before the account-data `/sync` echo arrives: `getSendReadReceipts` still read the old account data (ON), so a public `m.read` went out. `npx playwright test e2e/receipts.spec.ts --project=desktop -g "REV-R1"` holds the account-data PUT with `page.route` and asserts the receipt for bob's new message is `m.read.private` while the PUT is held, and no `m.read` is sent after the click. On `ade0095` (pre-fix) it fails: "OFF immediately, before the echo", expected false, got true. | Principal | **Fixed** (uncommitted: optimistic `withPendingSendReadReceipts` in `receipts-core.ts`); REV-R1 green |
 | REV-R2 | S3 | AC-R8-1 (review finding 2) | `receipt-avatars` opens a dialog but was `role="group"` with no `aria-haspopup`. Now `role="button"`, `aria-haspopup="dialog"`, `aria-expanded` true while its list is open. AC-R8-1 asserts all three, plus the false -> true -> false cycle. On `ade0095` it fails: expected role "button", got "group". | Dev A | **Fixed** (uncommitted, `ReadAvatars.tsx`); AC-R8-1 green |
 | REV-R5 | S3 | AC-R3-2 / AC-R8-2 (review finding 5) | A **hover** preview swallowed Escape (capture + `stopPropagation`), so Escape with focus in the thread panel closed only the preview, not the panel; an edit could not be cancelled either. Now only a **pinned** list consumes Escape. `-g "REV-R5"`: pinned list + Escape keeps `thread-panel`; hover preview (focus on a thread row's strip) + Escape closes both. On `ade0095` it fails: "a hover preview lets Escape through: the thread panel closes too", expected 0 panels, got 1. | Dev A | **Fixed** (uncommitted, `SeenByList.tsx`); REV-R5 green |
+| REV-STICK | S2 | AC-L7-4, AC-R9-1 (stick-to-bottom, review / CI finding) | "Stuck to the bottom" means within 40 px of it (`NEAR_BOTTOM_PX`), but every commit and every late growth while stuck snapped to the **true** bottom. A reader parked 2-39 px above the bottom saw everything jump by that gap. On CI, the 24 px receipt strip on the newest row created the gap, and AC-L7-4 went red. Dev B's fix in `MessageList.tsx`: while stuck, keep the current gap unless gap <= 2 or a new event arrives at the end. Regressions, each parking the list 20 px above the bottom: **REG-L7-4b** (`link-preview.spec.ts`, a card loads above the viewport), **REG-STICK-b1** (typing notification), **REG-STICK-b2** (edit of a visible message), **REG-STICK-c** (a read-avatar strip appears on an older row above the viewport) in `receipts.spec.ts`. With the pre-fix `MessageList.tsx` from `4771771`, all four fail: "moved -20px", which is exactly the gap. `npx playwright test e2e/receipts.spec.ts e2e/link-preview.spec.ts --project=desktop -g "REG-"` | Dev B | **Fixed** (`25bc97c`); 4/4 green, 9/9 on `--repeat-each=3` |
 
 Rulings / test-side notes (no product defect):
 - **AC-R6-2 (Advisor ruling, 2026-10-18).** An *unthreaded* `m.read` (no `thread_id`) on a main message newer than a
@@ -504,6 +505,19 @@ Rulings / test-side notes (no product defect):
     reading-pin compensation, under this local Chromium only. No ticket.
   - `threads.spec.ts` AC-T6-4: the 40-reply root row in #general did not render within 20 s under the 2-worker load;
     3/3 green in isolation. Load flake, not a defect.
+- **Final: PR-selected set on the merged tree (`c0881a0`, master PRs #16-#18 merged in), 19 specs, both projects, 2 workers:
+  288 passed, 0 failed, 13 skipped** (fresh-seed / manual skips), including the AC-T6-4 and auth-media hardening below.
+  An earlier `threads.spec.ts` run failed AC-T1-4 once while the merge was being written (Vite: `Expected string in
+  JSON but found "<<"`, conflict markers mid-merge); green on the merged tree.
+- **PR-selected set, fix wave (after `25bc97c`), 18 specs, both projects, 2 workers: 272 passed, 2 failed, 11 skipped.**
+  AC-L7-4 now passes here too (Dev B's stick-band fix), as do the four REG-* regressions. Both failures are test-side
+  and pass 3/3 in isolation; both are now hardened:
+  - `threads.spec.ts` AC-T6-4 (and the other `theBigThread` consumer): the thread is built once per worker and
+    reused. In a long run other specs post into #general after it, so the root falls out of the initial window and
+    `message-{root}` never renders. Fix: page back to the root (`paginateToTop`, the dirty-seed rule) before opening it.
+  - `auth-media.spec.ts` "SVG is downloaded, never opened": the loop over `context().pages()` evaluated in a tab the
+    download had just closed ("Target page ... has been closed"). Fix: skip closed tabs, and treat a close
+    mid-evaluate as "not showing the SVG".
 - Environment: this container's `/home/claude/pwb` had no ffmpeg, so `video: 'retain-on-failure'` failed every test
   at `newPage` in 0.1 s. Fixed outside the repo with a symlink to `/opt/pw-browsers/ffmpeg-1011`.
 - Fixture defect fixed during the run: `sendStatusByText` called `room.getPendingEvents()`, which throws under

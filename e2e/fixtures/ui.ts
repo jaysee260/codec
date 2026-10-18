@@ -191,3 +191,21 @@ export async function stepShot(page: Page, step: number, slug: string): Promise<
   await page.screenshot({ path: file, fullPage: true });
   return file;
 }
+
+/** Two animation frames: React commits and the list's scroll corrections have run. */
+export async function nextFrames(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+}
+
+/**
+ * Parks `message-list` `gap` px above its bottom, inside the 40 px "stuck to the bottom" band (MessageList
+ * NEAR_BOTTOM_PX), the state the AC-L7-4 root cause lived in. Returns the measured gap after the scroll settled.
+ */
+export async function parkAboveBottom(page: Page, gap = 20, testId = 'message-list'): Promise<number> {
+  await page.getByTestId(testId).evaluate((el, g) => {
+    el.scrollTop = el.scrollHeight - el.clientHeight - (g as number);
+    el.dispatchEvent(new Event('scroll'));
+  }, gap);
+  await nextFrames(page);
+  return page.getByTestId(testId).evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+}

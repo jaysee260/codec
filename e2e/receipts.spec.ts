@@ -41,7 +41,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
 import { loginAs, NAV_STORAGE_KEY } from './fixtures/auth.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { DISPLAY_NAMES, resolveRoom, userId } from './fixtures/seed.ts';
-import { channelItem, hoverActions, messageList, openChannel, openSpace, rowByText, settledEventId, typeAndSend } from './fixtures/ui.ts';
+import { channelItem, hoverActions, messageList, nextFrames, openChannel, openSpace, parkAboveBottom, rowByText, settledEventId, typeAndSend } from './fixtures/ui.ts';
 import { e2eeAfterEach, loginWith, requireUi, runSample, secondContext, uiHalf, waitForStatus, type SecondContext } from './fixtures/e2ee.ts';
 import { annotate, markRoomRead } from './fixtures/state.ts';
 import { openThreadFromMessage, seedThread } from './fixtures/threads.ts';
@@ -932,6 +932,72 @@ test.describe('AC-R9 scroll stability', () => {
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const after = await topOf(anchor);
     expect(Math.abs(after - before), `the row being read moved ${after - before}px`).toBeLessThanOrEqual(2);
+  });
+});
+
+/* ================================================================== stick band (AC-L7-4 root cause) */
+
+/*
+ * Regressions for Dev B's stick-to-bottom fix (2026-10-18): "stuck" = within 40 px of the bottom, and any commit or
+ * late growth used to snap to the *true* bottom, moving every visible row by the remaining gap. Each test parks
+ * the list 10-35 px above the bottom, triggers one non-arrival change, and asserts the newest row (below every
+ * change) has not moved and the gap is kept.
+ */
+test.describe('Stick band: parked just above the bottom', () => {
+  async function parked(page: Page, label: string): Promise<{ older: string; visible: string; newest: string; gap: number; before: number }> {
+    // Everything is posted BEFORE alice logs in, so it arrives in the initial sync window (~30 events): posting 27
+    // events while she is live can produce a limited sync, which resets the timeline and drops the older row.
+    const older = await alice.send(R.dev, uniq(`${label} older`));
+    for (let i = 0; i < 23; i += 1) await bob.send(R.dev, `${label} filler ${i + 1}`);
+    const visible = await alice.send(R.dev, uniq(`${label} visible`)); // alice's own visible row, editable by her
+    const last = await bob.send(R.dev, `${label} last`);
+    await start(page, R.dev);
+    await expect(mainRow(page, last)).toBeVisible({ timeout: RECEIPT_TIMEOUT });
+    await expect(mainRow(page, older), 'the older row is in the initial window').toBeAttached({ timeout: RECEIPT_TIMEOUT });
+    const gap = await parkAboveBottom(page, 20);
+    expect(gap, 'parked inside the 40 px band').toBeGreaterThanOrEqual(10);
+    expect(gap).toBeLessThanOrEqual(35);
+    const listBox = (await messageList(page).boundingBox())!;
+    const olderBox = (await mainRow(page, older).boundingBox())!;
+    expect(olderBox.y + olderBox.height, 'the older row is above the viewport').toBeLessThan(listBox.y);
+    return { older, visible, newest: last, gap, before: await topOf(mainRow(page, last)) };
+  }
+
+  async function expectNoJump(page: Page, p: { newest: string; gap: number; before: number }, what: string): Promise<void> {
+    await nextFrames(page);
+    const after = await topOf(mainRow(page, p.newest));
+    expect(Math.abs(after - p.before), `${what}: the newest row moved ${after - p.before}px`).toBeLessThanOrEqual(2);
+    const gapAfter = await bottomGap(page);
+    expect(Math.abs(gapAfter - p.gap), `${what}: bottom gap kept (${p.gap} -> ${gapAfter}), not snapped to 0`).toBeLessThanOrEqual(2);
+  }
+
+  test('REG-STICK-b1 a typing notification does not jump the list', async ({ page }) => {
+    const p = await parked(page, 'STb1');
+    await bob.typing(R.dev, true, 20_000);
+    await expect(page.getByTestId('typing-indicator')).toContainText(/typing/i, { timeout: RECEIPT_TIMEOUT });
+    await expectNoJump(page, p, 'typing on');
+    await bob.typing(R.dev, false);
+  });
+
+  test('REG-STICK-b2 an edit of a visible message does not jump the list', async ({ page }) => {
+    const p = await parked(page, 'STb2');
+    await alice.sendEvent(R.dev, 'm.room.message', {
+      msgtype: 'm.text',
+      body: '* STb2 visible (v2)',
+      'm.new_content': { msgtype: 'm.text', body: 'STb2 visible (v2)' },
+      'm.relates_to': { rel_type: 'm.replace', event_id: p.visible },
+    });
+    await expect(mainRow(page, p.visible).getByTestId('message-edited')).toBeVisible({ timeout: RECEIPT_TIMEOUT });
+    await expectNoJump(page, p, 'edit');
+  });
+
+  test('REG-STICK-c a read-avatar strip appearing on an older row above the viewport does not jump the list', async ({ page }) => {
+    requireUi('Dev A', ...UI.avatars);
+    const p = await parked(page, 'STc');
+    await readAs('carol', R.dev, p.older);
+    await expectReadersAt(page, R.dev, p.older, [C]);
+    await expect(receiptAvatars(mainRow(page, p.older))).toHaveCount(1, { timeout: RECEIPT_TIMEOUT });
+    await expectNoJump(page, p, 'strip above the viewport');
   });
 });
 
