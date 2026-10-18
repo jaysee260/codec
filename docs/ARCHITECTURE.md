@@ -1,5 +1,7 @@
 # Architecture (source of truth for the shared layer)
 
+Diagrams of the same architecture (layers, startup, data flow, encryption, layout): `docs/ARCHITECTURE_DIAGRAMS.md`.
+
 This document is the contract between the Principal-owned core (`src/lib`, `src/store`, `src/app`,
 `seed`, `scripts`, `homeserver`, and since Phase 2 `capacitor.config.ts`, `android/`, `ios/`) and the
 feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md` /
@@ -382,17 +384,18 @@ layout store closes the drawer); space taps keep it open. Nothing phone-only exi
 1. `App` mounts -> `useSessionStore.restore()`. If localStorage has a session (`matrix-poc.session`
    = `{ baseUrl, userId, accessToken, deviceId }`) the store starts in `'syncing'`; otherwise `'logged-out'`.
 2. `login()`/`register()`/`restore()` -> `startClientFromSession()` creates the `MatrixClient`
-   (`createClient` with `timelineSupport: true`, **no crypto**), calls
+   (`createClient` with `timelineSupport: true`), starts the Rust crypto engine (`initCrypto`, Phase 5; loading stage `crypto`), calls
    `startClient({ initialSyncLimit: 30, lazyLoadMembers: true, pendingEventOrdering: 'chronological', threadSupport: true })`
    (Phase 3: `threadSupport` makes the SDK partition `m.thread` replies into `Thread` models, add `thread_id` to receipts and
    request `unread_thread_notifications`),
-   then `bindClient()` subscribes the bridge, then `waitForPrepared()` resolves on `SyncState.Prepared`.
+   then `bindClient()` subscribes the bridge and `bindSecurity()` the security store (loading stage `sync`), then `waitForPrepared()` resolves on `SyncState.Prepared`.
    Status becomes `'ready'` and the shell renders. The bridge does one full `recomputeRooms()` +
    `refreshTimelines(all rooms)` at PREPARED and again whenever the SDK goes ERROR -> SYNCING (catch-up).
 3. From then on every SDK event lands in a store through the bridge with a 50 ms (rooms) / 30 ms
    (timelines) trailing debounce. React re-renders once per burst, never once per event.
-4. `logout()` -> server logout (best effort), `stopClient()`, listeners removed, localStorage cleared,
-   stores reset. Token revoked server-side (`HttpApiEvent.SessionLoggedOut`) triggers the same.
+4. `logout()` -> server logout (best effort), `stopClient()`, listeners removed, crypto store wiped, localStorage cleared,
+   stores and the link-preview cache reset. Token revoked server-side (`HttpApiEvent.SessionLoggedOut`) does the same
+   but lands in `'error'` with "Session expired" on the login form.
 
 ## Store / hook / action API
 
@@ -526,10 +529,10 @@ first page up to >= 20 visible replies), `bumpThreadVersion()`, `threadKey(roomI
 | `ensureThread` | `(roomId, rootId) => Promise<Thread \| null>` | (Phase 3) Get-or-create the SDK `Thread` (fetches the root when not loaded; triggers its initial `/relations` fetch). |
 | `fetchRoomThreads` | `(roomId) => Promise<void>` | (Phase 3) `createThreadsTimelineSets()` + `fetchRoomThreads()` = `GET /v1/rooms/{id}/threads?include=all|participated` (newest 30), once per room. |
 | `hasMoreRoomThreads`, `loadMoreRoomThreads` | `(roomId) => boolean`, `(roomId, limit=30) => Promise<boolean>` | (Phase 3) Thread-list paging. |
-| `createChannel` | `({ spaceId, name, topic? }) => Promise<roomId>` | `preset: public_chat`, `visibility: private`, unencrypted, `m.space.parent` on the room, `m.space.child` (next `order`) on the space. |
+| `createChannel` | `({ spaceId, name, topic?, encrypted? }) => Promise<roomId>` | `preset: public_chat`, `visibility: private`, encrypted unless `encrypted: false` (Phase 5), `m.space.parent` on the room, `m.space.child` (next `order`) on the space. |
 | `createSpace` | `({ name, topic? }) => Promise<spaceId>` | `m.space`, public preset, then `createChannel({ name: 'general' })`. |
 | `inviteUser` | `(roomId, userId) => Promise<void>` | Throws `MatrixError` (e.g. unknown user). |
-| `createDm` | `(userId) => Promise<roomId>` | Reuses a joined room from `m.direct`; else `is_direct` + `trusted_private_chat` + invite, and updates `m.direct`. |
+| `createDm` | `(userId, { encrypted? }) => Promise<roomId>` | Encrypted unless `encrypted: false` (Phase 5). Reuses a joined room from `m.direct`; else `is_direct` + `trusted_private_chat` + invite, and updates `m.direct`. |
 | `findDmRoomId`, `getDirectMap` | sync | `m.direct` readers. |
 | `joinRoom` | `(roomIdOrAlias) => Promise<roomId>` | |
 | `leaveRoom` | `(roomId) => Promise<void>` | |
@@ -944,8 +947,6 @@ npm run verify:gif                 # no browser: mock contract, fixtures, wire s
   <provider>" button per SSO identity provider (e.g. Keycloak). SSO returns with `?loginToken=`, which
   `restore()` exchanges via `m.login.token`. The Register toggle only shows when `POST /register {}` answers
   401 (open); that probe logs one expected 401 in the console.
-- **No crypto**: never call `initRustCrypto`; rooms are created without `m.room.encryption`. Encrypted rooms from
-  other clients would show as undecryptable - out of scope.
 - **Sync loop errors**: the SDK retries forever; `useSessionStore.error` carries the message while `status`
   stays `'ready'`. `UserFooter` shows "Reconnecting...".
 - `MatrixError` (from `matrix-js-sdk`) has `errcode` and `httpStatus`; `describeError()` gives user text.

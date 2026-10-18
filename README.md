@@ -75,4 +75,4 @@ including iOS, is in `docs/MOBILE.md`.
 - `docs/` has the plans and notes from each phase
 
 Read `docs/ARCHITECTURE.md` before changing anything in `src/lib/` or `src/store/`. The rest of the app
-depends on it.
+depends on it. For a quick visual overview first, see `docs/ARCHITECTURE_DIAGRAMS.md`.
