@@ -3,7 +3,8 @@
  *
  * Backend contract (see scripts/hs-pool.mjs; a Docker backend implements the same shape):
  *   name                      'native' | 'docker'
- *   available()               string | null  - null when usable, else why not
+ *   available({ timeoutMs }?) string | null  - null when usable, else why not (timeoutMs: quick probe cap)
+ *   bindAddresses?            string[]       - listener bind addresses (default ['127.0.0.1']; docker: 0.0.0.0)
  *   version()                 string         - Synapse version, part of the snapshot cache key
  *   dataRoot(dir)             string         - the path prefix the instance config uses for `/data/...`
  *   start({ dir, port, configPath, logPath }) -> { pid }   detached process; stdout+stderr -> logPath

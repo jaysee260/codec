@@ -9,6 +9,7 @@
  * This module is imported by playwright.config.ts (main process and every worker process re-evaluate the config, after
  * `TEST_PARALLEL_INDEX` is set) and by the fixtures, so both sides compute the same URLs from the same env.
  */
+import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -30,9 +31,33 @@ export function defaultWorkers(): number {
   return Math.max(1, Math.min(4, os.cpus().length - 1));
 }
 
+/**
+ * Windows with only the WSL1 homeserver (homeserver/wsl, no Synapse venv and no Docker): the pool cannot run there, so
+ * fall back to one worker against the server on 8008 (PERF-9). Decided once, in the main process at config load (the
+ * worker count is fixed before globalSetup runs); E2E_WORKERS / E2E_POOL_FALLBACK are inherited by the workers.
+ * Linux/macOS never fall back silently: with no backend, scripts/hs-pool.mjs fails with what to install.
+ */
+function wslFallback(): boolean {
+  if (process.platform !== 'win32' || process.env.E2E_REUSE_SERVERS || process.env.TEST_WORKER_INDEX !== undefined) return false;
+  if (!existsSync(resolve(REPO, 'homeserver/wsl/hs.sh'))) return false;
+  const probe = spawnSync(process.execPath, [resolve(REPO, 'scripts/hs-pool.mjs'), 'probe'], { encoding: 'utf8', timeout: 30_000 });
+  if (probe.status === 0) return false;
+  process.env.E2E_WORKERS = '1';
+  process.env.E2E_POOL_FALLBACK = 'wsl';
+  console.log(
+    `[e2e] no Synapse venv or Docker for the server pool (WSL1 setup): running 1 worker against the homeserver on :${BASE_HS_PORT}, which is NOT reset; use npm run test:e2e:fresh for a fresh seed.`,
+  );
+  return true;
+}
+
 export function poolSize(): number {
   const raw = process.env.E2E_WORKERS;
-  if (raw === undefined || raw === '') return defaultWorkers();
+  if (raw === undefined || raw === '') {
+    if (wslFallback()) return 1;
+    const n = defaultWorkers();
+    process.env.E2E_WORKERS = String(n); // probe once; worker processes inherit the decision
+    return n;
+  }
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1 || n > MAX_WORKERS) {
     throw new Error(`E2E_WORKERS must be an integer 1..${MAX_WORKERS}, got "${raw}"`);

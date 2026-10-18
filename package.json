@@ -49,7 +49,7 @@
     "test:e2e:e2ee": "playwright test e2e/e2ee-core.spec.ts e2e/e2ee-media.spec.ts e2e/e2ee-security.spec.ts --project=desktop",
     "test:e2e:report": "playwright show-report",
     "test:e2e:fixtures": "node e2e/fixtures/make-test-assets.mjs",
-    "test:e2e:fresh": "npm run seed:reset && npm run test:e2e",
+    "test:e2e:fresh": "node scripts/hs-pool.mjs fresh && npm run test:e2e",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {

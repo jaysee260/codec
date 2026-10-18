@@ -14,6 +14,8 @@
  *   node scripts/hs-pool.mjs down                 stop every instance the last `up` started (data dirs + logs kept)
  *   node scripts/hs-pool.mjs status               what is running / answering
  *   node scripts/hs-pool.mjs clean                down + delete the pool dirs and the snapshot
+ *   node scripts/hs-pool.mjs probe                exit 0 when a backend is usable, else print why and exit 1 (quick;
+ *                                                 e2e/fixtures/pool.ts uses it on Windows for the WSL1 fallback)
  *
  * Layout (all under homeserver/data/pool/, git-ignored):
  *   snapshot/data/        homeserver.db, media_store, localhost.signing.key, secrets/   (the seeded template)
@@ -22,7 +24,8 @@
  *   hs-<i>/               instance i: a copy of snapshot/data + homeserver.yaml, log.config, synapse.log
  *   state.json            instances started by the last `up` (pids, ports)
  *
- * Environment: E2E_WORKERS, HS_POOL_BACKEND=native|docker (default: native when its venv works), SYNAPSE_PYTHON,
+ * Environment: E2E_WORKERS, HS_POOL_BACKEND=native|docker (default: native when its venv works, else docker when
+ *              `docker info` works), SYNAPSE_PYTHON (native), SYNAPSE_IMAGE (docker),
  *              HS_POOL_BUILD_PORT (default 8030; the template's port while seeding), HS_POOL_BASE_PORT (default 8008).
  * Backends live in scripts/lib/hs-<name>.mjs and share the contract documented in hs-native.mjs.
  */
@@ -33,6 +36,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR, DEFAULT_HS_PORT, ROOT, ensureSecrets, renderInstanceConfig, renderLogConfig, waitForHomeserver } from './lib/hs-config.mjs';
+import { dockerBackend } from './lib/hs-docker.mjs';
 import { native } from './lib/hs-native.mjs';
 
 export const POOL_DIR = path.join(DATA_DIR, 'pool');
@@ -59,24 +63,42 @@ const SNAPSHOT_INPUTS = [
 /** Files the seed step produces that every run needs next to the tests; carried in the snapshot. */
 const SEED_OUTPUTS = ['seed-output.json', 'e2ee-keys.json', 'assets'];
 
-const BACKENDS = { native };
+/** Auto-selection tries these in order: native (a venv/python with synapse), then docker (`docker info` works). */
+const BACKENDS = { native, docker: dockerBackend };
 
 export const hsUrl = (port) => `http://localhost:${port}`;
 export const defaultWorkers = () => Math.max(1, Math.min(4, os.cpus().length - 1));
 const fmtMs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
-function pickBackend() {
+/** The first usable backend, or the reasons none is (one line per backend tried). */
+function findBackend(probeOpts) {
   const forced = process.env.HS_POOL_BACKEND;
   const names = forced ? [forced] : Object.keys(BACKENDS);
   const reasons = [];
   for (const name of names) {
     const backend = BACKENDS[name];
     if (!backend) throw new Error(`HS_POOL_BACKEND=${name}: unknown backend (known: ${Object.keys(BACKENDS).join(', ')})`);
-    const why = backend.available();
-    if (!why) return backend;
+    const why = backend.available(probeOpts);
+    if (!why) return { backend, reasons };
     reasons.push(`${name}: ${why}`);
   }
-  throw new Error(`No usable homeserver pool backend.\n  ${reasons.join('\n  ')}`);
+  return { backend: null, reasons };
+}
+
+/** null when the pool can run here, else why not. Quick (docker probe capped at 3 s): `probe` runs it at config load. */
+export function poolBackendProblem() {
+  const { backend, reasons } = findBackend({ timeoutMs: 3000 });
+  return backend ? null : reasons.join('; ');
+}
+
+function pickBackend() {
+  const { backend, reasons } = findBackend();
+  if (backend) return backend;
+  throw new Error(
+    `No usable homeserver pool backend.\n  ${reasons.join('\n  ')}\n` +
+      'Set up one of: a Synapse venv (python3 -m venv homeserver/.venv && homeserver/.venv/bin/pip install matrix-synapse), ' +
+      'or Docker. See homeserver/README.md.',
+  );
 }
 
 async function answering(port) {
@@ -117,7 +139,7 @@ function instanceDir(i) {
 /** Writes homeserver.yaml + log.config into `dir` for a Synapse on `port`. */
 function writeInstanceConfig(backend, dir, port) {
   const configPath = path.join(dir, 'homeserver.yaml');
-  writeFileSync(configPath, renderInstanceConfig({ port, dataRoot: backend.dataRoot(dir), hsUrl: hsUrl(port) }));
+  writeFileSync(configPath, renderInstanceConfig({ port, dataRoot: backend.dataRoot(dir), hsUrl: hsUrl(port), bindAddresses: backend.bindAddresses }));
   writeFileSync(path.join(dir, 'log.config'), renderLogConfig());
   return configPath;
 }
@@ -285,7 +307,7 @@ export async function up({ workers } = {}) {
   const previous = readState();
   if (previous) {
     console.log('[hs-pool] stopping the previous pool first');
-    await stopState(backend, previous, { quiet: true });
+    await stopState(BACKENDS[previous.backend] ?? backend, previous, { quiet: true });
   }
   for (let i = 0; i < n; i++) {
     if (await answering(BASE_PORT + i)) {
@@ -351,7 +373,7 @@ async function status() {
   }
   const backend = BACKENDS[state.backend] ?? native;
   for (const inst of state.instances) {
-    console.log(`  hs-${inst.index}  ${inst.url}  pid ${inst.pid}  ${backend.alive(inst) ? 'alive' : 'DEAD'}  ${(await answering(inst.port)) ? 'answering' : 'not answering'}`);
+    console.log(`  hs-${inst.index}  ${inst.url}  ${inst.container ? `container ${inst.container}` : `pid ${inst.pid}`}  ${backend.alive(inst) ? 'alive' : 'DEAD'}  ${(await answering(inst.port)) ? 'answering' : 'not answering'}`);
   }
 }
 
@@ -384,8 +406,27 @@ async function main() {
     case 'clean':
       await clean();
       return;
+    case 'fresh': {
+      // `npm run test:e2e:fresh`: rebuild the seed snapshot (every pool run already restores a fresh copy). Where no
+      // pool backend exists (the WSL1 fallback, which reuses :8008), reset and reseed that single server instead.
+      const { backend } = findBackend({ timeoutMs: 3000 });
+      if (backend) await buildSnapshot(backend, { force: true });
+      else {
+        run(process.execPath, ['scripts/hs.mjs', 'reset'], { label: 'hs.mjs reset' });
+        run(process.execPath, ['seed/seed.ts'], { label: 'seed' });
+      }
+      return;
+    }
+    case 'probe': {
+      const problem = poolBackendProblem();
+      if (problem) {
+        console.log(problem);
+        process.exitCode = 1;
+      }
+      return;
+    }
     default:
-      console.error('usage: node scripts/hs-pool.mjs <snapshot [--force]|up [--workers N]|down|status|clean>');
+      console.error('usage: node scripts/hs-pool.mjs <snapshot [--force]|fresh|up [--workers N]|down|status|clean|probe>');
       process.exit(2);
   }
 }

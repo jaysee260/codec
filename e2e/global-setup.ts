@@ -5,6 +5,8 @@
  *  - `E2E_REUSE_SERVERS=1` skips all of it and uses whatever is already listening (dev loops; also the escape hatch on
  *    machines without a pool backend, e.g. the WSL1 setup, together with `E2E_WORKERS=1`).
  *  - `E2E_WORKERS=1` with a homeserver already answering on 8008 reuses it, exactly like before the pool existed.
+ *  - Windows with only the WSL1 homeserver (no venv, no Docker): fixtures/pool.ts drops to 1 worker and sets
+ *    E2E_POOL_FALLBACK; the server on 8008 is used as is (never started or reset here).
  */
 import { spawnSync } from 'node:child_process';
 import { baseUrlFor, hsUrlFor, poolSize } from './fixtures/pool.ts';
@@ -31,6 +33,11 @@ export default async function globalSetup(): Promise<(() => void) | void> {
   if (process.env.E2E_REUSE_SERVERS) {
     console.log('[e2e] E2E_REUSE_SERVERS is set: not starting or stopping any homeserver.');
     return;
+  }
+  if (process.env.E2E_POOL_FALLBACK) {
+    // WSL1 fallback (see poolSize in fixtures/pool.ts): no pool backend here, use the dev homeserver as before.
+    if (await answering(hsUrlFor(0))) return;
+    throw new Error(`[e2e] no homeserver answers on ${hsUrlFor(0)}; start it with \`npm run hs:up\` (WSL1 backend) and run again.`);
   }
   if (n === 1 && (await answering(hsUrlFor(0)))) {
     console.log(`[e2e] a homeserver already answers on ${hsUrlFor(0)}; reusing it (set E2E_WORKERS>1 or stop it to run on a fresh snapshot).`);

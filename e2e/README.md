@@ -50,18 +50,36 @@ covers the prompt, the grant covers the Permissions API). The reference pipeline
 
 ## Running
 
-```bash
-npm run hs:up                 # Synapse on http://localhost:8008
-npm run seed                  # writes seed/seed-output.json (room + event ids the fixtures read)
-npm run test:e2e:fixtures     # regenerates test-image.png / test-file.txt / test-voice.wav
+One-time: a Synapse backend for the server pool, either a venv (Linux/macOS; Windows needs Docker or uses the
+WSL1 fallback below) or Docker (`docker info` works; image `SYNAPSE_IMAGE`, default `ghcr.io/element-hq/synapse:latest`):
 
-npm run test:e2e              # both projects
+```bash
+python3 -m venv homeserver/.venv && homeserver/.venv/bin/pip install 'matrix-synapse[url-preview]'
+# elsewhere: SYNAPSE_PYTHON=/path/to/venv/bin/python   force a backend: HS_POOL_BACKEND=native|docker
+```
+
+Then `npm run test:e2e`. Every run starts fresh: `globalSetup` restores one seeded Synapse per worker
+(`8008+i`, Vite on `5173+i`) from a cached snapshot (`scripts/hs-pool.mjs`; re-seeded only when the seed
+inputs or the Synapse version change, ~minutes the first time) and stops them at the end. No `hs:up` / `seed` needed.
+
+- `E2E_WORKERS=N` sizes the run (default `min(4, cores-1)`, max 8); use it, not `--workers`.
+  `E2E_WORKERS=1` is the old layout (8008 / 5173) and reuses a homeserver already answering on 8008.
+- `E2E_REUSE_SERVERS=1` starts and stops nothing: dev loops against servers you keep up
+  (`npm run hs:pool:up -- --workers N` / `hs:pool:down`, or `hs:up` + `seed` with `E2E_WORKERS=1`).
+- Windows with only the WSL1 homeserver (no venv, no Docker): the run drops to 1 worker against the server on
+  8008 (start it with `npm run hs:up`) and says so in one line. That server is not reset: `npm run test:e2e:fresh`.
+- Logs: `homeserver/data/pool/hs-<i>/synapse.log` (kept after the run), seeding in
+  `homeserver/data/pool/snapshot-build.log`; `npm run hs:pool:status` shows what is running.
+
+```bash
+npm run test:e2e              # both projects, fresh servers   <-- the intended full run
 npm run test:e2e:desktop      # Phase 1 suite only          (= playwright test --project=desktop)
 npm run test:e2e:mobile       # Phase 2 phone suites only    (= playwright test --project=mobile)
 npm run test:e2e:smoke        # the desktop demo script only
 npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
 npm run test:e2e:e2ee         # Phase 5 E2EE specs, desktop (helpers: fixtures/e2ee.ts, fixtures/e2ee-api.ts)
-npm run test:e2e:fresh        # seed:reset + both projects   <-- the intended full run
+npm run test:e2e:fresh        # rebuild the seed snapshot, then both projects (WSL1: seed:reset instead)
+npm run test:e2e:fixtures     # regenerates test-image.png / test-file.txt / test-voice.wav
 npm run test:android-build    # APK build + aapt checks (NOT a Playwright project; see below)
 
 # one criterion — always name the project, the specs do not overlap
@@ -84,8 +102,9 @@ works (the scripts resolve `~/jdk21` and `~/android-sdk` themselves). Note its o
 AC-C1-4 check rebuilds `dist/` *without* `VITE_HS_URL`, so never run a bare `npx cap sync` straight
 afterwards expecting the LAN URL — go through `npm run cap:build:android:lan`, which rebuilds first.
 
-**Do not run two suites at once.** Each invocation wipes its project's `outputDir` on start and the
-config reuses whatever dev server is on 5173, so a concurrent run deletes the first run's traces
+**Do not run two suites at once.** A second run's `globalSetup` stops the first run's server pool, each
+invocation wipes its project's `outputDir` on start, and the config reuses whatever dev servers are on
+5173+, so a concurrent run breaks the first one and deletes its traces
 mid-flight — which shows up as a teardown failure like
 `browserContext.close: ENOENT ... .playwright-artifacts-N/traces/...network` on a test that actually
 passed. (The per-project `outputDir` means `--project=desktop` and `--project=mobile` no longer
@@ -101,10 +120,13 @@ specs. For a flake pass use
 
 ## The full suite is meant to run on a fresh seed
 
+`npm run test:e2e` now always gets one (restored from the snapshot), so the guard below only matters for
+single-server runs against a live homeserver (`E2E_WORKERS=1` reusing 8008, `E2E_REUSE_SERVERS`, WSL1).
+
 This section is about the **Phase 1 (`desktop`) suite**. The Phase 2 phone suites are
 freshness-independent throughout and have no guarded criteria — see "Phase 2 additions" below.
 
-`npm run test:e2e:fresh` = `npm run seed:reset && npm run test:e2e`. **A green run of every criterion
+`npm run test:e2e:fresh` rebuilds the seed snapshot (WSL1 fallback: `seed:reset`) and runs both projects; with the server pool every run already starts from a fresh copy. **A green run of every criterion
 is only defined on a pristine seed**, because two of the seeded preconditions are consumed by use and
 cannot be put back on a live homeserver:
 
