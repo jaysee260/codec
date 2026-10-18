@@ -1,65 +1,78 @@
-# Matrix POC - a Discord-like chat client on Synapse
+# Codec
 
-Vite + React 18 + TypeScript + matrix-js-sdk + zustand. Local Synapse (Docker, or WSL1 where Docker cannot run). No E2EE, no calls.
-Phase 2 adds a phone layout, voice notes (MSC3245) and Capacitor 7 wrappers for Android and iOS.
-Phase 3 adds threads (Matrix `m.thread`, Slack/Element semantics, Discord-style panel); `npm run thread:sample` posts one to #dev through the API and `npm run verify:threads` checks the core on port 5183 (`docs/ARCHITECTURE.md` "Phase 3 deltas").
-Phase 4 adds a Slack-style GIF picker backed by [Klipy](https://docs.klipy.com/) (`VITE_GIF_API_KEY` in `.env`; without a key a built-in mock with 8 local fixture GIFs runs the whole flow); GIFs are hot-linked (`m.text` + `dev.matrixpoc.gif`), never uploaded; `npm run gif:sample` posts one to #dev and `npm run verify:gif` checks the core without a browser (`docs/ARCHITECTURE.md` "Phase 4 deltas").
+Codec is a chat app for a small group of friends running their own Matrix server. It looks and feels
+like Discord: spaces down the left, channels and DMs next to them, messages in the middle. It talks to
+a regular Matrix homeserver (Synapse), so nothing about it is locked to one server.
 
-## Quickstart (5 commands)
+The goal is private, end-to-end encrypted chat on hardware you own. Encryption is being built right
+now and isn't on this branch yet, so for the moment treat messages as readable by the server.
+
+## What works today
+
+- Spaces, channels, DMs, a member list
+- Replies, reactions, file and image uploads
+- Threads, opened in a side panel like Discord
+- Voice notes
+- A GIF picker
+- A phone layout, plus Android and iOS builds
+- Logging in with a password or through your server's SSO page
+
+No voice or video calls.
+
+## Running it on your machine
+
+You need Node and either Docker or WSL (more on that below).
 
 ```bash
-npm install                 # also installs Playwright's Chromium (postinstall)
-npm run hs:up               # start Synapse on http://localhost:8008 (Docker, or the WSL1 fallback)
-npm run seed                # create alice/bob/carol/dave, the Acme HQ + Gaming spaces, DMs, history
-npm run dev                 # http://localhost:5173  -> log in as alice / password123
-npm run test:e2e            # Playwright suite (QA)
+npm install
+npm run hs:up     # starts a local Matrix server on http://localhost:8008
+npm run seed      # adds test users, a couple of spaces and some chat history
+npm run dev       # opens the app on http://localhost:5173
 ```
 
-Other scripts: `npm run typecheck`, `npm run build`, `npm run hs:down`, `npm run hs:reset`,
-`npm run seed:reset` (wipe + reseed), `node scripts/hs.mjs logs`.
+Log in as `alice` with password `password123`. There are also `bob`, `carol` and `dave`, same password.
+`docs/SEED_DATA.md` lists what the seed creates.
 
-Seed users: `alice`, `bob`, `carol`, `dave`, all with password `password123` (see `docs/SEED_DATA.md`).
+To run the tests: `npm run test:e2e`.
 
-## On a phone (Phase 2) - full guide in `docs/MOBILE.md`
+When you're done, `npm run hs:down` stops the server. `npm run seed:reset` wipes it and starts the
+test data over.
+
+### Docker or WSL?
+
+`npm run hs:up` uses Docker if it can. On a Windows PC where virtualization is turned off and Docker
+won't start, it installs Synapse inside WSL1 instead. Either way you end up with the same server on the
+same port. `homeserver/README.md` has the details.
+
+## Settings
+
+Copy `.env.example` to `.env` if you want to change anything. Two settings matter:
+
+- `VITE_HS_URL` is the server the app connects to. You can also change it on the login screen under
+  Advanced.
+- `VITE_GIF_API_KEY` is a [Klipy](https://docs.klipy.com/) key for real GIF search. Without one, the
+  picker shows a handful of built-in GIFs so you can still try it.
+
+## Trying it on a phone
+
+Your phone and PC need to be on the same Wi-Fi.
 
 ```bash
-npm run hs:lan                      # LAN proxy 0.0.0.0:8009 -> Synapse; prints http://<PC-IP>:8009 and the app URL
-npm run dev:lan                     # Vite on 0.0.0.0:5173 -> open http://<PC-IP>:5173 on the phone, Advanced > Homeserver URL = http://<PC-IP>:8009
-npm run toolchain                   # checks JDK 21 + Android SDK (portable installs under ~/jdk21 and ~/android-sdk)
-npm run cap:build:android:lan       # Android debug APK with the LAN homeserver baked in -> android/app/build/outputs/apk/debug/app-debug.apk
-npm run voice:sample                # bob posts a voice note to #dev through the API (demo / QA fixture)
+npm run hs:lan    # lets the phone reach the server, and prints the address to use
+npm run dev:lan   # serves the app to the phone
 ```
 
-Accept the Windows Firewall prompt (Private networks) the first time node binds `0.0.0.0`. The phone browser path
-shows the layout and plays voice notes; recording needs the APK (secure context). iOS: project generated under
-`ios/`, built on a Mac (`docs/MOBILE.md` section 4). Capacitor 7 (`capacitor.config.ts`), JDK 21, Android SDK 35.
+Open the printed address in the phone's browser. Voice notes can be played this way but not recorded;
+recording needs the Android app, which `npm run cap:build:android:lan` builds. The full walkthrough,
+including iOS, is in `docs/MOBILE.md`.
 
-## Homeserver: two ways to run it
+## Finding your way around the code
 
-`npm run hs:up|hs:down|hs:reset` (`scripts/hs.mjs`) picks a backend automatically (`HS_BACKEND=docker|wsl` forces one):
+- `src/lib/` and `src/store/` hold the Matrix connection and app state
+- `src/features/` has the screens: navigation, conversation, GIFs
+- `e2e/` is the Playwright test suite
+- `homeserver/`, `seed/` and `scripts/` are for running the local server and test data
+- `docs/` has the plans and notes from each phase
 
-| Backend | When | How |
-|---|---|---|
-| **Docker** (preferred) | `docker info` works (Docker Desktop with WSL2/Hyper-V, i.e. virtualization enabled in firmware) | `homeserver/docker-compose.yml`, image `ghcr.io/element-hq/synapse:latest`, config `homeserver/homeserver.yaml` mounted at `/data/homeserver.yaml`, runtime data in `homeserver/data/` |
-| **WSL1** (fallback) | No virtualization (Docker Desktop reports `hasNoVirtualization`, WSL2 cannot start) | Synapse installed natively in a WSL1 Debian distro `matrix-hs` via `homeserver/wsl/hs.sh install`; same settings as the Docker config |
-
-Both listen on http://localhost:8008 with server name `localhost`; the client, seed and tests only ever use
-`VITE_HS_URL` / `HS_URL` (default `http://localhost:8008`). Details in `homeserver/README.md` and `homeserver/wsl/README.md`.
-
-## Where things live
-
-| Path | Owner | Purpose |
-|---|---|---|
-| `homeserver/` | Principal | `homeserver.yaml` (single Synapse config), `docker-compose.yml`, `wsl/` fallback scripts, `data/` runtime (ignored) |
-| `seed/` | Principal | `seed.ts` fixture script, `seed-output.json` (generated, ids for QA) |
-| `scripts/` | Principal | `hs.mjs` homeserver wrapper (docker or wsl backend), `lan-proxy.mjs`, `toolchain.mjs`, `cap-build-android.mjs`, `send-voice-sample.mjs`, `verify-phone-shell.mjs`, `verify-scaffold.mjs` |
-| `src/lib/` | Principal | Matrix client lifecycle, actions (incl. `sendVoiceMessage`), read helpers (incl. `getVoiceMessage`), formatting, `audio/` voice primitives, `native.ts` Capacitor glue |
-| `src/store/` | Principal | zustand stores (session, rooms, timeline, layout) + SDK event bridge + hooks |
-| `src/app/` | Principal | session gate, login (+ homeserver override), desktop/phone shell, drawers, theme tokens |
-| `capacitor.config.ts`, `android/`, `ios/` | Principal | Capacitor 7 config and generated native projects (build outputs ignored) |
-| `src/features/navigation/` | Dev A | space rail, channel sidebar, DM list, header, member panel |
-| `src/features/conversation/` | Dev B | message list, composer, reactions, replies, uploads |
-| `e2e/`, `playwright.config.ts` | QA | Playwright suite |
-| `docs/` | PM / Principal | PLAN, SEED_DATA, ACCEPTANCE, TICKETS, STATUS, ARCHITECTURE |
-
-Read `docs/ARCHITECTURE.md` before touching anything: it is the contract for the shared layer.
+Read `docs/ARCHITECTURE.md` before changing anything in `src/lib/` or `src/store/`. The rest of the app
+depends on it.
