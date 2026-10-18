@@ -5,6 +5,7 @@
  * list that should do the scrolling (room id, or thread root id inside the panel).
  */
 import { useEffect, useMemo, useState } from 'react';
+import type { MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { fetchEvent } from '@/lib/matrix/actions.ts';
 import { displayNameOf, previewText } from '@/lib/matrix/utils.ts';
@@ -18,35 +19,40 @@ interface TargetPreview {
   text: string;
 }
 
-const previewCache = new Map<string, TargetPreview>();
+/**
+ * Events fetched from the server for a quote, per id, for the session. The *event* is cached rather than its
+ * preview text (Phase 5): a fetched encrypted event decrypts asynchronously (and again after a late key or a
+ * backup restore), so the text is re-read from it on every timeline `version` bump - a cached string would
+ * stay "Decrypting..." / "Unable to decrypt" forever.
+ */
+const eventCache = new Map<string, MatrixEvent>();
 
-function toPreview(eventId: string, roomId: string): TargetPreview | undefined {
-  const event = getClientOrNull()?.getRoom(roomId)?.findEventById(eventId);
-  if (!event) return undefined;
+function preview(event: MatrixEvent): TargetPreview {
   return { sender: event.getSender() ?? '', text: previewText(event, 120) };
 }
 
 /** Author + short text of the replied-to event, from the timeline or the server. */
 function useReplyTarget(roomId: string, eventId: string): TargetPreview | undefined {
   const version = useTimelineStore((s) => s.version);
-  const [fetched, setFetched] = useState<TargetPreview | undefined>(() => previewCache.get(eventId));
-  const local = useMemo(() => toPreview(eventId, roomId), [eventId, roomId, version]);
+  const [fetched, setFetched] = useState<MatrixEvent | undefined>(() => eventCache.get(eventId));
+  const local = useMemo(() => getClientOrNull()?.getRoom(roomId)?.findEventById(eventId), [eventId, roomId, version]);
 
   useEffect(() => {
-    if (local || previewCache.has(eventId)) return;
+    if (local || eventCache.has(eventId)) return;
     let alive = true;
     void fetchEvent(roomId, eventId).then((event) => {
       if (!event) return;
-      const value: TargetPreview = { sender: event.getSender() ?? '', text: previewText(event, 120) };
-      previewCache.set(eventId, value);
-      if (alive) setFetched(value);
+      eventCache.set(eventId, event);
+      if (alive) setFetched(event);
     });
     return () => {
       alive = false;
     };
   }, [roomId, eventId, local]);
 
-  return local ?? fetched ?? previewCache.get(eventId);
+  const event = local ?? fetched ?? eventCache.get(eventId);
+  // `version` bumps when the bridge sees `MatrixEventEvent.Decrypted`, including for fetched events.
+  return useMemo(() => (event ? preview(event) : undefined), [event, version]);
 }
 
 export function ReplyQuote({ roomId, eventId, uiKey }: { roomId: string; eventId: string; uiKey: string }) {

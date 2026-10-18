@@ -40,6 +40,15 @@
  * `onPick` sends straight away - `gif-pending` ("Sending GIF...") replaces nothing and disables
  * `composer-gif` until the event is acked or fails, so there is at most one GIF in flight per
  * composer (AC-G7-3), and the caret goes back into the input afterwards (AC-G7-1).
+ *
+ * Phase 5 (DEV-B-29): in an encrypted room `composer[data-encrypted="true"]` and the placeholder gains
+ * " (encrypted)" (`Message #vault (encrypted)`, both composers). `prepareToEncrypt(roomId)` runs when the
+ * room opens and on every input focus, so the Megolm session (member devices, `/keys/query`, key shares) is
+ * ready before Enter (AC-E6-3). A send the session cannot encrypt - crypto failed to start
+ * (`useSecurityStore.cryptoError`, `EncryptionNotReadyError`) or the SDK's encryption step threw - shows
+ * "Could not encrypt the message, try again" and puts the text back into the input. Files and voice notes
+ * need nothing here: `sendFile` / `sendVoiceMessage` encrypt by themselves in encrypted rooms. No URL preview
+ * is ever requested (there is no preview code at all, AC-E6-4).
  */
 import {
   useCallback,
@@ -52,12 +61,23 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { ImagePlay, Mic, SendHorizontal, X } from 'lucide-react';
-import { canEditEvent, editText, sendFile, sendGif, sendText } from '@/lib/matrix/actions.ts';
+import { MatrixError } from 'matrix-js-sdk';
+import { canEditEvent, editText, EncryptionNotReadyError, prepareToEncrypt, sendFile, sendGif, sendText } from '@/lib/matrix/actions.ts';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { displayNameOf, getDisplayBody, isGifEvent, isPendingEvent } from '@/lib/matrix/utils.ts';
 import type { GifResult } from '@/lib/gif';
-import { sourceKey, useIsPhone, useMyUserId, useRoomSummary, useThreadStore, useTimeline, type TimelineSource } from '@/store/hooks.ts';
-import { withToast } from '@/store/toast.ts';
+import {
+  sourceKey,
+  useIsPhone,
+  useMyUserId,
+  useRoomEncrypted,
+  useRoomSummary,
+  useSecurityStore,
+  useThreadStore,
+  useTimeline,
+  type TimelineSource,
+} from '@/store/hooks.ts';
+import { showToast, withToast } from '@/store/toast.ts';
 import { useConversationUi, useEditingId, useFocusTick, useReplyTargetId } from '../hooks/useConversationUi.ts';
 import { useGifPickerFor, useGifPickerStore } from '../hooks/useGifPicker.ts';
 import { useMentions, type MentionOption } from '../hooks/useMentions.ts';
@@ -87,6 +107,19 @@ export function gifCommandQuery(draft: string): string | null {
   return match ? (match[1] ?? '').trim() : null;
 }
 
+const ENCRYPT_FAILED = 'Could not encrypt the message, try again';
+
+/**
+ * True when a failed send in an encrypted room failed at the encryption step rather than at the server: our
+ * own pre-check, or anything the SDK threw that is not an HTTP answer (`MatrixError` carries `httpStatus`).
+ */
+function isEncryptionFailure(e: unknown): boolean {
+  if (e instanceof EncryptionNotReadyError) return true;
+  if (e instanceof MatrixError && typeof e.httpStatus === 'number') return false;
+  const name = (e as { name?: string } | null)?.name ?? '';
+  return name !== 'AbortError' && name !== 'ConnectionError';
+}
+
 export interface ComposerProps {
   source: TimelineSource;
   /** Id prefix for every id this composer owns (`'thread-'` inside the panel). */
@@ -100,6 +133,7 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
   const tid: Tid = useMemo(() => makeTid(testIdPrefix), [testIdPrefix]);
 
   const summary = useRoomSummary(roomId);
+  const encrypted = useRoomEncrypted(roomId);
   const { events } = useTimeline(source);
   const myUserId = useMyUserId();
   const isPhone = useIsPhone();
@@ -157,6 +191,11 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
     };
     // Intentionally only on source change; the helpers are stable store actions.
   }, [key]);
+
+  // --- encryption: warm the Megolm session up as soon as the room is open (and again on focus) --------
+  useEffect(() => {
+    if (encrypted) prepareToEncrypt(roomId);
+  }, [roomId, encrypted]);
 
   // --- focus requests addressed to this composer (reply / edit buttons, panel open) -------------
   useEffect(() => {
@@ -263,6 +302,12 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
       }
     }
 
+    // The crypto engine never started (`getCryptoError()`): nothing can be encrypted, so keep the draft.
+    if (encrypted && useSecurityStore.getState().cryptoError) {
+      showToast(ENCRYPT_FAILED, 'error');
+      return;
+    }
+
     const extra = mentions.contentFor(body);
 
     if (editingId) {
@@ -272,7 +317,9 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
       mentions.reset();
       // No `threadRoot` here on purpose: the core derives it from the *target* event, which keeps an
       // edit of a reply inside the thread and an edit of the root in the main timeline (AC-T9-1).
-      void withToast(() => editText(roomId, target, body, extra.html), 'Could not save the edit');
+      // No draft restore for an edit: the input would hold the text without the edit banner, and Enter
+      // would then send it as a new message.
+      void sendOrRestore(() => editText(roomId, target, body, extra.html), 'Could not save the edit', null);
       return;
     }
 
@@ -282,11 +329,30 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
     clearTargets(key);
     // `replyTo` and `threadRoot` are mutually exclusive in the core; inside a thread there is no
     // reply action, so this branch is the only place either of them is set.
-    void withToast(
+    void sendOrRestore(
       () => sendText(roomId, body, threadRoot ? { ...extra, threadRoot } : { ...extra, replyTo: replyToId }),
       'Could not send the message',
+      text,
     );
     inputRef.current?.focus();
+  };
+
+  /**
+   * Run a send. Plain rooms keep the Phase 1 behaviour (error toast, the failed local echo says so). In an
+   * encrypted room an encryption failure gets its own toast and the draft comes back into the input, unless
+   * the reader has started typing something else meanwhile.
+   */
+  const sendOrRestore = async (send: () => Promise<unknown>, label: string, draft: string | null): Promise<void> => {
+    try {
+      await send();
+    } catch (e) {
+      if (encrypted && isEncryptionFailure(e)) {
+        showToast(ENCRYPT_FAILED, 'error');
+        if (draft !== null) setText((current) => (current ? current : draft));
+        return;
+      }
+      showToast(`${label}: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    }
   };
 
   const applyMention = (option: MentionOption): void => {
@@ -381,13 +447,14 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
   };
 
   const replyName = replyToId ? displayNameOf(room, findEvent(replyToId)?.getSender() ?? '') : '';
-  const placeholder = threadRoot
+  const basePlaceholder = threadRoot
     ? 'Replying in thread'
     : summary
       ? summary.isDm
         ? `Message @${summary.name}`
         : `Message #${summary.name}`
       : 'Message';
+  const placeholder = encrypted ? `${basePlaceholder} (encrypted)` : basePlaceholder;
   const canSend = text.trim().length > 0;
   const attached = !!(editingId || replyToId || uploads.length || (!recorder.barOpen && recorder.error));
   /** `composer-mic` only ever reports idle | requesting | denied (test-id registry). */
@@ -397,7 +464,7 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
     : 'Voice messages need the app or an https page (no microphone on this page)';
 
   return (
-    <div className={styles.composer} data-testid={tid('composer')}>
+    <div className={styles.composer} data-testid={tid('composer')} data-encrypted={encrypted ? 'true' : 'false'}>
       {mentions.open && (
         <MentionAutocomplete
           options={mentions.options}
@@ -514,6 +581,7 @@ export function Composer({ source, testIdPrefix }: ComposerProps) {
             }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
+            onFocus={() => prepareToEncrypt(roomId)}
             onBlur={typing.stop}
           />
           {/*

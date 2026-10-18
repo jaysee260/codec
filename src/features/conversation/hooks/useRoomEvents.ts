@@ -18,10 +18,10 @@
  *    normally (AC-T6-3) and no `ReplyQuote` is rendered for them.
  */
 import { useEffect, useMemo } from 'react';
-import type { MatrixEvent } from 'matrix-js-sdk';
+import { EventType, RelationType, type MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { useTimeline, type TimelineSource } from '@/store/hooks.ts';
-import { getReplyTargetId, isThreadReply } from '@/lib/matrix/utils.ts';
+import { getReplyTargetId, isEditEvent, isThreadReply } from '@/lib/matrix/utils.ts';
 import { isSameDay } from '@/lib/format.ts';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -79,10 +79,52 @@ function withRedactedTombstones(roomId: string, key: string, events: MatrixEvent
   for (const id of seen) {
     if (present.has(id)) continue;
     const event = room.findEventById(id);
-    if (event?.isRedacted()) (restored ??= []).push(event);
+    if (event?.isRedacted() && !isHiddenEncryptedRelation(event)) (restored ??= []).push(event);
   }
   if (!restored) return events;
   return [...events, ...restored].sort((a, b) => a.getTs() - b.getTs());
+}
+
+// ---------------------------------------------------------------------------
+// Encrypted relations: never a row of their own (Phase 5, DEV-B-27 / DEV-B-30)
+// ---------------------------------------------------------------------------
+/**
+ * `isDisplayableEvent` keeps every `m.room.encrypted` event so a message that fails to decrypt still gets a
+ * placeholder row. Two kinds of encrypted event are not messages, though, and must not become rows:
+ *
+ *  - an edit or a reaction that is still encrypted (decrypting, or undecryptable): its `m.relates_to` is in
+ *    the clear on the wire (`isRelation` reads `getWireContent()`), so it is recognised and dropped. Once it
+ *    decrypts, its clear type takes it out of the rows anyway (aggregated onto its target);
+ *  - a redacted reaction or edit (a reaction toggled off, a deleted edit): `makeRedacted` strips the
+ *    decrypted content *and* the wire relation, leaving a bare `m.room.encrypted` that would render as
+ *    "Message deleted". Ids seen as reactions / edits while they still had their relation are remembered for
+ *    the session and dropped once redacted. A relation redacted before this page loaded cannot be told apart
+ *    from a deleted message (the server prunes everything) and still shows as one: docs/BUGS.md residual.
+ */
+const relationEventIds = new Set<string>();
+
+function isRelationEvent(event: MatrixEvent): boolean {
+  return (
+    event.getType() === EventType.Reaction ||
+    isEditEvent(event) ||
+    event.isRelation(RelationType.Annotation) ||
+    event.isRelation(RelationType.Replace)
+  );
+}
+
+function rememberRelations(events: MatrixEvent[]): void {
+  for (const event of events) {
+    if (!event.isEncrypted() || event.isRedacted()) continue;
+    const id = event.getId();
+    if (id && isRelationEvent(event)) relationEventIds.add(id);
+  }
+}
+
+/** True for an encrypted edit / reaction that would otherwise render as a message row. */
+export function isHiddenEncryptedRelation(event: MatrixEvent): boolean {
+  if (!event.isEncrypted()) return false;
+  if (event.isRedacted()) return relationEventIds.has(event.getId() ?? '');
+  return event.getType() === EventType.RoomMessageEncrypted && isRelationEvent(event);
 }
 
 export type TimelineItem =
@@ -127,7 +169,7 @@ export function useRoomEvents(source: string | TimelineSource): RoomEvents {
   const roomId = typeof source === 'string' ? source : source.roomId;
   const threadRootId = typeof source === 'string' ? undefined : source.threadRootId;
   const timelineSource = useMemo<TimelineSource>(() => ({ roomId, threadRootId }), [roomId, threadRootId]);
-  const { events, hasMore, isPaginating, version, paginateBack } = useTimeline(timelineSource);
+  const { events, allEvents, hasMore, isPaginating, version, paginateBack } = useTimeline(timelineSource);
   const key = threadRootId ? `${roomId}|${threadRootId}` : roomId;
 
   // Record which replies the panel has rendered, so a later redaction can be tombstoned rather than
@@ -141,10 +183,11 @@ export function useRoomEvents(source: string | TimelineSource): RoomEvents {
   // `markRedactedThreadReply`, fed by the bridge's `RoomEvent.Redaction`, which still carries the
   // thread id), so `eventsByRoom` never offers them here; `isThreadReply` stays as the belt-and-braces
   // filter DEV-B-21 asks for.
-  const rows = useMemo(
-    () => (threadRootId ? withRedactedTombstones(roomId, key, events) : events.filter((e) => !isThreadReply(e))),
-    [events, roomId, key, threadRootId, version],
-  );
+  const rows = useMemo(() => {
+    rememberRelations(allEvents);
+    const visible = events.filter((e) => !isHiddenEncryptedRelation(e));
+    return threadRootId ? withRedactedTombstones(roomId, key, visible) : visible.filter((e) => !isThreadReply(e));
+  }, [events, allEvents, roomId, key, threadRootId, version]);
   const items = useMemo(() => buildTimelineItems(rows), [rows, version]);
   return { items, events: rows, hasMore, isPaginating, version, paginateBack };
 }
