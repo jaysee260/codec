@@ -28,7 +28,7 @@ import {
   uniqueName,
   userId,
 } from './fixtures/seed.ts';
-import { annotate, childRoomIds, ensureUnread, noteSeedDrift, revokePendingInvite } from './fixtures/state.ts';
+import { annotate, childRoomIds, ensureUnread, markRoomRead, noteSeedDrift, revokePendingInvite } from './fixtures/state.ts';
 import {
   badgeCount,
   byName,
@@ -52,7 +52,7 @@ const DAVE = userId('dave');
 let admin: ApiUser;
 let bob: ApiUser;
 
-const R = { acme: '', gaming: '', general: '', random: '', dev: '', lobby: '', dmBob: '', dmCarol: '' };
+const R = { acme: '', gaming: '', general: '', random: '', dev: '', lobby: '', vault: '', dmBob: '', dmCarol: '' };
 
 /** Rooms created by this suite, torn down in afterAll. */
 const created: { roomId: string; parentSpaceId?: string }[] = [];
@@ -64,6 +64,7 @@ test.beforeAll(async () => {
   R.random = await resolveRoom('random');
   R.dev = await resolveRoom('dev');
   R.lobby = await resolveRoom('lobby');
+  R.vault = await resolveRoom('vault');
   R.dmBob = await resolveRoom('dm-alice-bob');
   R.dmCarol = await resolveRoom('dm-alice-carol');
   admin = await asUser('alice');
@@ -376,6 +377,9 @@ test.describe('DEV-A-5 unread badges', () => {
     // Self-sufficient precondition (like AC-A5-3): bob posts fresh messages instead of trusting ensureUnread's
     // receipt-derived count, which can read 1 while the server's notification count (what the dot shows) is 0.
     // On GitHub Actions that left no Gaming dot to find.
+    // The criterion's premise is "#random is Acme's only unread". Other specs on this worker can leave alice an unread
+    // #vault (the E2EE specs' bob-B) or #dev (link previews): read them first (Phase 6 full runs 1 + 2, #vault badge 1).
+    for (const roomId of [R.general, R.dev, R.vault]) await markRoomRead(roomId).catch(() => undefined);
     await bob.send(R.random, `[qa] AC-A5-2 unread ${Date.now()}`);
     await bob.send(R.lobby, `[qa] AC-A5-2 unread ${Date.now()}`);
 

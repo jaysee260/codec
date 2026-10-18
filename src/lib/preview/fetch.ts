@@ -92,6 +92,12 @@ async function request(key: string, ts: number): Promise<LinkPreview | null> {
     preview = normalizePreview(key, raw as Record<string, unknown>);
   } catch {
     preview = null;
+  } finally {
+    // BUG-30: the SDK memoises the *promise* per (minute bucket of ts, url) forever, rejections included. Cards pass
+    // the event's origin_server_ts, so that key never changes and a transient failure would never be retried. Our
+    // LRU is the cache of record: drop the SDK's entry once it has settled.
+    const sdkCache = (client as unknown as { urlPreviewCache?: Record<string, unknown> }).urlPreviewCache;
+    if (sdkCache) delete sdkCache[`${Math.floor(ts / 60000) * 60000}_${key}`];
   }
   if (startedIn === epoch) cache.set(key, preview);
   return preview;

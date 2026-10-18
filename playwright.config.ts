@@ -23,6 +23,10 @@ import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool
  * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation-*`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
  * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` | `e2e/results/mobile` |
  *
+ * Phase 6 (QA-30..33): `link-preview.spec.ts` runs in `desktop` with no entry; `mobile-link-preview.spec.ts` is listed in
+ * both regexes like `mobile-gif`. Both files are `mode: 'parallel'` (independent tests, unique fixture URLs).
+ * `npm run test:e2e:link-preview` runs the pair.
+ *
  * Phase 5 (QA-24..28): `e2ee-core-*`, `e2ee-media`, `e2ee-security-*` and smoke step 13 need no entry either (desktop
  * only, not in `mobile`'s regex). They open a second browser context for the other device (separate IndexedDB =
  * separate crypto store), so they are slow (~10 min for the three): `npm run test:e2e:e2ee`.
@@ -84,13 +88,13 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
+      testIgnore: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview)\.spec\.ts$/,
       outputDir: './e2e/results/desktop',
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile',
-      testMatch: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif)\.spec\.ts$/,
+      testMatch: /(voice|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview)\.spec\.ts$/,
       outputDir: './e2e/results/mobile',
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },

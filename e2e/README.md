@@ -30,6 +30,8 @@ QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..
 | `e2ee-media.spec.ts` | desktop | Phase 5 AC-E3: encrypted image / file / voice (decrypted shape, ciphertext on the media repo, hash check, lazy load) |
 | `e2ee-security-chain.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 on throwaway accounts: the serial setup -> unlock -> SAS (match / mismatch / decline) -> backup chain, AC-E5-4 passphrase unlock |
 | `e2ee-security-regressions.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 regressions (banner, dialog close testids, unlock errorKind, verification requests, SAS via the store) |
+| `link-preview.spec.ts` | desktop | Phase 6 AC-L1 .. AC-L9 (link preview cards): real Synapse round trip against `public/preview-fixtures/`, `/preview_url` stubs for errors / slowness / embeds, the no-third-party and encrypted-room request guards (helpers: `fixtures/link-preview.ts`) |
+| `mobile-link-preview.spec.ts` | mobile | Phase 6 AC-L4-5 (full-width card, 44 px targets, no horizontal scroll), AC-L3-1/2 (#vault Show preview), AC-L5-1 (hide + reload) |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
@@ -81,6 +83,7 @@ npm run test:e2e:desktop      # Phase 1 suite only          (= playwright test -
 npm run test:e2e:mobile       # Phase 2 phone suites only    (= playwright test --project=mobile)
 npm run test:e2e:smoke        # the desktop demo script only
 npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
+npm run test:e2e:link-preview # Phase 6 link preview specs, both projects (helpers: fixtures/link-preview.ts)
 npm run test:e2e:e2ee         # Phase 5 E2EE specs, desktop (helpers: fixtures/e2ee.ts, fixtures/e2ee-api.ts)
 npm run test:e2e:fresh        # rebuild the seed snapshot, then both projects (WSL1: seed:reset instead)
 npm run test:e2e:fixtures     # regenerates test-image.png / test-file.txt / test-voice.wav
