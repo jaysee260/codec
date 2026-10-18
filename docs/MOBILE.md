@@ -121,7 +121,7 @@ follow the PC to another network.
 ### Point the app at the PC
 
 1. PC: `npm run hs:lan` (keep it running; Ctrl+C stops it). Synapse itself is untouched.
-2. Phone: open **Matrix POC**. If the APK was built with `:lan` on this network the homeserver is already
+2. Phone: open **Codec**. If the APK was built with `:lan` on this network the homeserver is already
    right; otherwise Advanced > Homeserver URL = `http://<PC-LAN-IP>:8009`. Log in.
 3. USB alternative: `adb reverse tcp:8008 tcp:8008` and set the Homeserver URL to `http://localhost:8008`
    (no proxy, no firewall, no Wi-Fi needed; survives until the cable is unplugged).
@@ -161,7 +161,7 @@ On the Mac (mirrors docs/PHASE2_PLAN.md "Mac handoff"):
 |---|---|
 | App shows "Cannot reach the homeserver at http://..." | Proxy not running (`npm run hs:lan`), wrong IP (use the Wi-Fi adapter's), firewall (section 0), phone on another network. Test from the phone browser: `http://<ip>:8009/_matrix/client/versions` must return JSON. |
 | `net::ERR_CLEARTEXT_NOT_PERMITTED` in the WebView | `android:usesCleartextTraffic="true"` missing from `android/app/src/main/AndroidManifest.xml` or `server.cleartext` / `androidScheme: 'http'` missing from `capacitor.config.ts`; re-run `cap sync`. |
-| Mic button does nothing / `NotAllowedError` | `RECORD_AUDIO` + `MODIFY_AUDIO_SETTINGS` must be in the manifest (they are); Capacitor's `BridgeWebChromeClient.onPermissionRequest` then shows the runtime prompt. Denied once: Android Settings > Apps > Matrix POC > Permissions > Microphone. In a phone *browser* at `http://<ip>:5173` recording is impossible (insecure context, section 1). |
+| Mic button does nothing / `NotAllowedError` | `RECORD_AUDIO` + `MODIFY_AUDIO_SETTINGS` must be in the manifest (they are); Capacitor's `BridgeWebChromeClient.onPermissionRequest` then shows the runtime prompt. Denied once: Android Settings > Apps > Codec > Permissions > Microphone. In a phone *browser* at `http://<ip>:5173` recording is impossible (insecure context, section 1). |
 | Keyboard covers the composer | Android resizes the WebView by default; check the viewport meta still has `interactive-widget=resizes-content` and that nothing sets `windowSoftInputMode` to `adjustPan`. iOS: `Keyboard.resize` is `native` in `capacitor.config.ts`. `--keyboard-height` / `--vvh` on `:root` and `useViewport().keyboardOpen` are available to feature code. |
 | `invalid source release: 21` / `Unsupported class file major version` | Gradle is running on Java 8 or 17. `npm run toolchain` must show Java 21; run `node scripts/toolchain.mjs --setx`; the scripts set `JAVA_HOME` themselves. |
 | `SDK location not found` | `ANDROID_HOME` unset and `android/local.properties` missing; the build script writes it, or `setx ANDROID_HOME`. |

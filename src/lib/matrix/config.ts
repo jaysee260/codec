@@ -67,7 +67,7 @@ export const SESSION_STORAGE_KEY = 'matrix-poc.session';
 export const NAV_STORAGE_KEY = 'nav.selection';
 
 /** Device name shown in the homeserver's device list. */
-export const DEVICE_DISPLAY_NAME = 'Matrix POC (web)';
+export const DEVICE_DISPLAY_NAME = 'Codec (web)';
 
 /** Server name part of a user id: "@alice:localhost" -> "localhost". */
 export function serverNameOf(userId: string): string {

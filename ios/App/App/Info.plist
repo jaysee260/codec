@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Matrix POC</string>
+        <string>Codec</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,7 +23,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Matrix POC uses the microphone to record voice messages.</string>
+	<string>Codec uses the microphone to record voice messages.</string>
 	<!-- POC only: the homeserver is reached over plain http on the LAN (scripts/lan-proxy.mjs). App Transport
 	     Security would block it; a real deployment uses TLS and drops this exception. -->
 	<key>NSAppTransportSecurity</key>

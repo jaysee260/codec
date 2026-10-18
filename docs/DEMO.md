@@ -1,4 +1,4 @@
-# Matrix POC - Demo Handoff
+# Codec - Demo Handoff
 
 A Discord-style chat client on an open standard (Matrix), running entirely on this machine. Everything below takes about five minutes to set up and two minutes to walk through.
 
