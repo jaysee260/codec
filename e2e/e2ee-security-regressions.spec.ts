@@ -13,6 +13,7 @@
  * two halves can run on different Playwright workers; tests moved verbatim. Other half: `e2ee-security-chain.spec.ts`.
  */
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { annotate } from './fixtures/state.ts';
 import { createForeignKeyBackup, createRoom, freshUser, hasCrossSigning, keyBackup, masterKeyId, type Credentials } from './fixtures/e2ee-api.ts';
 import {
   banner,
@@ -230,7 +231,9 @@ test.describe('regressions', () => {
     expect(await cryptoApiCall<string | null>(page, 'getActiveSessionBackupVersion'), 'this device is not backing up to it').toBeNull();
     // What the SDK reports before the setup (its server-backup check ran at startup, before this backup existed).
     const seen = await page.evaluate(async () => ((await (window as any).__matrixPoc.security.getCryptoApi().getKeyBackupInfo()) as { version?: string } | null)?.version ?? null);
-    annotate('B1b', `server backup v${version}; getKeyBackupInfo() on this device before setup: ${seen === null ? 'null' : `v${seen}`}`);
+    const seenNote = `server backup v${version}; getKeyBackupInfo() on this device before setup: ${seen === null ? 'null' : `v${seen}`}`;
+    annotate('B1b', seenNote);
+    console.log(`[B1b] ${seenNote}`);
 
     // Non-reset setup through the UI (forced open: the banner says unlock for this state).
     await page.evaluate(async () => {

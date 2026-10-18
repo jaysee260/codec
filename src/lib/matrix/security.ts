@@ -9,7 +9,7 @@
  * (4S) key that unlocks the cross-signing private keys and the key backup decryption key; *key backup* = the
  * server-side, recovery-key-encrypted copy of every Megolm session, which is how a new device reads old messages.
  */
-import { MatrixError, type MatrixClient, type MatrixEvent } from 'matrix-js-sdk';
+import { ClientPrefix, MatrixError, Method, type MatrixClient, type MatrixEvent } from 'matrix-js-sdk';
 import type { IAuthData, UIAFlow, UIAuthCallback } from 'matrix-js-sdk';
 import {
   CryptoEvent,
@@ -18,6 +18,7 @@ import {
   type EventEncryptionInfo,
   type GeneratedSecretStorageKey,
   type ImportRoomKeyProgressData,
+  type KeyBackupInfo,
   type KeyBackupRestoreResult,
 } from 'matrix-js-sdk/lib/crypto-api/index.js';
 import type { VerificationRequest, Verifier } from 'matrix-js-sdk/lib/crypto-api/verification.js';
@@ -40,6 +41,22 @@ function requireCrypto(): { client: MatrixClient; crypto: CryptoApi } {
   const crypto = client.getCrypto();
   if (!crypto) throw new Error('Encryption is not available in this session');
   return { client, crypto };
+}
+
+/**
+ * The server's current key backup, asked of the server now. `getKeyBackupInfo()` answers from the SDK's first check
+ * on this page, so a backup another client made since then reads as "none"; it also turns a failed check into
+ * `null`. Here `null` means the server said there is no backup, and a failed request throws.
+ */
+async function fetchServerBackupInfo(client: MatrixClient): Promise<KeyBackupInfo | null> {
+  try {
+    return await client.http.authedRequest<KeyBackupInfo>(Method.Get, '/room_keys/version', undefined, undefined, {
+      prefix: ClientPrefix.V3,
+    });
+  } catch (e) {
+    if (e instanceof MatrixError && e.errcode === 'M_NOT_FOUND') return null;
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +515,8 @@ export async function syncSecretsToDefaultKey(): Promise<HealedSecret[]> {
   if (!defaultKeyId || !hasCachedSecretStorageKey(defaultKeyId)) return [];
   const device = await crypto.getDeviceVerificationStatus(client.getSafeUserId(), client.getDeviceId() ?? '');
   if (!device?.crossSigningVerified) return [];
+  // Refresh the SDK's cached backup info first: a backup made by another client since the page loaded counts too.
+  await crypto.checkKeyBackupAndEnable().catch(() => null);
   const [cs, backupInfo, backupKey, backupStored] = await Promise.all([
     crypto.getCrossSigningStatus(),
     crypto.getKeyBackupInfo().catch(() => null),
@@ -520,11 +539,11 @@ export async function syncSecretsToDefaultKey(): Promise<HealedSecret[]> {
  * Can this account's key backup be opened with the *current* recovery key? True when there is no backup, or its
  * decryption key (`m.megolm_backup.v1`) is stored in secret storage under the default key; false when it only sits
  * under other (old) 4S keys or is not in secret storage at all. Reads cached account data (no request after the
- * first sync).
+ * first sync) and the server's current backup.
  */
 export async function isBackupSecretOnDefaultKey(): Promise<boolean> {
   const { client, crypto } = requireCrypto();
-  const info = await crypto.getKeyBackupInfo().catch(() => null);
+  const info = await fetchServerBackupInfo(client).catch(() => crypto.getKeyBackupInfo().catch(() => null));
   if (!info?.version) return true;
   const [defaultKeyId, stored] = await Promise.all([
     client.secretStorage.getDefaultKeyId().catch(() => null),
@@ -550,7 +569,7 @@ export interface SetupRecoveryOptions {
  * Returns the recovery key to show the user **once** (`encodedPrivateKey`, `EsTc ...` form).
  */
 export async function setupRecovery(opts: SetupRecoveryOptions = {}): Promise<string> {
-  const { crypto } = requireCrypto();
+  const { client, crypto } = requireCrypto();
   if (!opts.reset) {
     // Never a new identity or a replaced backup without `reset` (B1): an existing identity whose keys this device
     // lacks is unlocked or verified, not set up.
@@ -559,7 +578,11 @@ export async function setupRecovery(opts: SetupRecoveryOptions = {}): Promise<st
   }
   await crypto.bootstrapCrossSigning({ setupNewCrossSigning: !!opts.reset, authUploadDeviceSigningKeys: makeUiaCallback(opts.uia) });
   let generated: GeneratedSecretStorageKey | undefined;
-  const serverBackup = await crypto.getKeyBackupInfo().catch(() => null);
+  // Asked of the server now, never the SDK's cache: a backup another client made since this page loaded must not
+  // read as "none" and be deleted below. A failed request throws rather than counting as "no backup".
+  const serverBackup = opts.reset ? null : await fetchServerBackupInfo(client);
+  // Also refresh the SDK's own copy, which bootstrapSecretStorage reads when it saves the backup key.
+  await crypto.checkKeyBackupAndEnable().catch(() => null);
   await crypto.bootstrapSecretStorage({
     setupNewSecretStorage: !!opts.reset,
     // `setupNewKeyBackup` goes through `resetKeyBackup`, which deletes every server backup version: only on reset,
