@@ -313,9 +313,15 @@ test.describe('demo script (QA-3 smoke)', () => {
     const src = await image.getAttribute('src');
     expect(src, 'thumbnail must come from the homeserver media API').toContain('/_matrix/');
 
-    const box = await image.boundingBox();
-    expect(box, 'the image must have a rendered box').toBeTruthy();
-    expect(box!.width, 'thumbnail wider than the 400 px budget').toBeLessThanOrEqual(400);
+    // Polled: the bubble can re-render right after it first shows (local echo -> sent), and a read in between
+    // finds no box (BUG-22).
+    let width = Number.NaN;
+    await expect
+      .poll(async () => (width = (await image.boundingBox())?.width ?? Number.NaN), {
+        message: 'the image must have a rendered box',
+      })
+      .toBeGreaterThan(0);
+    expect(width, 'thumbnail wider than the 400 px budget').toBeLessThanOrEqual(400);
 
     await stepShot(page, 7, 'image-uploaded');
   });

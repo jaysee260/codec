@@ -372,11 +372,13 @@ test.describe('GIF picker — mock provider (QA-19)', () => {
     await expect(img).toHaveAttribute('src', mockGifUrl(target.id, ORIGIN));
     await expect(img).toHaveAttribute('alt', target.title);
     await expect(messageGifBadge(gifRow)).toHaveText('GIF');
-    // The image really decoded (a broken <img> has naturalWidth 0).
-    expect(
-      await img.evaluate((el) => (el as HTMLImageElement).naturalWidth),
-      'the GIF must actually load from the dev server',
-    ).toBeGreaterThan(0);
+    // The image really decoded (a broken <img> has naturalWidth 0). Polled: right after mount the decode may not
+    // have finished yet, which a busy dev server makes visible (BUG-22).
+    await expect
+      .poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
+        message: 'the GIF must actually load from the dev server',
+      })
+      .toBeGreaterThan(0);
     // AC-G8-1: the raw body is not rendered as text beside the image, and `message-body` is not a
     // link (the criterion allows the element to exist — it must just not show the url).
     await expect(gifRow.locator('[data-testid="message-body"] a')).toHaveCount(0);
