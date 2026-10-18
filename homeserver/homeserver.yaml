@@ -33,7 +33,7 @@ signing_key_path: "/data/localhost.signing.key"
 trusted_key_servers:
   - server_name: "matrix.org"
 
-${MARKER}
+# --- matrix-poc overrides ---
 # Appended by scripts/hs.mjs when the config is generated. Everything below is POC-only:
 # open registration, no rate limits, presence on, unauthenticated media (the e2e fixtures and plain-http LAN dev
 # download via /_matrix/media/v3; the web client itself also works with authenticated media on).
