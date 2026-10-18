@@ -4,6 +4,8 @@ import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
   plugins: [react()],
+  // Per-server dep cache for parallel e2e (playwright.config.ts sets it per worker); dev keeps the default.
+  cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -23,6 +25,8 @@ export default defineConfig({
     // dep pre-bundling would inline the module into .vite/deps and break that URL. Excluded, Vite serves the
     // package's own ESM entry and the .wasm from node_modules in dev; Rollup emits it as an asset in the build.
     exclude: ['@matrix-org/matrix-sdk-crypto-wasm'],
+    // Phase 7: pre-bundle the call stack up front so opening a call never triggers a mid-session re-optimize.
+    include: ['livekit-client', 'matrix-js-sdk/lib/matrixrtc/index.js'],
   },
   build: {
     sourcemap: true,
