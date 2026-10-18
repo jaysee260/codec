@@ -91,7 +91,8 @@ Extends docs/ACCEPTANCE.md and the Phase 2-6 acceptance docs (conventions, regis
 | ID | P | Given / When / Then |
 |---|---|---|
 | AC-R6-1 | P0 | Given a thread in `#dev` with root R (bob, API) and alice's reply T1, when bob reads T1 with a **threaded** receipt (`receipt(roomId, T1, R)`), then inside `thread-panel` the row `message-{T1}` shows bob's `receipt-avatars`, and the main-timeline rows show **no** avatar for that threaded receipt (main rows use main receipts only). |
-| AC-R6-2 | P0 | Given bob reads a main-timeline message M (API, no `thread_id`), then no row inside `thread-panel` shows bob's avatar for that receipt. |
+| AC-R6-2 | P0 | Given bob reads a main-timeline message M with a receipt carrying `thread_id: "main"` (API), then no row inside `thread-panel` moves or gains bob's avatar for that receipt: a receipt with `thread_id` 'main' never moves a thread avatar. |
+| AC-R6-2b | P0 | Given bob posts an **unthreaded** receipt (no `thread_id`) on main message M sent **after** thread reply T1, then per the Matrix spec it counts for threads too: inside `thread-panel` bob's avatar sits on the newest reply older than M (T1), consistent with `getSeenBy` / `hasUserReadEvent` (SDK v43 `Thread.getEventReadUpTo` falls back to the newer unthreaded receipt, compared by `ts`; Element behaves the same). Not a bug (Advisor consult 3). |
 | AC-R6-3 | P0 | Given alice's reply T2 is her newest message in the thread and nobody read it, then `message-{T2}` inside `thread-panel` carries `receipt-status[data-status="sent"]`; her newest **main**-timeline message carries its own sent check independently (one per timeline). |
 | AC-R6-4 | P1 | Given a threaded receipt on a reaction to T1 (hidden in the thread), then bob's avatar attaches to T1 (nearest earlier rendered thread row). |
 

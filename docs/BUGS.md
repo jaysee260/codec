@@ -456,6 +456,56 @@ Two Phase 5 / Phase 1 tests changed with Phase 6 (full-suite run 1, both test-si
   `/read_markers` before bob posts, `markRoomRead` in `fixtures/state.ts`), and `link-preview.spec.ts` marks #dev read
   for alice after every test.
 
+## Read receipts (sent / seen by)
+
+QA-R1..R3 against `e2e/receipts.spec.ts` (desktop) and `e2e/mobile-receipts.spec.ts` (phone), helpers in
+`e2e/fixtures/receipts.ts`. Other users read through the API (`readAs` = raw `POST /receipt/m.read`, `readPrivateAs` =
+`m.read.private`, threaded with the root id); bob's browser context only where his own client is the subject (AC-R2-1,
+AC-R7-2/3). 15 s polls, no `waitForTimeout`, a fresh message per test in #dev / #vault. Every test asserts the core
+through `window.__matrixPoc.receipts` first, then the UI by testid.
+
+```
+npm run test:e2e:receipts                                         # both specs, both projects
+npx playwright test e2e/receipts.spec.ts --project=desktop -g "AC-R7-2"
+npx playwright test e2e/mobile-receipts.spec.ts --project=mobile -g "AC-R5-1"
+```
+
+**Result (run 3, both projects, 2 workers): 35 passed, 0 failed, 0 skipped** (`receipts.spec.ts` 31/31,
+`mobile-receipts.spec.ts` 4/4). No product defect found; no S1 or S2.
+
+**Severity rule (read receipts).** `S1` on sight: a public `m.read` sent while "Send read receipts" is OFF, or a viewer
+shown as having read something they did not. `S2`: avatars on the wrong row, status stuck at `sending`, the list jumps
+when avatars / the check appear. `S3`: cosmetic.
+
+| ID | Sev | Criterion | Repro | Owner | Status |
+|---|---|---|---|---|---|
+| - | - | - | none found | - | - |
+
+Rulings / test-side notes (no product defect):
+- **AC-R6-2 (Advisor ruling, 2026-10-18).** An *unthreaded* `m.read` (no `thread_id`) on a main message newer than a
+  thread reply T1 puts the reader's avatar on T1 in the thread panel. That is the Matrix spec (an unthreaded receipt
+  reads everything before it, threads included) and matches `hasUserReadEvent` / Element: SDK v43
+  `Thread.getEventReadUpTo` falls back to the newer unthreaded receipt (by ts). The spec asserts the AC strictly with
+  `thread_id: "main"` (what Codec and Element send), and AC-R6-2b asserts that the unthreaded case agrees with
+  `getSeenBy`. PM asked to reword AC-R6-2.
+- AC-R1-5 fails the send with 403 `M_FORBIDDEN`: on 5xx the SDK scheduler retries with backoff (~30 s) before
+  `NOT_SENT`. The Phase 1 UI has no retry control, so "retry still works" is annotated, not asserted.
+- AC-R5-3 asks for 44 px **tall** targets: `receipt-avatars` is 44 px tall and 34 px wide (one avatar), as specified.
+- **PR-selected set** (`node scripts/select-e2e.mjs origin/master`, 18 specs, both projects, 2 workers): 266 passed,
+  2 failed, 11 skipped (the usual fresh-seed / manual skips). Neither failure is caused by read receipts:
+  - `link-preview.spec.ts` AC-L7-4 (scrolled up, a card loading above the viewport): the row being read moves **21 px**,
+    deterministically (3/3 alone). It fails the same way on the wave-A commit `d6c56d3` (no receipt UI) and on
+    **master `f45c086`** (2/2 each, run from a throwaway git worktree), so it predates this branch. A probe of row heights
+    shows only the card row changes (102 -> 416 px), with no receipt strip involved, so the error is in the list's
+    reading-pin compensation. Owner: Dev B (`MessageList` scroll hold), new ticket; it was green in the Phase 6 run 3.
+    It is in this PR's CI set, so CI will be red on it until fixed or waived.
+  - `threads.spec.ts` AC-T6-4: the 40-reply root row in #general did not render within 20 s under the 2-worker load;
+    3/3 green in isolation. Load flake, not a defect.
+- Environment: this container's `/home/claude/pwb` had no ffmpeg, so `video: 'retain-on-failure'` failed every test
+  at `newPage` in 0.1 s. Fixed outside the repo with a symlink to `/opt/pw-browsers/ffmpeg-1011`.
+- Fixture defect fixed during the run: `sendStatusByText` called `room.getPendingEvents()`, which throws under
+  `pendingEventOrdering: chronological`. Local echoes are in the live timeline.
+
 ## Not bugs — criteria that cannot be judged on a dirty homeserver
 
 These are skipped with an actionable reason by `e2e/fixtures/fresh.ts`, not failed. They need
