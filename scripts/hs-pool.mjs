@@ -1,0 +1,398 @@
+#!/usr/bin/env node
+/**
+ * Homeserver pool for parallel e2e runs (issue #2): N Synapse instances, every one a byte copy of ONE seeded
+ * snapshot, so room ids / event ids in seed/seed-output.json and the keys in seed/e2ee-keys.json are valid on all of
+ * them unchanged. Playwright's globalSetup (e2e/global-setup.ts) calls `up` / `down`; the commands also work by hand.
+ *
+ *   node scripts/hs-pool.mjs snapshot [--force]   build (or refresh) the seeded snapshot: start a template Synapse,
+ *                                                 run seed/seed.ts + scripts/send-encrypted-sample.mjs, stop, keep the
+ *                                                 data dir. Cached under homeserver/data/pool/snapshot, keyed by a hash of
+ *                                                 the seed inputs + Synapse version; rebuilt only when that changes.
+ *   node scripts/hs-pool.mjs up [--workers N]     restore N fresh copies and start them on 8008..8008+N-1 (default N:
+ *                                                 E2E_WORKERS or the e2e default); copies the snapshot's seed files back
+ *                                                 into seed/. Builds the snapshot first when it is missing or stale.
+ *   node scripts/hs-pool.mjs down                 stop every instance the last `up` started (data dirs + logs kept)
+ *   node scripts/hs-pool.mjs status               what is running / answering
+ *   node scripts/hs-pool.mjs clean                down + delete the pool dirs and the snapshot
+ *
+ * Layout (all under homeserver/data/pool/, git-ignored):
+ *   snapshot/data/        homeserver.db, media_store, localhost.signing.key, secrets/   (the seeded template)
+ *   snapshot/seed/        seed-output.json, e2ee-keys.json, assets/                     (restored into seed/ by `up`)
+ *   snapshot/meta.json    { hash, backend, version, builtAt, buildMs }
+ *   hs-<i>/               instance i: a copy of snapshot/data + homeserver.yaml, log.config, synapse.log
+ *   state.json            instances started by the last `up` (pids, ports)
+ *
+ * Environment: E2E_WORKERS, HS_POOL_BACKEND=native|docker (default: native when its venv works), SYNAPSE_PYTHON,
+ *              HS_POOL_BUILD_PORT (default 8030; the template's port while seeding), HS_POOL_BASE_PORT (default 8008).
+ * Backends live in scripts/lib/hs-<name>.mjs and share the contract documented in hs-native.mjs.
+ */
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DATA_DIR, DEFAULT_HS_PORT, ROOT, ensureSecrets, renderInstanceConfig, renderLogConfig, waitForHomeserver } from './lib/hs-config.mjs';
+import { native } from './lib/hs-native.mjs';
+
+export const POOL_DIR = path.join(DATA_DIR, 'pool');
+const SNAPSHOT_DIR = path.join(POOL_DIR, 'snapshot');
+const TEMPLATE_DIR = path.join(POOL_DIR, 'template');
+const STATE_FILE = path.join(POOL_DIR, 'state.json');
+const SEED_DIR = path.join(ROOT, 'seed');
+const BASE_PORT = Number(process.env.HS_POOL_BASE_PORT ?? DEFAULT_HS_PORT);
+const BUILD_PORT = Number(process.env.HS_POOL_BUILD_PORT ?? 8030);
+/** Bump when the snapshot layout or the build steps change, so old caches are rebuilt. */
+const POOL_FORMAT = 1;
+
+/** Everything whose change must invalidate the snapshot (seed/assets/*.png are derived from seed.ts, not inputs). */
+const SNAPSHOT_INPUTS = [
+  'seed/seed.ts',
+  'homeserver/homeserver.yaml',
+  'homeserver/localhost.log.config',
+  'scripts/send-encrypted-sample.mjs',
+  'scripts/lib/e2ee-api.mjs',
+  'scripts/lib/gif-api.mjs',
+  'scripts/lib/hs-config.mjs',
+  'e2e/fixtures/test-image.png',
+];
+/** Files the seed step produces that every run needs next to the tests; carried in the snapshot. */
+const SEED_OUTPUTS = ['seed-output.json', 'e2ee-keys.json', 'assets'];
+
+const BACKENDS = { native };
+
+export const hsUrl = (port) => `http://localhost:${port}`;
+export const defaultWorkers = () => Math.max(1, Math.min(4, os.cpus().length - 1));
+const fmtMs = (ms) => `${(ms / 1000).toFixed(1)}s`;
+
+function pickBackend() {
+  const forced = process.env.HS_POOL_BACKEND;
+  const names = forced ? [forced] : Object.keys(BACKENDS);
+  const reasons = [];
+  for (const name of names) {
+    const backend = BACKENDS[name];
+    if (!backend) throw new Error(`HS_POOL_BACKEND=${name}: unknown backend (known: ${Object.keys(BACKENDS).join(', ')})`);
+    const why = backend.available();
+    if (!why) return backend;
+    reasons.push(`${name}: ${why}`);
+  }
+  throw new Error(`No usable homeserver pool backend.\n  ${reasons.join('\n  ')}`);
+}
+
+async function answering(port) {
+  try {
+    const res = await fetch(`${hsUrl(port)}/_matrix/client/versions`, { signal: AbortSignal.timeout(2000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function tail(file, lines = 30) {
+  try {
+    return readFileSync(file, 'utf8').trimEnd().split('\n').slice(-lines).join('\n');
+  } catch {
+    return '(no log)';
+  }
+}
+
+function run(cmd, args, { env = {}, logFile, label }) {
+  const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', env: { ...process.env, ...env }, maxBuffer: 64 * 1024 * 1024 });
+  if (logFile) writeFileSync(logFile, `$ ${cmd} ${args.join(' ')}\n${r.stdout ?? ''}\n${r.stderr ?? ''}`, { flag: 'a' });
+  if (r.error) throw r.error;
+  if (r.status !== 0) {
+    throw new Error(`${label ?? cmd} failed (exit ${r.status}):\n${(r.stderr || r.stdout || '').trimEnd().split('\n').slice(-25).join('\n')}`);
+  }
+  return r.stdout;
+}
+
+// ---------------------------------------------------------------------------
+// Instances
+// ---------------------------------------------------------------------------
+
+function instanceDir(i) {
+  return path.join(POOL_DIR, `hs-${i}`);
+}
+
+/** Writes homeserver.yaml + log.config into `dir` for a Synapse on `port`. */
+function writeInstanceConfig(backend, dir, port) {
+  const configPath = path.join(dir, 'homeserver.yaml');
+  writeFileSync(configPath, renderInstanceConfig({ port, dataRoot: backend.dataRoot(dir), hsUrl: hsUrl(port) }));
+  writeFileSync(path.join(dir, 'log.config'), renderLogConfig());
+  return configPath;
+}
+
+async function startInstance(backend, { index, dir, port }) {
+  const configPath = writeInstanceConfig(backend, dir, port);
+  const logPath = path.join(dir, 'synapse.log');
+  const handle = backend.start({ dir, port, configPath, logPath });
+  const inst = { index, port, url: hsUrl(port), dir, logPath, ...handle };
+  await waitForHomeserver(inst.url, 120_000, {
+    interval: 250,
+    abort: () => (backend.alive(inst) ? null : `exit; last log lines:\n${tail(logPath)}`),
+    onTimeout: () => console.error(`[hs-pool] ${inst.url} did not come up; last log lines:\n${tail(logPath)}`),
+  });
+  return inst;
+}
+
+function readState() {
+  try {
+    return JSON.parse(readFileSync(STATE_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function stopState(backend, state, { quiet = false } = {}) {
+  if (!state) return 0;
+  let stopped = 0;
+  for (const inst of state.instances) {
+    if (await backend.stop(inst)) stopped++;
+  }
+  rmSync(STATE_FILE, { force: true });
+  if (!quiet) console.log(`[hs-pool] stopped ${stopped}/${state.instances.length} instance(s)`);
+  return stopped;
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot
+// ---------------------------------------------------------------------------
+
+function snapshotHash(backend) {
+  const h = createHash('sha256');
+  h.update(`format:${POOL_FORMAT}\n`);
+  h.update(`backend:${backend.name} ${backend.version()}\n`);
+  for (const rel of SNAPSHOT_INPUTS) {
+    const file = path.join(ROOT, rel);
+    h.update(`${rel}\n`);
+    if (existsSync(file)) h.update(readFileSync(file));
+  }
+  return h.digest('hex').slice(0, 16);
+}
+
+function readMeta() {
+  try {
+    return JSON.parse(readFileSync(path.join(SNAPSHOT_DIR, 'meta.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export function snapshotIsFresh(backend) {
+  const meta = readMeta();
+  return !!meta && meta.hash === snapshotHash(backend) && existsSync(path.join(SNAPSHOT_DIR, 'data', 'homeserver.db'));
+}
+
+/** Best effort: fold a leftover WAL into the main db so the copy is self-contained. */
+function checkpointSqlite(dbPath) {
+  if (!existsSync(`${dbPath}-wal`)) return;
+  spawnSync(process.execPath, ['-e', `const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync(process.argv[1]);d.exec('PRAGMA wal_checkpoint(TRUNCATE)');d.close();`, dbPath], { stdio: 'ignore' });
+}
+
+export async function buildSnapshot(backend, { force = false } = {}) {
+  const hash = snapshotHash(backend);
+  if (!force && snapshotIsFresh(backend)) {
+    console.log(`[hs-pool] snapshot ${hash} is up to date (${SNAPSHOT_DIR})`);
+    return readMeta();
+  }
+  const t0 = Date.now();
+  console.log(`[hs-pool] building snapshot ${hash} with ${backend.version()} on port ${BUILD_PORT} ...`);
+  if (await answering(BUILD_PORT)) {
+    throw new Error(`port ${BUILD_PORT} is already serving a homeserver; stop it or set HS_POOL_BUILD_PORT.`);
+  }
+  rmSync(TEMPLATE_DIR, { recursive: true, force: true });
+  mkdirSync(TEMPLATE_DIR, { recursive: true });
+  ensureSecrets(TEMPLATE_DIR, { quiet: true });
+  const buildLog = path.join(POOL_DIR, 'snapshot-build.log');
+  rmSync(buildLog, { force: true });
+
+  // seed.ts always writes seed/seed-output.json and merges into a stale one; start from a clean slate.
+  rmSync(path.join(SEED_DIR, 'seed-output.json'), { force: true });
+
+  const inst = await startInstance(backend, { index: 'template', dir: TEMPLATE_DIR, port: BUILD_PORT });
+  console.log(`[hs-pool] template Synapse up on ${inst.url} (${fmtMs(Date.now() - t0)})`);
+  try {
+    const env = { HS_URL: inst.url };
+    const t1 = Date.now();
+    run(process.execPath, ['seed/seed.ts'], { env, logFile: buildLog, label: 'seed/seed.ts' });
+    console.log(`[hs-pool] seed/seed.ts done (${fmtMs(Date.now() - t1)})`);
+    const t2 = Date.now();
+    const keysFile = path.join(TEMPLATE_DIR, 'e2ee-keys.json');
+    run(process.execPath, ['scripts/send-encrypted-sample.mjs', '--keys', keysFile], { env, logFile: buildLog, label: 'scripts/send-encrypted-sample.mjs' });
+    console.log(`[hs-pool] send-encrypted-sample.mjs done (${fmtMs(Date.now() - t2)})`);
+    if (!existsSync(path.join(SEED_DIR, 'seed-output.json'))) throw new Error('seed/seed.ts did not write seed/seed-output.json');
+  } catch (e) {
+    await backend.stop(inst);
+    throw new Error(`${e.message}\n(full output: ${buildLog})`);
+  }
+  await backend.stop(inst);
+  checkpointSqlite(path.join(TEMPLATE_DIR, 'homeserver.db'));
+
+  // Assemble: template -> snapshot/data (+ seed files), atomically swap the old snapshot out.
+  const staging = `${SNAPSHOT_DIR}.new`;
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(path.join(staging, 'seed'), { recursive: true });
+  renameSync(path.join(TEMPLATE_DIR, 'e2ee-keys.json'), path.join(staging, 'seed', 'e2ee-keys.json'));
+  for (const f of ['homeserver.yaml', 'log.config', 'homeserver.pid']) rmSync(path.join(TEMPLATE_DIR, f), { force: true });
+  renameSync(path.join(TEMPLATE_DIR, 'synapse.log'), path.join(staging, 'template-synapse.log'));
+  renameSync(TEMPLATE_DIR, path.join(staging, 'data'));
+  for (const name of ['seed-output.json', 'assets']) {
+    const src = path.join(SEED_DIR, name);
+    if (existsSync(src)) cpSync(src, path.join(staging, 'seed', name), { recursive: true });
+  }
+  const meta = { hash, backend: backend.name, version: backend.version(), builtAt: new Date().toISOString(), buildMs: Date.now() - t0 };
+  writeFileSync(path.join(staging, 'meta.json'), JSON.stringify(meta, null, 2) + '\n');
+  rmSync(SNAPSHOT_DIR, { recursive: true, force: true });
+  renameSync(staging, SNAPSHOT_DIR);
+  console.log(`[hs-pool] snapshot ${hash} built in ${fmtMs(meta.buildMs)} -> ${path.relative(ROOT, SNAPSHOT_DIR)} (${dirSizeMb(path.join(SNAPSHOT_DIR, 'data'))} MB)`);
+  return meta;
+}
+
+function dirSizeMb(dir) {
+  let bytes = 0;
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else bytes += statSync(p).size;
+    }
+  };
+  walk(dir);
+  return (bytes / 1024 / 1024).toFixed(1);
+}
+
+/** Copies the snapshot's seed-output.json / e2ee-keys.json / assets into seed/ so the fixtures match the clones. */
+function restoreSeedFiles() {
+  for (const name of SEED_OUTPUTS) {
+    const src = path.join(SNAPSHOT_DIR, 'seed', name);
+    if (!existsSync(src)) continue;
+    const dst = path.join(SEED_DIR, name);
+    rmSync(dst, { recursive: true, force: true });
+    cpSync(src, dst, { recursive: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+export async function up({ workers } = {}) {
+  const n = Number(workers ?? process.env.E2E_WORKERS ?? defaultWorkers());
+  if (!Number.isInteger(n) || n < 1 || n > 16) throw new Error(`workers must be 1..16, got ${workers}`);
+  const backend = pickBackend();
+  mkdirSync(POOL_DIR, { recursive: true });
+
+  const previous = readState();
+  if (previous) {
+    console.log('[hs-pool] stopping the previous pool first');
+    await stopState(backend, previous, { quiet: true });
+  }
+  for (let i = 0; i < n; i++) {
+    if (await answering(BASE_PORT + i)) {
+      throw new Error(
+        `port ${BASE_PORT + i} is already serving a homeserver that this pool did not start. Stop it (\`npm run hs:down\`) or run the tests with E2E_REUSE_SERVERS=1 to use what is running.`,
+      );
+    }
+  }
+  await buildSnapshot(backend);
+
+  const t0 = Date.now();
+  const planned = Array.from({ length: n }, (_, index) => ({ index, dir: instanceDir(index), port: BASE_PORT + index }));
+  for (const p of planned) {
+    rmSync(p.dir, { recursive: true, force: true });
+    cpSync(path.join(SNAPSHOT_DIR, 'data'), p.dir, { recursive: true });
+  }
+  restoreSeedFiles();
+  const restoreMs = Date.now() - t0;
+
+  const state = { backend: backend.name, startedAt: new Date().toISOString(), instances: [] };
+  const persist = () => writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + '\n');
+  try {
+    const started = await Promise.all(
+      planned.map(async (p) => {
+        const inst = await startInstance(backend, p);
+        state.instances.push(inst);
+        persist();
+        return inst;
+      }),
+    );
+    state.instances = started.sort((a, b) => a.index - b.index);
+    state.readyMs = Date.now() - t0;
+    state.restoreMs = restoreMs;
+    persist();
+  } catch (e) {
+    persist();
+    await stopState(backend, state, { quiet: true });
+    throw e;
+  }
+  console.log(
+    `[hs-pool] ${n} homeserver(s) ready on ${state.instances.map((i) => i.port).join(', ')} (${backend.name}; restore ${fmtMs(restoreMs)}, ready ${fmtMs(state.readyMs)})`,
+  );
+  return state;
+}
+
+export async function down() {
+  const state = readState();
+  if (!state) {
+    console.log('[hs-pool] nothing to stop (no state.json)');
+    return 0;
+  }
+  const backend = BACKENDS[state.backend] ?? native;
+  return stopState(backend, state);
+}
+
+async function status() {
+  const meta = readMeta();
+  console.log(meta ? `snapshot: ${meta.hash} (${meta.version}, built ${meta.builtAt}, ${fmtMs(meta.buildMs)})` : 'snapshot: none');
+  const state = readState();
+  if (!state) {
+    console.log('pool: not running');
+    return;
+  }
+  const backend = BACKENDS[state.backend] ?? native;
+  for (const inst of state.instances) {
+    console.log(`  hs-${inst.index}  ${inst.url}  pid ${inst.pid}  ${backend.alive(inst) ? 'alive' : 'DEAD'}  ${(await answering(inst.port)) ? 'answering' : 'not answering'}`);
+  }
+}
+
+async function clean() {
+  await down();
+  rmSync(POOL_DIR, { recursive: true, force: true });
+  console.log(`[hs-pool] removed ${path.relative(ROOT, POOL_DIR)}`);
+}
+
+function argValue(args, name) {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+async function main() {
+  const [cmd, ...args] = process.argv.slice(2);
+  switch (cmd) {
+    case 'snapshot':
+      await buildSnapshot(pickBackend(), { force: args.includes('--force') });
+      return;
+    case 'up':
+      await up({ workers: argValue(args, '--workers') });
+      return;
+    case 'down':
+      await down();
+      return;
+    case 'status':
+      await status();
+      return;
+    case 'clean':
+      await clean();
+      return;
+    default:
+      console.error('usage: node scripts/hs-pool.mjs <snapshot [--force]|up [--workers N]|down|status|clean>');
+      process.exit(2);
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => {
+    console.error(`[hs-pool] ${e.message ?? e}`);
+    process.exit(1);
+  });
+}

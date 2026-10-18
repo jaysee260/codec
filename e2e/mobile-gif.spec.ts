@@ -20,6 +20,7 @@
 import { expect, test } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import { resolveRoom } from './fixtures/seed.ts';
+import { workerOrigin } from './fixtures/pool.ts';
 import { annotate } from './fixtures/state.ts';
 import { messageList } from './fixtures/ui.ts';
 import {
@@ -76,7 +77,7 @@ import {
 } from './fixtures/gif.ts';
 import { settledEventId, row } from './fixtures/ui.ts';
 
-const ORIGIN = 'http://localhost:5173';
+const ORIGIN = workerOrigin();
 
 let DEV = '';
 

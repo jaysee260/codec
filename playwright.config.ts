@@ -1,12 +1,20 @@
 import { defineConfig, devices } from '@playwright/test';
+import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool.ts';
 
 /**
  * QA owns this file (docs/TICKETS.md QA-1, docs/PHASE2_TICKETS.md QA-8).
  *
- * Preconditions for a run:
- *  - Synapse up and seeded on http://localhost:8008 (`npm run hs:up && npm run seed`);
- *  - `seed/seed-output.json` present (the fixtures read room/event ids from it);
- *  - port 5173 free, or a dev server already listening on it (it is reused).
+ * ## Parallel runs (issue #2, docs/PERF_PLAN.md)
+ *
+ * The suite runs on N workers (`E2E_WORKERS`; default in `e2e/fixtures/pool.ts`), one Synapse + one Vite per worker:
+ * worker i (`TEST_PARALLEL_INDEX`) uses http://localhost:${8008+i} and http://localhost:${5173+i}. `globalSetup`
+ * (`e2e/global-setup.ts`) restores every Synapse from one seeded snapshot (`scripts/hs-pool.mjs`, needs a Synapse
+ * venv or Docker) and stops them at the end, so every run starts pristine; the N Vite servers are the `webServer`
+ * entries below (`VITE_HS_URL` points each at its Synapse). Size the run with `E2E_WORKERS`, not `--workers`.
+ *
+ *  - `E2E_WORKERS=1` is the old single-server setup: 8008 / 5173, and a homeserver already running on 8008 is reused.
+ *  - `E2E_REUSE_SERVERS=1` never starts or stops a homeserver (dev loops; WSL1 machines, with `E2E_WORKERS=1`).
+ *  - `seed/seed-output.json` and `seed/e2ee-keys.json` are restored from the snapshot; ids are identical on every clone.
  *
  * ## Projects
  *
@@ -46,17 +54,20 @@ import { defineConfig, devices } from '@playwright/test';
  * The `mobile` project also grants `permissions: ['microphone']` on the context (the flag covers the
  * prompt, the grant covers the Permissions API that the app may query).
  */
+const WORKERS = poolSize();
+
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
-  workers: 1,
+  workers: WORKERS,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 45_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
+    baseURL: baseUrlFor(workerIndex()),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -84,12 +95,14 @@ export default defineConfig({
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+  // One Vite per worker. With one worker this is the historical `npm run dev` on 5173 (reused when already running).
+  webServer: Array.from({ length: WORKERS }, (_, i) => ({
+    command: `npm run dev -- --port ${new URL(baseUrlFor(i)).port || 5173} --strictPort`,
+    url: baseUrlFor(i),
     reuseExistingServer: true,
     timeout: 60_000,
-    stdout: 'ignore',
-    stderr: 'pipe',
-  },
+    stdout: 'ignore' as const,
+    stderr: 'pipe' as const,
+    env: { VITE_HS_URL: hsUrlFor(i) },
+  })),
 });

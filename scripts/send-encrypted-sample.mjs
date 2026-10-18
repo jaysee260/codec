@@ -4,7 +4,7 @@
  * AC-E7-2). A Node matrix-js-sdk client with the Rust crypto engine (in-memory store) sends `--count` texts
  * ("vault sample 1..N") and one encrypted image (e2e/fixtures/test-image.png, encrypted with the client's own
  * attachments.ts), asserts every event is `m.room.encrypted` on the wire, merges this device's room keys into
- * `--keys` (default seed/e2ee-keys.json; `__matrixPoc.security.importRoomKeys(json)` reads it) and logs the device out.
+ * `--keys` (default $E2EE_KEYS_FILE or seed/e2ee-keys.json; `__matrixPoc.security.importRoomKeys(json)` reads it) and logs the device out.
  *
  *   npm run e2ee:sample                                  # bob -> #vault:localhost, 3 texts + 1 image
  *   node scripts/send-encrypted-sample.mjs --count 5 --no-image --as dave --room '!roomId:localhost'
@@ -27,7 +27,8 @@ const user = value('--as', 'bob');
 const roomArg = value('--room', '#vault:localhost');
 const count = Number(value('--count', '3'));
 const withImage = !args.includes('--no-image');
-const keysFile = value('--keys', path.join('seed', 'e2ee-keys.json'));
+// E2EE_KEYS_FILE: parallel e2e workers each point this at their own file (e2e/fixtures/seed.ts).
+const keysFile = value('--keys', process.env.E2EE_KEYS_FILE ?? path.join('seed', 'e2ee-keys.json'));
 const imagePath = value('--image', path.join('e2e', 'fixtures', 'test-image.png'));
 
 const session = await loginWithDevice(user, 'send-encrypted-sample');

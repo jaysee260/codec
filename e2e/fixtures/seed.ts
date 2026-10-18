@@ -12,11 +12,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { exportWorkerEnv, hsUrlFor, workerIndex } from './pool.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SEED_FILE = resolve(HERE, '../../seed/seed-output.json');
 
-export const HS_URL = process.env.E2E_HS_URL ?? process.env.HS_URL ?? 'http://localhost:8008';
+/**
+ * This worker's homeserver (fixtures/pool.ts): 8008 + `TEST_PARALLEL_INDEX` in parallel runs, `E2E_HS_URL` /
+ * `HS_URL` / 8008 with one worker. Also exported to `process.env` here, at module load, so scripts the fixtures spawn
+ * (`scripts/send-encrypted-sample.mjs`) hit the same server.
+ */
+export const HS_URL = hsUrlFor(workerIndex());
+exportWorkerEnv();
 export const SERVER_NAME = 'localhost';
 export const PASSWORD = 'password123';
 

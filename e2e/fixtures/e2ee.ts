@@ -22,6 +22,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { devices, expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { DISPLAY_NAMES, PASSWORD, type UserKey } from './seed.ts';
+import { e2eeKeysFile, workerOrigin } from './pool.ts';
 import { SESSION_STORAGE_KEY } from './auth.ts';
 import { annotate } from './state.ts';
 
@@ -153,7 +154,7 @@ export interface SecondContext {
 
 /** A second browser context (separate IndexedDB = separate device), logged in. */
 export async function secondContext(browser: Browser, user: UserKey | Account, opts: { baseURL?: string; login?: boolean; keep?: boolean } = {}): Promise<SecondContext> {
-  const baseURL = opts.baseURL ?? process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+  const baseURL = opts.baseURL ?? workerOrigin();
   const context = await browser.newContext({ ...devices['Desktop Chrome'], baseURL });
   const page = await context.newPage();
   if (opts.login !== false) await loginWith(page, user);
@@ -374,9 +375,9 @@ export async function waitForEventState(page: Page, roomId: string, eventId: str
   return last;
 }
 
-/** AC-E7-3: imports `seed/e2ee-keys.json` through the dev hook. */
+/** AC-E7-3: imports this worker's keys file (`seed/e2ee-keys.json`, or a per-worker copy in parallel runs) through the dev hook. */
 export async function importSampleKeys(page: Page): Promise<number> {
-  const json = readFileSync(join(REPO, 'seed/e2ee-keys.json'), 'utf8');
+  const json = readFileSync(e2eeKeysFile(), 'utf8');
   await page.evaluate((j) => (window as any).__matrixPoc.security.importRoomKeys(j), json);
   return (JSON.parse(json) as unknown[]).length;
 }

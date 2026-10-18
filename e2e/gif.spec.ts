@@ -103,11 +103,12 @@ import {
 import { fixtureGifBytes, describeGif } from './fixtures/gif-assets.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { resolveRoom } from './fixtures/seed.ts';
+import { workerOrigin } from './fixtures/pool.ts';
 import { annotate } from './fixtures/state.ts';
 import { composer, messageList, openChannel, row, rowByText, settledEventId } from './fixtures/ui.ts';
 
 /** The app's origin, as the mock provider builds its URLs from `location.origin`. */
-const ORIGIN = 'http://localhost:5173';
+const ORIGIN = workerOrigin();
 
 let DEV = '';
 let bob: ApiUser;

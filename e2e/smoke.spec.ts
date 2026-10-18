@@ -19,6 +19,7 @@ import * as E2API from './fixtures/e2ee-api.ts';
 import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { BODIES, DISPLAY_NAMES, NAMES, eventId, resolveRoom, uniqueName, userId } from './fixtures/seed.ts';
+import { workerOrigin } from './fixtures/pool.ts';
 import { annotate, childRoomIds, ensureUnread, noteSeedDrift, revokePendingInvite } from './fixtures/state.ts';
 import {
   composerGif,
@@ -92,7 +93,7 @@ let memesName = '';
 let demoThreadRootId = '';
 
 /** The app's origin, as the mock GIF provider builds its fixture URLs from `location.origin`. */
-const ORIGIN = 'http://localhost:5173';
+const ORIGIN = workerOrigin();
 /** Demo rows 2 and 5 queries, derived so a fixture-catalogue change cannot break the demo step. */
 const DEMO_QUERY = queryMatching(3, ['tacos', 'taco', 'cat', 'party']) ?? 'cat';
 const SECOND_QUERY = queryMatching(2, ['party', 'cat', 'taco']) ?? 'party';

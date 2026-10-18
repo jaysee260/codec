@@ -4,7 +4,7 @@
  * client-server API calls, and the client's own `attachment-crypto.ts` (type-stripped import) so the image is encrypted
  * exactly like the browser does it. Nothing here touches Playwright.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createClient, ClientEvent, SyncState } from 'matrix-js-sdk';
 import { api, HS, PASSWORD, login as rawLogin, logout as rawLogout, resolveRoom } from './gif-api.mjs';
 
@@ -84,6 +84,9 @@ export function mergeRoomKeys(file, exportedJson) {
   const byId = new Map(existing.map((k) => [`${k.room_id}|${k.session_id}`, k]));
   for (const k of JSON.parse(exportedJson)) byId.set(`${k.room_id}|${k.session_id}`, k);
   const merged = [...byId.values()];
-  writeFileSync(file, JSON.stringify(merged, null, 2) + '\n');
+  // tmp + rename: parallel e2e workers can merge concurrently, a reader must never see a half-written file.
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n');
+  renameSync(tmp, file);
   return merged.length;
 }
