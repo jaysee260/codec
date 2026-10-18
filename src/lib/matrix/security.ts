@@ -445,10 +445,17 @@ export async function attemptRestoreFromBackup(onProgress?: (p: ImportRoomKeyPro
  * cached by `checkRecoveryKey`). Resolves `{ total: 0, imported: 0 }` when there is no backup.
  */
 export async function restoreFromBackup(onProgress?: (p: ImportRoomKeyProgressData) => void): Promise<KeyBackupRestoreResult> {
-  const { crypto } = requireCrypto();
-  const info = await crypto.getKeyBackupInfo();
-  if (!info) return { total: 0, imported: 0 };
-  if (!(await crypto.getSessionBackupPrivateKey())) {
+  const { client, crypto } = requireCrypto();
+  // The server's backup now, not the SDK's first answer on this page: another client (Element's "Change recovery
+  // key", key storage toggle) may have replaced it since. A failed request throws: a failed restore, not "no backup".
+  const info = await fetchServerBackupInfo(client);
+  if (!info?.version) return { total: 0, imported: 0 };
+  // Bring the SDK's copy up to date: loading the key from secret storage checks it against that copy.
+  await crypto.checkKeyBackupAndEnable();
+  const cached = await crypto.isKeyBackupTrusted(info).catch(() => null);
+  if (!cached?.matchesDecryptionKey) {
+    // No cached key, or one for a backup that has since been replaced: restoring with it would ask for a version
+    // that no longer exists.
     await crypto.loadSessionBackupPrivateKeyFromSecretStorage();
   }
   await crypto.checkKeyBackupAndEnable();

@@ -25,6 +25,8 @@
  *  8. JC fixes it on W, the Element device that created the backup (key cached): RecoveryPanelOutOfSync "Enter
  *     recovery key" re-stores the backup secret under the current key, no reset, no delete; B and a reloaded,
  *     already verified Codec device restore with the current key. Stale cached key: fails safely, nothing changes.
+ *     8b. Review R1: Element replaces the backup (new key, new version, no key push) while a Codec device stays open
+ *     (E2, or holding the old version's key); restoring with the new key there ends in done.
  *
  * Seeding for 2/3: A sets up recovery (default key) and sends history (backup v1); the backup secret is re-stored
  * under a second key only and that key is thrown away; A's secret-storage key cache is cleared. A keeps its room
@@ -340,9 +342,11 @@ async function seedJcAccount(browser: Browser, prefix: string): Promise<JcAccoun
     await typeAndSend(a0, t);
     ids.push(await settledEventId(rowByText(a0, t), 20_000));
   }
-  await waitForCrypto(a0, (s) => (s.backupRemaining ?? 1) === 0, 'backup v1 upload done', 60_000);
+  // backupRemaining can read 0 before the second session is queued: wait for both on the server.
+  await expect
+    .poll(async () => (await keyBackup(u.token))?.count ?? 0, { timeout: 60_000, intervals: [500, 1000], message: "both of A0's sessions in backup v1" })
+    .toBeGreaterThanOrEqual(2);
   const v1 = (await keyBackup(u.token))!;
-  expect(v1.count).toBeGreaterThanOrEqual(2);
   const roomKeysJson = await a0.evaluate(() => (window as any).__matrixPoc.security.exportRoomKeys() as Promise<string>);
   // backup secret under K1 only; K1 is thrown away
   const k1 = await a0.evaluate(async () => {
@@ -1252,4 +1256,157 @@ for (const variant of ['match', 'mismatch'] as const) {
     lap('C reloaded and reads the whole history');
     await C!.close();
   });
+}
+
+/* ================================================================== 8b. the backup is replaced while a Codec device stays open */
+
+/**
+ * Element's ChangeRecoveryKey as run by a device without the backup key (needsBackupReset): new secret storage with
+ * a new key, `resetKeyBackup()` (deletes every version, new one with every room key this device holds),
+ * `checkKeyBackupAndEnable()`. Resolves the new recovery key.
+ */
+async function changeRecoveryKeyWithBackupReset(a: Page, opts: { pushToDevices: boolean }): Promise<{ key: string | null; needsBackupReset: boolean | null; error: string | null }> {
+  return a.evaluate(async (push) => {
+    const w = (window as any).__matrixPoc;
+    const api = w.getClient().getCrypto();
+    // `resetKeyBackup` pushes the new backup key to verified devices (MSC4385 `io.element.msc4385.secret.push`), which
+    // heals an open verified device by itself. Without it (a client that does not push, or a push the device never
+    // gets) the device must find the new backup on its own.
+    if (!push) {
+      if (typeof api.pushSecretToVerifiedDevices !== 'function') throw new Error('SDK changed: no pushSecretToVerifiedDevices to switch off');
+      api.pushSecretToVerifiedDevices = async () => undefined;
+    }
+    try {
+      const recoveryKey = await api.createRecoveryKeyFromPassphrase();
+      const needsBackupReset = !!(await api.getKeyBackupInfo()) && !(await api.getSessionBackupPrivateKey());
+      await api.bootstrapSecretStorage({ setupNewSecretStorage: true, createSecretStorageKey: async () => recoveryKey });
+      if (needsBackupReset) await api.resetKeyBackup();
+      await api.checkKeyBackupAndEnable();
+      return { key: recoveryKey.encodedPrivateKey as string, needsBackupReset, error: null };
+    } catch (e) {
+      return { key: null, needsBackupReset: null, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      delete api.pushSecretToVerifiedDevices;
+    }
+  }, opts.pushToDevices);
+}
+
+/**
+ * Review R1. C is a Codec device that stays open (no reload) while Element on A replaces the backup ("change
+ * recovery key" with a backup reset: new key K3, new version v2, v1 deleted), without pushing the new backup key to
+ * C (with the push, C heals by itself: the SDK takes the key and Codec restores). The SDK on C still holds its first
+ * answer (v1). The user then restores with K3 on C:
+ *  - `locked`: C is JC's Codec (verified with K2, E2 no-key, no backup key): E2 -> "I have a different recovery key" -> K3;
+ *  - `cached`: C restored v1 earlier (v1's key cached): the unlock dialog -> K3.
+ * Expected: done with the new backup's keys, history readable, never E2 again.
+ */
+for (const variant of ['locked', 'cached'] as const) {
+  test(`R1 backup replaced while Codec device C stays open (${variant}): restoring with the new key on C ends in done`, async ({ page, browser }) => {
+    const J = await seedJcAccount(browser, `qar1${variant}`);
+
+    // ---- A = JC's Element (verified with K2, room keys held, no backup key). Signed in before C holds any backup
+    // key, so nothing gossips one to A.
+    const A = await secondContext(browser, J.acct);
+    const a = A.page;
+    await waitForStatus(a);
+    await unlockK2CancelBackup(a, J.k2);
+    await a.evaluate((j) => (window as any).__matrixPoc.security.importRoomKeys(j), J.roomKeysJson);
+
+    // ---- C: Codec, open from before the change, never reloaded (it is the test's `page`)
+    const c = page;
+    await loginWith(c, J.acct);
+    await waitForStatus(c);
+    await openRoom(c, J);
+    await unlockWith(c, J.k2, { expectPhase: 'locked' });
+    await expect(c.getByTestId('recovery-locked')).toHaveAttribute('data-reason', 'no-key');
+    await waitForCrypto(c, (s) => !!s.status?.verified, 'C verified with K2', 30_000);
+    if (variant === 'cached') {
+      await enterOtherKeyAndSubmit(c, J.k1);
+      await expect(c.getByTestId('recovery-done')).toBeVisible({ timeout: 60_000 });
+      expect(await cryptoApiCall(c, 'getSessionBackupPrivateKey'), "C holds v1's backup key").not.toBeNull();
+    }
+    await c.getByTestId('recovery-dialog').getByTestId('dialog-close').last().click();
+    await expect(c.getByTestId('recovery-dialog')).toBeHidden();
+
+    // ---- A: Element "change recovery key"; A has no backup key, so it resets the backup (v2)
+    expect(await cryptoApiCall(a, 'getSessionBackupPrivateKey'), 'A still has no backup key').toBeNull();
+    const change = await changeRecoveryKeyWithBackupReset(a, { pushToDevices: false });
+    note('A', `change recovery key: needsBackupReset ${change.needsBackupReset}; error ${change.error}`);
+    expect(change.error).toBeNull();
+    expect(change.needsBackupReset).toBe(true);
+    const k3 = change.key!;
+    const k3Id = (await defaultSecretStorageKey(J.u.token, J.u.userId))!;
+    await expect.poll(async () => (await keyBackup(J.u.token))?.version, { timeout: 30_000 }).not.toBe(J.v1.version);
+    await expect
+      .poll(async () => (await keyBackup(J.u.token))?.count ?? 0, { timeout: 120_000, intervals: [1000, 2000], message: 'v2 receives every room key A holds' })
+      .toBeGreaterThanOrEqual(J.v1.count);
+    const v2 = (await keyBackup(J.u.token))!;
+    const under = await secretsUnder(J.u.token, J.u.userId);
+    note('state', `after the change: default ${k3Id}; secrets under ${JSON.stringify(under)}; backup v${v2.version} ${v2.count} keys (v${J.v1.version} deleted)`);
+    for (const [name, keyIds] of Object.entries(under)) expect(keyIds, `${name} under K3`).toEqual([k3Id]);
+    // A stays signed in until the end: a sign-out changes C's own device list, and the SDK re-checks the backup on
+    // the identity update that follows (rust-crypto onUserIdentityUpdated), which would hide the stale answer.
+
+    // ---- C, still the same page load: it has seen the new key; its SDK's backup info is from before
+    await expect
+      .poll(() => c.evaluate(() => (window as any).__matrixPoc.getClient().getAccountData('m.secret_storage.default_key')?.getContent()?.key ?? null), {
+        timeout: 20_000,
+        message: 'C synced the new default key',
+      })
+      .toBe(k3Id);
+    const cSdk = await c.evaluate(async () => {
+      const api = (window as any).__matrixPoc.getClient().getCrypto();
+      return { backupInfo: ((await api.getKeyBackupInfo()) as { version?: string } | null)?.version ?? null, active: await api.getActiveSessionBackupVersion() };
+    });
+    note('C', `before restoring: SDK backup info v${cSdk.backupInfo}, active ${cSdk.active} (server v${v2.version}); banner ${await c.getByTestId('security-banner').getAttribute('data-need', { timeout: 1000 }).catch(() => null)}`);
+
+    // ---- the user restores with K3 on C
+    const dialog = c.getByTestId('recovery-dialog');
+    const watch = watchRecoveryPhases(c);
+    try {
+      // The banner's action if it shows one (E2: "Older messages are locked · Fix"), else the unlock dialog.
+      const banner = c.getByTestId('security-banner');
+      if (await banner.isVisible().catch(() => false)) await c.getByTestId('security-banner-action').click();
+      else await openSecurityDialog(c, 'unlock');
+      await expect(dialog).toHaveAttribute('data-phase', /^(form|locked|unavailable)$/, { timeout: 10_000 });
+      const phase = await dialog.getAttribute('data-phase');
+      note('C', `dialog opened in ${phase}`);
+      if (phase === 'form') {
+        await c.getByTestId('recovery-input').fill(k3);
+        await c.getByTestId('recovery-submit').click();
+      } else {
+        await enterOtherKeyAndSubmit(c, k3); // E2 -> "I have a different recovery key" -> K3
+      }
+      await expect(c.getByTestId('recovery-done').or(c.getByTestId('recovery-error')).or(c.getByTestId('recovery-locked'))).toBeVisible({ timeout: 60_000 });
+      await c.waitForTimeout(1000);
+    } finally {
+      watch.stop();
+    }
+    const after = (await cryptoState(c)).recovery;
+    note('C', `phases ${watch.phases.join(' > ')}; ${JSON.stringify(after)}`);
+    await expect(c.getByTestId('recovery-error'), 'no error').toHaveCount(0);
+    await expect(c.getByTestId('recovery-locked'), 'never E2 again').toHaveCount(0);
+    await expect(c.getByTestId('recovery-done')).toBeVisible();
+    await expect(c.getByTestId('recovery-done')).toContainText(/Restored \d+ of \d+ keys/);
+    expect(after.lastRestore?.total ?? 0, "the new backup's keys").toBeGreaterThanOrEqual(J.v1.count);
+    const cAfter = await c.evaluate(async () => {
+      const api = (window as any).__matrixPoc.getClient().getCrypto();
+      const info = await api.getKeyBackupInfo();
+      return { backupInfo: info?.version ?? null, active: await api.getActiveSessionBackupVersion(), matches: info ? (await api.isKeyBackupTrusted(info)).matchesDecryptionKey : null };
+    });
+    note('C', `after: ${JSON.stringify(cAfter)}`);
+    expect(cAfter).toEqual({ backupInfo: v2.version, active: v2.version, matches: true });
+    await dialog.getByTestId('dialog-close').last().click();
+    for (const [i, id] of J.ids.entries()) await expect(row(c, id).getByTestId('message-body')).toHaveText(J.texts[i]!, { timeout: 15_000 });
+    await expect(c.getByTestId('security-banner')).toHaveCount(0, { timeout: 10_000 });
+    await A.close();
+  });
+}
+
+/** E2 -> "I have a different recovery key" -> type `key` at the prompt. */
+async function enterOtherKeyAndSubmit(p: Page, key: string): Promise<void> {
+  await p.getByTestId('recovery-enter-other-key').click();
+  await expect(p.getByTestId('recovery-dialog')).toHaveAttribute('data-phase', 'prompt', { timeout: 30_000 });
+  await p.getByTestId('recovery-input').fill(key);
+  await p.getByTestId('recovery-submit').click();
 }
