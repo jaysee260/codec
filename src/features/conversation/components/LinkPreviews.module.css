@@ -1,0 +1,15 @@
+/* Stack of link preview cards under the message body; the cards own their own width and styling. */
+.host {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Every card rendered nothing (plain-room `empty` results): take no space. */
+.host:empty {
+  display: none;
+}

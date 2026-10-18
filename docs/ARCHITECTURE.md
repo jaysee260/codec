@@ -5,6 +5,84 @@ This document is the contract between the Principal-owned core (`src/lib`, `src/
 feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md` /
 `docs/PHASE4_TICKETS.md` / `docs/PHASE5_TICKETS.md` "Shared API", **this file wins**; the differences are listed first.
 
+## Phase 6 deltas (link previews)
+
+A message with http(s) links shows a card per link (site name, title, description, og:image), like Slack / Element.
+The homeserver fetches the page (`/_matrix/client/v1/media/preview_url`, v3 fallback; the SDK picks) and re-hosts
+og:image as an `mxc://` URI. Decisions are in the Phase 6 brief / docs/PHASE6_*.md (PM); this section is the API.
+Ownership: Principal `src/lib/preview/`, `public/preview-fixtures/`, `scripts/make-preview-fixtures.mjs`, the test
+Synapse whitelist; Dev A `src/features/link-preview/` (card + embed components); Dev B wires them into
+`src/features/conversation/` (messages + thread view; reply quotes / thread list / room previews stay text only).
+
+### API (`src/lib/preview/index.ts`, import from `@/lib/preview`)
+
+```ts
+interface LinkPreview { url: string; siteName?: string; title?: string; description?: string; image?: LinkPreviewImage }
+interface LinkPreviewImage { mxc: string; width?: number; height?: number; mimetype?: string; size?: number }   // ALWAYS mxc: render via mxcToHttp(mxc, w, h)
+interface LinkEmbed { provider: 'youtube' | 'spotify'; kind: 'video' | 'track' | 'album' | 'playlist' | 'episode'; id: string;
+                      embedUrl: string; canonicalUrl: string; startSeconds?: number }
+type LinkPreviewStatus = 'idle' | 'loading' | 'ready' | 'empty';
+
+getPreviewUrls(event: MatrixEvent, max = 3): string[]       // links that get a card, message order, deduped (hash-stripped);
+                                                            // [] for GIF / redacted / undecrypted / media events; skips <pre>/<code>,
+                                                            // matrix.to, the homeserver's media URLs. Ignores room encryption on purpose.
+extractPreviewUrls(body: DisplayBody | PreviewSource | string, { max?, hsUrl? }): string[]   // the pure core of the above
+shouldAutoPreview(roomId, event?): boolean                  // THE encrypted-room rule: false when the room has m.room.encryption
+                                                            // (or the event is m.room.encrypted) -> render a "Show preview" button instead
+getLinkPreview(url, { signal?, ts? }): Promise<LinkPreview | null>   // client.getUrlPreview + LRU (200 urls; hits 1 h, misses 5 min) +
+                                                            // in-flight dedupe; null = none / blocked / failed (never throws; AbortError on signal)
+peekLinkPreview(url): LinkPreview | null | undefined        // sync cache read (undefined = unknown); primeLinkPreview(url, p | null); clearLinkPreviewCache()
+useLinkPreview(url, { enabled?, ts? }): { status, preview } // enabled=false -> 'idle' (a cached hit still renders); unmount aborts the wait, not the request
+useHiddenPreview(eventId, url): { hidden, hide, unhide }    // "x" on the card; localStorage 'matrix-poc.hiddenPreviews' = [`${eventId}|${url}`, ...] (max 1000)
+isPreviewHidden / hidePreview / unhidePreview / clearHiddenPreviews / subscribeHiddenPreviews   // non-hook forms
+parseEmbed(url): LinkEmbed | null                           // YouTube watch / youtu.be / shorts / embed / live (+ t= -> ?start=N) ->
+                                                            // https://www.youtube-nocookie.com/embed/<id>; Spotify track|album|playlist|episode
+                                                            // (intl-xx/ ok) -> https://open.spotify.com/embed/<kind>/<id>. No network; iframe only after the click.
+previewImageLayout(image, minWidth = 400): 'large' | 'thumbnail' | 'none'   // large = width >= 400 && landscape; unknown dims = thumbnail
+normalizePreview(url, rawOgObject): LinkPreview | null      // trims, drops non-mxc og:image, null when no title/description/image
+PREVIEW_MAX_LINKS = 3, PREVIEW_CACHE_MAX = 200, PREVIEW_CACHE_TTL_MS, PREVIEW_NEGATIVE_TTL_MS, HIDDEN_PREVIEWS_STORAGE_KEY
+```
+
+Module split: `types.ts`, `extract.ts`, `embed.ts`, `normalize.ts`, `cache.ts`, `hidden.ts` are pure (no React / SDK /
+`import.meta.env`; Node imports them with type stripping, like `src/lib/gif`); `fetch.ts` and `policy.ts` touch the SDK;
+`hooks.ts` is the only React module. Dev hook: `window.__matrixPoc.preview` is the whole module.
+
+Intended wiring (Dev B): `const urls = useMemo(() => getPreviewUrls(event), [event, body])`; per url, skip when
+`useHiddenPreview(event.getId()!, url).hidden`; `const auto = shouldAutoPreview(roomId, event)`; render Dev A's card with
+`useLinkPreview(url, { enabled: auto || clicked, ts: event.getTs() })`; in an encrypted room render the "Show preview"
+button until `clicked`, and the "No preview available" note when the answer is `'empty'`; `parseEmbed(url)` decides whether the
+card gets a play button. Reserve the image box from `image.width/height` before the bytes arrive (stick-to-bottom).
+
+### Why these choices
+- **No automatic fetch in encrypted rooms** (`shouldAutoPreview`): the preview request hands the URL to the homeserver in
+  clear, which defeats E2EE. Same posture as GIFs (AC-E6-5). A cached hit may still render there: the server has already seen it.
+- **Own negative cache**: the SDK caches the *promise* per minute bucket, rejections included; without our 5-minute negative
+  TTL a transient failure would be permanent for that minute and a retry impossible, and a success would never expire.
+- **og:image must be mxc**: Synapse always re-hosts it; a server that returned a raw third-party URL would otherwise make
+  every viewer's browser fetch from that host. `normalizePreview` drops anything that is not `mxc://`.
+- **HTML scanning with regexes, not DOMParser**: keeps `extract.ts` Node-loadable; the tokeniser consumes tags whole so
+  URLs in attributes (`<img src>`) are never previewed, only anchor hrefs and text URLs.
+
+### Test homeserver (whitelist + fixtures)
+- `homeserver/homeserver.yaml` and the `scripts/hs.mjs` overrides carry `url_preview_ip_range_whitelist: ['127.0.0.1/32', '::1/128']`
+  so the test Synapse can fetch pages from a local Vite. The pool renders the committed yaml, so every pool instance has it
+  (the snapshot hash changes: the first `hs-pool up` after this rebuilds, ~15 s). Other private ranges stay blocked
+  (verified: `http://10.0.0.1/` -> `M_UNKNOWN "IP address blocked"`). The production homelab keeps its blacklist.
+- Fixtures: `public/preview-fixtures/` — `article.html` (site name, title, description, 1200x630 `hero.png` -> `large`),
+  `square.html` (128x128 `thumb.png` -> `thumbnail`), `title-only.html` (no og tags; Synapse synthesises title + description
+  from the body), `empty.html` (`{"og:title": null, "og:description": null}` -> `null`), `long.html` (clamping), `noimage.html` (site name + title +
+  description, no image), `nodims.html` (og:image without declared width/height; note Synapse measures the image anyway and
+  returns 1200x630, so an "unknown dimensions" preview can only be produced by stubbing `**/preview_url**` with `page.route`). og:image is
+  root-relative; Synapse rebases it against the page URL, so any Vite port works. PNGs: `npm run preview:fixtures`
+  (`scripts/make-preview-fixtures.mjs`, deterministic).
+- Verified round trip (Synapse 1.163 on 8030, Vite 5183): `GET /_matrix/client/v1/media/preview_url?url=http://localhost:5183/preview-fixtures/article.html`
+  -> `og:title`, `og:description`, `og:image: mxc://localhost/...`, `og:image:width 1200`, `og:image:height 630`,
+  `matrix:image:size 26127`; the mxc downloads (`/_matrix/media/v3/download`, 200 image/png) and thumbnails.
+- `scripts/hs-pool.mjs`: the template build port moved 8030 -> 8040 (`HS_POOL_BUILD_PORT`) so a long-running dev
+  homeserver on 8030 (`HS_POOL_BASE_PORT=8030 E2E_WORKERS=1 node scripts/hs-pool.mjs up`; seed files land in
+  `homeserver/data/pool/base-8030/seed/`, `seed/` untouched) never collides with a snapshot rebuild.
+- Dev use: `VITE_HS_URL=http://localhost:8030 npx vite --port 518x` (or the login screen's Advanced field), alice / password123.
+
 ## Phase 5 deltas (end-to-end encryption)
 
 What the Phase 5 brief, docs/PHASE5_PLAN.md, docs/PHASE5_TICKETS.md (PRIN-17..23) and docs/PHASE5_ACCEPTANCE.md say versus
