@@ -552,8 +552,15 @@ export async function sameEmoji(a: Page, b: Page): Promise<string[]> {
   return ea;
 }
 
-/** Opens `recovery-dialog` (banner action, or a direct `openSecurityDialog` via the placeholder), submits `input`. */
-export async function unlockWith(page: Page, input: string, opts: { expectSuccess?: boolean } = {}): Promise<void> {
+/**
+ * Opens `recovery-dialog` (banner action, or a direct `openSecurityDialog` via the placeholder), submits `input`.
+ *
+ * The key field is `recovery-input` in both the `form` and the `prompt` phase (the SDK asking for a secret-storage
+ * key mid-flow). `expectPhase` is where a successful submit ends: `done` (default: verified + history restored)
+ * or `locked` (verified, but the key backup stays locked: `recovery-locked`, e.g. the backup secret is under a
+ * different key and its prompt was cancelled). `expectSuccess: false` only submits.
+ */
+export async function unlockWith(page: Page, input: string, opts: { expectSuccess?: boolean; expectPhase?: 'done' | 'locked' } = {}): Promise<void> {
   const dialog = page.getByTestId('recovery-dialog');
   if (!(await dialog.isVisible().catch(() => false))) {
     const action = page.getByTestId('security-banner-action');
@@ -563,15 +570,27 @@ export async function unlockWith(page: Page, input: string, opts: { expectSucces
   }
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   // `working` = a restore already runs by itself (SAS handed over the backup key); wait for it to settle.
-  await expect(dialog).toHaveAttribute('data-phase', /^(form|prompt|done)$/, { timeout: 60_000 });
+  await expect(dialog).toHaveAttribute('data-phase', /^(form|prompt|done|locked)$/, { timeout: 60_000 });
   const phase = await dialog.getAttribute('data-phase');
   if (phase === 'done') {
     annotate('auto-restore', 'recovery-dialog was already done (the backup key arrived with the verification)');
     return;
   }
-  await page.getByTestId(phase === 'prompt' ? 'recovery-prompt-key' : 'recovery-input').fill(input);
+  if (phase === 'locked') {
+    // An earlier unlock verified this session but could not open the backup; there is no key field here.
+    expect(opts.expectPhase, 'recovery-dialog opened in `locked` (session verified, backup locked) but the caller expected done').toBe('locked');
+    annotate('backup-locked', 'recovery-dialog was already locked (an earlier unlock verified the session)');
+    return;
+  }
+  await page.getByTestId('recovery-input').fill(input);
   await page.getByTestId('recovery-submit').click();
-  if (opts.expectSuccess !== false) await expect(page.getByTestId('recovery-done')).toBeVisible({ timeout: 60_000 });
+  if (opts.expectSuccess === false) return;
+  if (opts.expectPhase === 'locked') {
+    await expect(dialog).toHaveAttribute('data-phase', 'locked', { timeout: 60_000 });
+    await expect(page.getByTestId('recovery-locked')).toBeVisible();
+  } else {
+    await expect(page.getByTestId('recovery-done')).toBeVisible({ timeout: 60_000 });
+  }
 }
 
 /** UI when Dev A's dialogs exist, else the store (annotated). */

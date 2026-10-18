@@ -13,6 +13,7 @@ import { MatrixError, type MatrixClient, type MatrixEvent } from 'matrix-js-sdk'
 import type { IAuthData, UIAFlow, UIAuthCallback } from 'matrix-js-sdk';
 import {
   CryptoEvent,
+  DecryptionKeyDoesNotMatchError,
   type CryptoApi,
   type EventEncryptionInfo,
   type GeneratedSecretStorageKey,
@@ -21,7 +22,7 @@ import {
 } from 'matrix-js-sdk/lib/crypto-api/index.js';
 import type { VerificationRequest, Verifier } from 'matrix-js-sdk/lib/crypto-api/verification.js';
 import { getClient, getClientOrNull } from './client.ts';
-import { cacheSecretStorageKey, resolveRecoveryInput } from './crypto.ts';
+import { cacheSecretStorageKey, lastSecretStorageKeyMiss, resolveRecoveryInput } from './crypto.ts';
 
 /** `client.getCrypto()` or null when nobody is logged in or the engine failed to start (`getCryptoError()`). */
 export function getCryptoApi(): CryptoApi | null {
@@ -280,15 +281,64 @@ export async function checkRecoveryKey(input: string): Promise<RecoveryKeyCheck>
 }
 
 /**
- * Unlock with an existing recovery key: validates and caches it, imports the cross-signing private keys from
- * secret storage (which signs this device: it becomes verified), loads the backup key and restores old room keys.
- * Returns the restore result (`imported` of `total` keys; both 0 when the account has no backup).
+ * Why the backup restore of an otherwise successful unlock failed:
+ *   cancelled  the SDK asked for another secret storage key (the backup key sits under a non-default 4S key) and
+ *              the user cancelled the prompt;
+ *   wrong-key  the key typed at that prompt does not open it, or the backup key in 4S does not match the backup;
+ *   no-key     the backup decryption key is not in secret storage (or nobody could be asked for its 4S key);
+ *   failed     anything else (network, server): worth a retry.
  */
-export async function unlockWithRecoveryKey(input: string, opts: { uia?: UiaOptions; onProgress?: (p: ImportRoomKeyProgressData) => void } = {}): Promise<KeyBackupRestoreResult> {
+export type RestoreFailureReason = 'cancelled' | 'wrong-key' | 'no-key' | 'failed';
+
+export interface UnlockResult {
+  verified: true;
+  /** Restore result, or null when it failed (see restoreError). {0,0} when the account has no backup. */
+  restore: KeyBackupRestoreResult | null;
+  restoreError?: { reason: RestoreFailureReason; message: string };
+}
+
+/** `restoreFromBackup` that never throws: the result, or why it failed (`RestoreFailureReason`). */
+export type RestoreAttempt = Pick<UnlockResult, 'restore' | 'restoreError'>;
+
+const RESTORE_FAILURE_TEXT: Record<Exclude<RestoreFailureReason, 'failed'>, string> = {
+  cancelled: 'The key backup is protected by a different recovery key, and it was not entered',
+  'wrong-key': 'The key backup is protected by a different recovery key',
+  'no-key': 'The key backup decryption key is not stored with your recovery key',
+};
+
+/**
+ * Unlock with an existing recovery key: validates and caches it, imports the cross-signing private keys from
+ * secret storage (which signs this device: it becomes verified), then, best effort, loads the backup key and
+ * restores old room keys. Verification is the success condition: errors of `checkRecoveryKey` (RecoveryKeyError)
+ * and `bootstrapCrossSigning` throw; a failed restore resolves with `restore: null` and `restoreError` (the backup
+ * key may be encrypted under another 4S key whose prompt the user cancelled: the session is still verified).
+ */
+export async function unlockWithRecoveryKey(input: string, opts: { uia?: UiaOptions; onProgress?: (p: ImportRoomKeyProgressData) => void } = {}): Promise<UnlockResult> {
   const { crypto } = requireCrypto();
   await checkRecoveryKey(input);
   await crypto.bootstrapCrossSigning({ authUploadDeviceSigningKeys: makeUiaCallback(opts.uia) });
-  return restoreFromBackup(opts.onProgress);
+  return { verified: true, ...(await attemptRestoreFromBackup(opts.onProgress)) };
+}
+
+/**
+ * `restoreFromBackup`, classified instead of thrown. A null answer of our `getSecretStorageKey` during the call
+ * (`lastSecretStorageKeyMiss().seq` moved) says cancelled / wrong key / nobody to ask; otherwise the SDK's error
+ * type / the missing-secret case; everything else is `failed`.
+ */
+export async function attemptRestoreFromBackup(onProgress?: (p: ImportRoomKeyProgressData) => void): Promise<RestoreAttempt> {
+  const before = lastSecretStorageKeyMiss().seq;
+  try {
+    return { restore: await restoreFromBackup(onProgress) };
+  } catch (e) {
+    const miss = lastSecretStorageKeyMiss();
+    const message = e instanceof Error ? e.message : String(e);
+    let reason: RestoreFailureReason = 'failed';
+    if (miss.seq !== before && miss.reason) reason = miss.reason;
+    else if (e instanceof DecryptionKeyDoesNotMatchError) reason = 'wrong-key';
+    else if (/missing decryption key in secret storage/i.test(message)) reason = 'no-key';
+    console.warn('[security] backup restore failed:', reason, e);
+    return { restore: null, restoreError: { reason, message: reason === 'failed' ? message : RESTORE_FAILURE_TEXT[reason] } };
+  }
 }
 
 /**

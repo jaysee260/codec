@@ -229,6 +229,12 @@ export async function defaultSecretStorageKey(token: string, userId: string): Pr
   return r.status === 404 ? null : (r.json.key ?? null);
 }
 
+/** Global account data of `type` (e.g. `m.megolm_backup.v1`: `{ encrypted: { <keyId>: ... } }`), or null. */
+export async function accountData<T = Record<string, unknown>>(token: string, userId: string, type: string): Promise<T | null> {
+  const r = await call<T>('GET', `/user/${encodeURIComponent(userId)}/account_data/${encodeURIComponent(type)}`, token, undefined, [404]);
+  return r.status === 404 ? null : r.json;
+}
+
 /** The device's identity keys as the server publishes them (AC-E1-1: keys uploaded). */
 export async function publishedDeviceKeys(token: string, userId: string, deviceId: string): Promise<Record<string, string> | null> {
   const { json } = await call<{ device_keys?: Record<string, Record<string, { keys?: Record<string, string> }>> }>('POST', '/keys/query', token, { device_keys: { [userId]: [deviceId] } });
