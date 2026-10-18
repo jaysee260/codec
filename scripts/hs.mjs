@@ -72,6 +72,11 @@ url_preview_ip_range_blacklist:
   - "2001:db8::/32"
   - "ff00::/8"
   - "fec0::/10"
+url_preview_ip_range_whitelist:
+  # Test server only (Phase 6): lets Synapse preview the OpenGraph fixture pages a local Vite serves
+  # (public/preview-fixtures/, e.g. http://localhost:5183/preview-fixtures/article.html). Production keeps the blacklist.
+  - "127.0.0.1/32"
+  - "::1/128"
 url_preview_accept_language:
   - en-US
   - en

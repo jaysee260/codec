@@ -50,7 +50,8 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:fixtures": "node e2e/fixtures/make-test-assets.mjs",
     "test:e2e:fresh": "node scripts/hs-pool.mjs fresh && npm run test:e2e",
-    "postinstall": "playwright install chromium"
+    "postinstall": "playwright install chromium",
+    "preview:fixtures": "node scripts/make-preview-fixtures.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^7.1.2",
