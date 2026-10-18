@@ -1,0 +1,51 @@
+/* Same box as a one-line MessageBody, so a row settling from a placeholder into text does not jump. */
+.line {
+  font-size: var(--font-size-message);
+  line-height: var(--line-height-message);
+}
+
+.body {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.text {
+  overflow-wrap: anywhere;
+}
+
+.decrypting {
+  opacity: 0.8;
+}
+
+.restoring .icon {
+  color: var(--warning);
+}
+
+.action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-link);
+  font: inherit;
+  font-style: normal;
+  font-weight: 500;
+  cursor: pointer;
+}
+.action:hover,
+.action:focus-visible {
+  text-decoration: underline;
+}
+
+:global(:root[data-layout='phone']) .action {
+  min-height: var(--tap-target);
+  padding: 0 4px;
+}

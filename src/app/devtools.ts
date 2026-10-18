@@ -19,10 +19,14 @@ import { useRoomStore } from '@/store/rooms.ts';
 import { useSessionStore } from '@/store/session.ts';
 import { useTimelineStore, paginateBack, refreshThread, isRedactedThreadReply } from '@/store/timeline.ts';
 import { useThreadStore, getThreadSummary, getThreadModel, isThreadReady } from '@/store/threads.ts';
-import { getClientOrNull } from '@/lib/matrix/client.ts';
+import { useSecurityStore } from '@/store/security.ts';
+import { getClientOrNull, getCryptoError } from '@/lib/matrix/client.ts';
 import { getHsUrl } from '@/lib/matrix/config.ts';
 import * as actions from '@/lib/matrix/actions.ts';
 import * as utils from '@/lib/matrix/utils.ts';
+import * as security from '@/lib/matrix/security.ts';
+import * as attachments from '@/lib/matrix/attachments.ts';
+import * as cryptoLifecycle from '@/lib/matrix/crypto.ts';
 import { getDisplayBody, getVoiceMessage } from '@/lib/matrix/utils.ts';
 import { analyzeAudio, encodeToOggOpus, pickRecordingMimeType } from '@/lib/audio/index.ts';
 import { voiceSendDebug } from '@/features/conversation/hooks/useVoiceRecorder.ts';
@@ -68,5 +72,35 @@ export function installDevHooks(): void {
       },
       encodeToOggOpus,
     },
+    // Phase 5 (docs/PHASE5_ACCEPTANCE.md): `__matrixPoc.security` = the security module plus
+    // `{ store, getCryptoApi, getOwnDeviceStatus, cryptoDatabasePrefix, importRoomKeys(json), exportRoomKeys() }`;
+    // `__matrixPoc.crypto` is the same object. `attachments` is the whole module (`encryptAttachment`, ...).
+    securityStore: useSecurityStore,
+    security: securityHook,
+    crypto: securityHook,
+    attachments,
+    cryptoLifecycle,
+    getCryptoError,
   };
 }
+
+/** `window.__matrixPoc.security` (Phase 5). Room keys travel as the SDK's JSON export (`seed/e2ee-keys.json`). */
+const securityHook = {
+  ...security,
+  store: useSecurityStore,
+  cryptoDatabasePrefix: cryptoLifecycle.cryptoDatabasePrefix,
+  getCryptoError,
+  /** Import Megolm sessions exported by `npm run e2ee:sample` (or `exportRoomKeys()`); decrypts matching rows at once. */
+  async importRoomKeys(json: string | unknown[]): Promise<void> {
+    const crypto = security.getCryptoApi();
+    if (!crypto) throw new Error('crypto not ready');
+    await crypto.importRoomKeysAsJson(typeof json === 'string' ? json : JSON.stringify(json));
+  },
+  /** Every Megolm session this device holds, as the SDK's JSON export string. */
+  async exportRoomKeys(): Promise<string> {
+    const crypto = security.getCryptoApi();
+    if (!crypto) throw new Error('crypto not ready');
+    return crypto.exportRoomKeysAsJson();
+  },
+};
+

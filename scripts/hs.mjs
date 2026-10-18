@@ -16,19 +16,17 @@
  *              SYNAPSE_IMAGE (default ghcr.io/element-hq/synapse:latest)
  */
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Shared with scripts/hs-pool.mjs (the N-instance pool for parallel e2e runs).
+import { ensureSecrets, waitForHomeserver as pollHomeserver } from './lib/hs-config.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HS_DIR = path.join(ROOT, 'homeserver');
 const DATA_DIR = path.join(HS_DIR, 'data');
 const CONFIG = path.join(HS_DIR, 'homeserver.yaml');
 const SIGNING_KEY = path.join(DATA_DIR, 'localhost.signing.key');
-const SECRETS_DIR = path.join(DATA_DIR, 'secrets');
-// homeserver.yaml points at these via *_path so no secret is ever committed (see homeserver/README.md).
-const SECRET_FILES = ['registration_shared_secret', 'macaroon_secret_key', 'form_secret'];
 const WSL_SCRIPT = path.join(HS_DIR, 'wsl', 'hs.sh');
 const KEEP_ON_RESET = new Set(['.gitkeep', 'secrets']);
 const HS_URL = (process.env.HS_URL ?? 'http://localhost:8008').replace(/\/+$/, '');
@@ -136,8 +134,6 @@ experimental_features:
   msc3575_enabled: true
 `;
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 function sh(cmd, args, { capture = false, check = true, cwd = HS_DIR, timeout } = {}) {
   const r = spawnSync(cmd, args, { cwd, stdio: capture ? 'pipe' : 'inherit', encoding: 'utf8', timeout });
   if (r.error) throw r.error;
@@ -182,22 +178,7 @@ function ensureConfigPatched() {
   }
 }
 
-async function waitForHomeserver(timeoutMs = 120_000, onTimeout) {
-  const start = Date.now();
-  let lastError = '';
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`${HS_URL}/_matrix/client/versions`);
-      if (res.ok) return await res.json();
-      lastError = `HTTP ${res.status}`;
-    } catch (e) {
-      lastError = e.message;
-    }
-    await sleep(1500);
-  }
-  onTimeout?.();
-  throw new Error(`Synapse did not answer on ${HS_URL} within ${timeoutMs / 1000}s (${lastError}).`);
-}
+const waitForHomeserver = (timeoutMs = 120_000, onTimeout) => pollHomeserver(HS_URL, timeoutMs, { onTimeout, interval: 1500 });
 
 function reportUp(versions) {
   console.log(`Synapse is up on ${HS_URL}. Spec versions: ${versions.versions.slice(-3).join(', ')}`);
@@ -209,13 +190,8 @@ function reportUp(versions) {
 
 const docker = {
   ensureSecrets() {
-    mkdirSync(SECRETS_DIR, { recursive: true });
-    for (const name of SECRET_FILES) {
-      const file = path.join(SECRETS_DIR, name);
-      if (existsSync(file)) continue;
-      writeFileSync(file, randomBytes(32).toString('hex'), { mode: 0o600 });
-      console.log(`Generated data/secrets/${name}`);
-    }
+    // homeserver.yaml points at these via *_path so no secret is ever committed (see homeserver/README.md).
+    ensureSecrets(DATA_DIR);
   },
   ensureSigningKey() {
     mkdirSync(DATA_DIR, { recursive: true });

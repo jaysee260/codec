@@ -12,11 +12,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { exportWorkerEnv, hsUrlFor, workerIndex } from './pool.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SEED_FILE = resolve(HERE, '../../seed/seed-output.json');
 
-export const HS_URL = process.env.E2E_HS_URL ?? process.env.HS_URL ?? 'http://localhost:8008';
+/**
+ * This worker's homeserver (fixtures/pool.ts): 8008 + `TEST_PARALLEL_INDEX` in parallel runs, `E2E_HS_URL` /
+ * `HS_URL` / 8008 with one worker. Also exported to `process.env` here, at module load, so scripts the fixtures spawn
+ * (`scripts/send-encrypted-sample.mjs`) hit the same server.
+ */
+export const HS_URL = hsUrlFor(workerIndex());
+exportWorkerEnv();
 export const SERVER_NAME = 'localhost';
 export const PASSWORD = 'password123';
 
@@ -30,7 +37,10 @@ export type RoomKey =
   | 'gaming'
   | 'lobby'
   | 'dm-alice-bob'
-  | 'dm-alice-carol';
+  | 'dm-alice-carol'
+  // Phase 5 (PRIN-22): the encrypted channel and the encrypted DM.
+  | 'vault'
+  | 'dm-alice-dave';
 
 export type EventKey =
   | 'general.first'
@@ -44,6 +54,21 @@ export type EventKey =
   | 'general.link'
   | 'general.mention'
   | 'general.code';
+
+/** Event ids every seed run records (docs/SEED_DATA.md); `conversation.spec` and smoke steps 3+ need all of them. */
+const REQUIRED_EVENT_KEYS: EventKey[] = [
+  'general.first',
+  'general.last',
+  'general.replyTarget',
+  'general.reply',
+  'general.bold',
+  'general.reacted',
+  'general.image',
+  'general.edited',
+  'general.link',
+  'general.mention',
+  'general.code',
+];
 
 interface SeedOutput {
   users: Record<string, string>;
@@ -59,6 +84,7 @@ const ALIASES: Partial<Record<RoomKey, string>> = {
   dev: `#dev:${SERVER_NAME}`,
   gaming: `#gaming:${SERVER_NAME}`,
   lobby: `#lobby:${SERVER_NAME}`,
+  vault: `#vault:${SERVER_NAME}`,
 };
 
 function loadSeed(): SeedOutput {
@@ -70,6 +96,14 @@ function loadSeed(): SeedOutput {
   const parsed = JSON.parse(readFileSync(SEED_FILE, 'utf8')) as Partial<SeedOutput>;
   if (!parsed.rooms || !parsed.events || !parsed.users) {
     throw new Error(`seed/seed-output.json is malformed: expected { users, rooms, events }`);
+  }
+  // BUG-15 guard: the Phase 1 suites locate seeded rows by these ids; an additive seed run must keep / re-record
+  // them. Fail at load with the missing keys instead of a mystifying "has no event" halfway through a spec.
+  const missing = REQUIRED_EVENT_KEYS.filter((key) => !parsed.events![key]);
+  if (missing.length) {
+    throw new Error(
+      `seed/seed-output.json is missing event ids (${missing.join(', ')}). Run \`npm run seed\` against the homeserver: it re-records them from the room history.`,
+    );
   }
   return parsed as SeedOutput;
 }
@@ -167,6 +201,7 @@ export const NAMES = {
   random: 'random',
   dev: 'dev',
   lobby: 'lobby',
+  vault: 'vault',
 } as const;
 
 export const TOPICS = {

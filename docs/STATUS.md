@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-09 (Phase 4 planned, all tickets todo, see the Phase 4 block at the end; Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-17 (Phase 5 E2EE planned, all tickets todo, see the Phase 5 block at the end; Phase 4 done at `89a1b80`, authenticated media + SSO merged in PR #1 `2bd3833`; Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -275,3 +275,65 @@ Plan: docs/PHASE4_PLAN.md · Criteria/testids: docs/PHASE4_ACCEPTANCE.md · Tick
 |---|---|---|---|
 | 13 | PM | Shared API per docs/PHASE4_TICKETS.md (`src/lib/gif/`, `sendGif`, `getGifContent`, `window.__poc.gif`, image host allow list, fixtures) | todo |
 | 14 | PM | `gif:fixtures`, `gif:sample` script lines in `package.json`; `.env.example` `VITE_GIF_API_KEY` | todo |
+
+---
+
+# Phase 5 - End-to-end encryption
+
+Plan: docs/PHASE5_PLAN.md · Criteria/testids: docs/PHASE5_ACCEPTANCE.md · Tickets: docs/PHASE5_TICKETS.md · Handoff: docs/PHASE5_DEMO.md. Planned 2026-10-17 by PM (Advisor risk list + consults 1-3 recorded in the plan). Scope: `e2ee-plan.md` items 1-7. P0 = the desktop demo script (three browser windows against the local Synapse). Real-server pass on 704.chat (SSO, Element interop, existing recovery keys) is manual, Wave 15. Rules this phase: never `seed:reset`, two browser contexts max, keys never survive logout. Waves: 13 Principal core (PRIN-17/18 first), 14 devs + QA in parallel, 15 dry run + regression + 704.chat checklist.
+
+## Wave 13 - Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PRIN-17 Crypto boot (`initRustCrypto` per user+device), wipe on logout / token rejection, `useSecurityStore` skeleton, loading stage, dev hook | P0 | in-progress | Principal | `src/lib/matrix/crypto.ts`, `security.ts`, `src/store/security.ts`, Vite `optimizeDeps.exclude` landed in the working tree while planning; docs realigned to those names |
+| PRIN-18 Timeline decryption: bridge `Decrypted`, `getDecryptionState`, `isDisplayableEvent` keeps `m.room.encrypted`, `prepareToEncrypt`, `isRoomEncrypted` | P0 | in-progress | Principal | `getDecryptionState` / `describeDecryptionFailure` in `utils.ts` (working tree) |
+| PRIN-19 Encrypted attachments (`attachments.ts`, decrypted media helpers, encrypted `sendFile` / `sendVoiceMessage`) | P0 | in-progress | Principal | `attachments.ts` (working tree); no server thumbnails for encrypted media |
+| PRIN-20 Verification + cross-signing core (SAS both ways, bootstrap with UIA); **SSO UIA spike on 704.chat first** | P0 | todo | Principal | Least certain piece (Advisor risk 5); result goes into ARCHITECTURE |
+| PRIN-21 Recovery + backup core (unlock with key / passphrase, restore, setup guarded by existing SSSS) | P0 | todo | Principal | Cross-signing before secret storage; `cryptoCallbacks` mandatory |
+| PRIN-22 Encrypted by default, `#vault` seed, `e2ee:sample`, `verify:e2ee` | P0 | todo | Principal | `npm run seed` once (idempotent), never `seed:reset`; sample script exports keys to `seed/e2ee-keys.json` |
+| PRIN-23 Shell mounts, `current-user[data-verified]`, ARCHITECTURE "Phase 5 deltas", MOBILE note | P1 | todo | Principal | |
+
+## Wave 14 - Dev A (security UI `src/features/security/**`, navigation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-24 `SecurityBanner` + `SecurityDialogs` host + `openSecurityDialog` | P0 | todo | Dev A | Banner from `useSecurityHint()`; one dialog at a time |
+| DEV-A-25 `VerificationDialog` (outgoing + incoming, 7 emoji, match / mismatch / cancel) | P0 | todo | Dev A | |
+| DEV-A-26 `RecoveryDialog` + `SetupEncryptionDialog` (key or passphrase; UIA prompt; key shown once) | P0 | todo | Dev A | Setup only reachable when `hint === 'setup'` |
+| DEV-A-27 `channel-header-lock`, `data-encrypted` on items, notes in the create dialogs | P0 | todo | Dev A | |
+| DEV-A-28 Phone variants (sheets, 44 px, banner on phone) | P1 | todo | Dev A | |
+| DEV-A-29 Sessions list | P2 | todo | Dev A | Not scheduled before the demo |
+
+## Wave 14 - Dev B (conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-27 Undecryptable / decrypting rows with reasons + actions; late decryption re-render | P0 | todo | Dev B | `data-reason` derived from `decryption.code` (mapping in the tickets) |
+| DEV-B-28 Encrypted images, files, voice notes in rows (decrypt in view, blob URLs, errors) | P0 | todo | Dev B | Never navigate to a raw encrypted mxc |
+| DEV-B-29 Composer in encrypted rooms (`prepareToEncrypt`, placeholder, send errors) | P0 | todo | Dev B | |
+| DEV-B-30 Edits, replies, reactions, threads, redactions verified in `#vault` | P0 | todo | Dev B | |
+| DEV-B-31 GIF click-to-load in encrypted rooms | P1 | todo | Dev B | |
+
+## Wave 14 - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-24 `e2e/fixtures/e2ee.ts` (second context, setup / verify / unlock helpers, wire + ciphertext checks), config, `test:e2e:e2ee` | P0 | todo | QA | |
+| QA-25 `e2e/e2ee-core.spec.ts` (AC-E1, AC-E2, AC-E6) | P0 | todo | QA | |
+| QA-26 `e2e/e2ee-media.spec.ts` (AC-E3) | P0 | todo | QA | |
+| QA-27 `e2e/e2ee-security.spec.ts` (AC-E4, AC-E5, two contexts) | P0 | todo | QA | |
+| QA-28 Smoke step 13 (demo 1-11) + regression runs | P0 | todo | QA | |
+| QA-29 docs/BUGS.md Phase 5 + 704.chat manual checklist | P1 | todo | QA | |
+
+## Phase 5 dry run
+| Item | Result |
+|---|---|
+| `desktop` / `mobile` projects incl. the three e2ee specs and smoke step 13 | not yet run |
+| SSO UIA cross-signing spike on 704.chat (PRIN-20) | not yet run |
+| Manual 704.chat pass (JC, Charlie, Juanjo): verify against Element both ways, unlock with the existing recovery key, read the 6 encrypted rooms, codec media decrypted by Element, new-account setup over SSO | not yet run |
+| Open bugs | BUG-4 (S3, environment) carried over |
+
+## Requests to Principal (Phase 5)
+| # | From | Request | Status |
+|---|---|---|---|
+| 15 | PM | Shared API per docs/PHASE5_TICKETS.md (`useSecurityStore`, `getDecryptionState`, attachments + decrypted media helpers, `prepareToEncrypt`, `isRoomEncrypted`, Shell hosts, dev hook with `importRoomKeys` / `exportRoomKeys`) | in-progress (store, crypto, attachments in the working tree) |
+| 16 | PM | `#vault` in `seed.ts` + `rooms.vault` in `seed-output.json`; `e2ee:sample`, `verify:e2ee`, `test:e2e:e2ee` script lines | todo |
+| 17 | PM | After the 704.chat spike: the SSO UIA prompt shape on `useSecurityStore.prompt` (so DEV-A-26's `setup-sso-hint` has a contract) | todo |
+

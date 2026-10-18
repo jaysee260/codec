@@ -22,12 +22,31 @@
  *     ...
  *   });
  *
- * The verdict is probed once per worker process and cached: the run itself dirties both signals
- * (the very first test that posts into #general moves the window), so a later re-probe would
- * report "dirty" for a run that started clean and would skip tests that should have run.
+ * The verdict is probed at the first guarded test of each spec file and reused for the rest of that file: a file's
+ * own steps dirty both signals (smoke step 2 reads #random, step 4 posts into #general), so a re-probe per test would
+ * skip later steps that were judged on a clean start. A file that runs after *another* file dirtied the same server
+ * gets its own probe and skips honestly instead of failing on a window it cannot judge (BUG-24).
+ *
+ * Pool runs (issue #2): when global setup restored the homeserver pool it sets `E2E_POOL_RESTORED=1` and deletes
+ * `e2e/tmp/fresh-w*.json`; each verdict is then also written to `e2e/tmp/fresh-w<i>-<spec file>.json`, so a worker
+ * that Playwright restarts after a failure mid-file reuses the verdict taken at the start of that file instead of
+ * re-probing a server the file's earlier tests dirtied. Without a restore (`E2E_REUSE_SERVERS`, a reused :8008, WSL1)
+ * nothing is persisted and each worker process probes once per file.
+ *
+ * Thread replies do not count as "events after the seeded last message": the seed itself posts a late thread reply
+ * into #general after `general.last` (seed/seed.ts, Phase 3), and thread replies never enter the main timeline window
+ * (BUG-23).
  */
-import { asUser } from './matrix-api.ts';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from '@playwright/test';
+import { asUser, type MatrixEventJson } from './matrix-api.ts';
+import { fileActiveAt, filesInLog, readRunLog, type RunLogEntry } from './run-log.ts';
+import { workerIndex } from './pool.ts';
 import { eventId, resolveRoom } from './seed.ts';
+
+const TMP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'tmp');
 
 /** Seeded unread for #random on a fresh seed (docs/SEED_DATA.md, AC-A5-1). */
 const RANDOM_UNREAD_ON_FRESH_SEED = 3;
@@ -48,7 +67,65 @@ export interface FreshSeedTest {
   info(): { annotations: { type: string; description?: string }[] };
 }
 
-let probed: Promise<FreshSeedReport> | undefined;
+/** One verdict per spec file in this process (see checkFreshSeed). */
+const probed = new Map<string, Promise<FreshSeedReport>>();
+
+/** True for an event in a thread (`m.relates_to.rel_type === 'm.thread'`): it is not part of the main timeline. */
+export function isThreadReply(event: MatrixEventJson): boolean {
+  const rel = (event.content as { 'm.relates_to'?: { rel_type?: unknown } } | undefined)?.['m.relates_to'];
+  return rel?.rel_type === 'm.thread';
+}
+
+/** The newest main-timeline event in a `/messages?dir=b` chunk (newest first), skipping thread replies. */
+export function newestMainTimelineEvent(chunk: MatrixEventJson[]): MatrixEventJson | undefined {
+  return chunk.find((event) => !isThreadReply(event));
+}
+
+/** Where the verdict for spec file `specFile` on pool instance `i` is persisted for the rest of the run. */
+export function freshVerdictFile(i: number, specFile: string): string {
+  return resolve(TMP_DIR, `fresh-w${i}-${basename(specFile).replace(/[^\w.-]/g, '_')}.json`);
+}
+
+/**
+ * Returns the verdict persisted in `file` when there is one, otherwise runs `probe` and persists its result there
+ * (atomically). With no `file`, just probes.
+ */
+export async function loadOrProbe(
+  file: string | undefined,
+  probe: () => Promise<FreshSeedReport>,
+): Promise<FreshSeedReport> {
+  if (file && existsSync(file)) {
+    try {
+      return JSON.parse(readFileSync(file, 'utf8')) as FreshSeedReport;
+    } catch {
+      // A torn or foreign file: fall through and probe (the write below replaces it).
+    }
+  }
+  const report = await probe();
+  if (file) {
+    mkdirSync(dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(report));
+    renameSync(tmp, file);
+  }
+  return report;
+}
+
+/**
+ * Names who dirtied #general: the oldest main-timeline event after `lastSeededId` in `chunk` (newest first), its
+ * sender and time, and the spec file that was using this server then (run-log.ts). PERF-3: a fresh-seed skip must
+ * name the file that dirtied the server.
+ */
+export function firstWriteAfter(chunk: MatrixEventJson[], lastSeededId: string, log: RunLogEntry[]): string {
+  const cut = chunk.findIndex((e) => e.event_id === lastSeededId);
+  const newer = (cut === -1 ? chunk : chunk.slice(0, cut)).filter((e) => !isThreadReply(e));
+  const first = newer[newer.length - 1];
+  if (!first) return 'no newer main-timeline event found';
+  const body = typeof first.content?.body === 'string' ? ` "${(first.content.body as string).slice(0, 40)}"` : '';
+  const at = new Date(first.origin_server_ts).toISOString().slice(11, 19);
+  const file = fileActiveAt(log, first.origin_server_ts);
+  return `first written${cut === -1 ? ' (at least 50 events ago)' : ''} at ${at} by ${first.sender}${body} while ${file ?? 'no logged spec file'} was using this server`;
+}
 
 async function probeSeed(): Promise<FreshSeedReport> {
   const reasons: string[] = [];
@@ -56,13 +133,16 @@ async function probeSeed(): Promise<FreshSeedReport> {
   const general = await resolveRoom('general');
   const random = await resolveRoom('random');
 
+  const log = readRunLog();
+
   // 1. The newest event in #general is still the last seeded message (nothing was posted after it).
-  const newest = (await alice.messages(general, 1))[0];
+  const chunk = await alice.messages(general, 50);
+  const newest = newestMainTimelineEvent(chunk);
   const newestId = newest?.event_id;
   const expectedNewest = eventId('general.last');
   if (newestId !== expectedNewest) {
     reasons.push(
-      `#general has events after the seeded last message (newest is ${newestId ?? 'none'}, expected ${expectedNewest})`,
+      `#general has events after the seeded last message (newest is ${newestId ?? 'none'}, expected ${expectedNewest}); ${firstWriteAfter(chunk, expectedNewest, log)}`,
     );
   }
 
@@ -70,17 +150,36 @@ async function probeSeed(): Promise<FreshSeedReport> {
   const unread = await alice.unreadFor(random);
   if (unread.count !== RANDOM_UNREAD_ON_FRESH_SEED) {
     reasons.push(
-      `alice's unread in #random is ${unread.count}, expected ${RANDOM_UNREAD_ON_FRESH_SEED} (a receipt already moved past the seeded messages)`,
+      `alice's unread in #random is ${unread.count}, expected ${RANDOM_UNREAD_ON_FRESH_SEED} (a receipt already moved past the seeded messages; spec files that used this server before: ${filesInLog(log).join(', ') || 'none logged'})`,
     );
   }
 
   return { fresh: reasons.length === 0, reasons, newestGeneralEvent: newestId, randomUnread: unread.count };
 }
 
-/** Probes the homeserver once per worker and caches the verdict for the rest of the run. */
-export function checkFreshSeed(): Promise<FreshSeedReport> {
-  probed ??= probeSeed();
-  return probed;
+/** The spec file of the running test (the verdict key); '' outside a test. */
+function currentSpecFile(): string {
+  try {
+    return test.info().file;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Probes the homeserver at the first guarded test of each spec file and reuses that verdict for the rest of the file
+ * (BUG-24): a file's own earlier steps do not void its later guarded steps, and a file that runs after another file
+ * dirtied the server skips honestly. After a pool restore the verdict is also persisted per (pool instance, file), so
+ * a worker restarted mid-file reuses it.
+ */
+export function checkFreshSeed(specFile: string = currentSpecFile()): Promise<FreshSeedReport> {
+  let verdict = probed.get(specFile);
+  if (!verdict) {
+    const file = process.env.E2E_POOL_RESTORED ? freshVerdictFile(workerIndex(), specFile) : undefined;
+    verdict = loadOrProbe(file, probeSeed);
+    probed.set(specFile, verdict);
+  }
+  return verdict;
 }
 
 /**

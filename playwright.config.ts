@@ -1,24 +1,36 @@
 import { defineConfig, devices } from '@playwright/test';
+import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool.ts';
 
 /**
  * QA owns this file (docs/TICKETS.md QA-1, docs/PHASE2_TICKETS.md QA-8).
  *
- * Preconditions for a run:
- *  - Synapse up and seeded on http://localhost:8008 (`npm run hs:up && npm run seed`);
- *  - `seed/seed-output.json` present (the fixtures read room/event ids from it);
- *  - port 5173 free, or a dev server already listening on it (it is reused).
+ * ## Parallel runs (issue #2, docs/PERF_PLAN.md)
+ *
+ * The suite runs on N workers (`E2E_WORKERS`; default in `e2e/fixtures/pool.ts`), one Synapse + one Vite per worker:
+ * worker i (`TEST_PARALLEL_INDEX`) uses http://localhost:${8008+i} and http://localhost:${5173+i}. `globalSetup`
+ * (`e2e/global-setup.ts`) restores every Synapse from one seeded snapshot (`scripts/hs-pool.mjs`, needs a Synapse
+ * venv or Docker) and stops them at the end, so every run starts pristine; the N Vite servers are the `webServer`
+ * entries below (`VITE_HS_URL` points each at its Synapse). Size the run with `E2E_WORKERS`, not `--workers`.
+ *
+ *  - `E2E_WORKERS=1` is the old single-server setup: 8008 / 5173, and a homeserver already running on 8008 is reused.
+ *  - `E2E_REUSE_SERVERS=1` never starts or stops a homeserver (dev loops; WSL1 machines, with `E2E_WORKERS=1`).
+ *  - `seed/seed-output.json` and `seed/e2ee-keys.json` are restored from the snapshot; ids are identical on every clone.
  *
  * ## Projects
  *
  * | project | device | specs | outputDir |
  * |---|---|---|---|
- * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
+ * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation-*`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
  * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` + voice format `voice-compat`, `ogg-remux` | `e2e/results/mobile` |
  *
  * Voice format (docs/VOICE_FORMAT_PLAN.md): `voice-compat.spec.ts` (old-iPhone simulation, native vs
  * fallback playback) and `ogg-remux.spec.ts` (the Node-side WebM -> Ogg remuxer; no page, so it costs
  * no browser) are listed in **both** regexes like `mobile-threads`: they run in `mobile` only, so
  * `--project=mobile` covers the whole voice feature and neither runs twice.
+ *
+ * Phase 5 (QA-24..28): `e2ee-core-*`, `e2ee-media`, `e2ee-security-*` and smoke step 13 need no entry either (desktop
+ * only, not in `mobile`'s regex). They open a second browser context for the other device (separate IndexedDB =
+ * separate crypto store), so they are slow (~10 min for the three): `npm run test:e2e:e2ee`.
  *
  * Phase 4 (QA-19/20): `gif.spec.ts` likewise needs no entry in `desktop`, and `mobile-gif.spec.ts`
  * is listed in **both** regexes for the same reason `mobile-threads.spec.ts` is — see below.
@@ -47,17 +59,20 @@ import { defineConfig, devices } from '@playwright/test';
  * The `mobile` project also grants `permissions: ['microphone']` on the context (the flag covers the
  * prompt, the grant covers the Permissions API that the app may query).
  */
+const WORKERS = poolSize();
+
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
-  workers: 1,
+  workers: WORKERS,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 45_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
+    baseURL: baseUrlFor(workerIndex()),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -85,12 +100,14 @@ export default defineConfig({
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+  // One Vite per worker. With one worker this is the historical `npm run dev` on 5173 (reused when already running).
+  webServer: Array.from({ length: WORKERS }, (_, i) => ({
+    command: `npm run dev -- --port ${new URL(baseUrlFor(i)).port || 5173} --strictPort`,
+    url: baseUrlFor(i),
     reuseExistingServer: true,
     timeout: 60_000,
-    stdout: 'ignore',
-    stderr: 'pipe',
-  },
+    stdout: 'ignore' as const,
+    stderr: 'pipe' as const,
+    env: { VITE_HS_URL: hsUrlFor(i) },
+  })),
 });

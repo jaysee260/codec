@@ -1,0 +1,128 @@
+/* Discord's top notice bar: brand colour, white text, outlined action. */
+.banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 8px 6px 16px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-sm);
+  position: relative;
+  z-index: 2;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 8px;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.sub {
+  opacity: 0.85;
+}
+
+.action {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  color: var(--text-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  transition: background 0.12s ease-out;
+}
+.action:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.dismiss {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-on-accent);
+  opacity: 0.8;
+}
+.dismiss:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Restoring: calmer, with a progress bar along the bottom edge. */
+.restoring {
+  background: var(--bg-sidebar);
+  color: var(--text-normal);
+  box-shadow: 0 1px 0 var(--border-strong);
+}
+
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--bg-active);
+}
+.barFill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.spin {
+  flex-shrink: 0;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* Phone (DEV-A-28): one compact line, no sub text, 44 px targets. */
+:root[data-layout='phone'] .banner {
+  min-height: var(--tap-target);
+  padding: 0 0 0 12px;
+  gap: 8px;
+}
+:root[data-layout='phone'] .sub {
+  display: none;
+}
+:root[data-layout='phone'] .restoring .sub {
+  display: inline;
+}
+:root[data-layout='phone'] .action {
+  height: var(--tap-target);
+  min-width: var(--tap-target);
+  border: none;
+  padding: 0 8px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: var(--font-size-message);
+}
+:root[data-layout='phone'] .dismiss {
+  width: var(--tap-target);
+  height: var(--tap-target);
+}

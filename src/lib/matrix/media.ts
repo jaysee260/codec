@@ -14,6 +14,15 @@
  */
 import { SESSION_STORAGE_KEY } from './config.ts';
 import { setAuthenticatedMedia } from './mxc.ts';
+import { fetchDecryptedBlob, isEncryptedFile, type EncryptedFile } from './attachments.ts';
+
+/** Phase 5: a media source is an http(s) URL (plain media, or an already decrypted `blob:`) or an `EncryptedFile`. */
+export type MediaSource = string | EncryptedFile;
+
+/** The source to open / download for a media body: the `EncryptedFile` when there is one, else the mxc url. */
+export function mediaSourceOf(body: { file?: EncryptedFile | null; url?: string | null }): MediaSource | null {
+  return body.file ?? body.url ?? null;
+}
 
 const SW_URL = `${import.meta.env.BASE_URL}media-sw.js`;
 const CONTROL_TIMEOUT_MS = 3000;
@@ -120,24 +129,33 @@ export function fetchMedia(url: string): Promise<Response> {
 /** Image types a browser renders as inert pixels; anything else (SVG, HTML, ...) could run script in our origin. */
 const VIEWABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp']);
 
+/** Bytes of a media source: plain URL through `fetchMedia`, encrypted file decrypted (Phase 5). */
+export async function fetchMediaBlob(source: MediaSource, mimetype?: string): Promise<Blob> {
+  if (isEncryptedFile(source)) return fetchDecryptedBlob(source, mimetype);
+  const res = await fetchMedia(source);
+  if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
+  return res.blob();
+}
+
 /**
  * Click handler for a link to full-size media. Unauthenticated URLs keep the native link behaviour;
  * authenticated ones open a tab synchronously (so popup blockers allow it) and point it at a blob.
  * A blob: URL lives in the app's origin and loses the homeserver's sandboxing headers, so only raster
  * images are opened this way; everything else, or a blocked popup, falls back to a download.
+ * Phase 5: an `EncryptedFile` source is downloaded and decrypted first (never navigate to the raw mxc, it is
+ * ciphertext); pass the event's `info.mimetype` so the tab / download gets the right type.
  */
-export function openMedia(e: { preventDefault(): void }, url: string, name?: string): void {
-  if (!needsAuth(url)) return;
+export function openMedia(e: { preventDefault(): void }, source: MediaSource, name?: string, mimetype?: string): void {
+  const encrypted = isEncryptedFile(source);
+  if (!encrypted && !needsAuth(source)) return;
   e.preventDefault();
   const tab = window.open('', '_blank');
   if (!tab) {
-    downloadMedia(e, url, name);
+    downloadMedia(e, source, name, mimetype);
     return;
   }
-  fetchMedia(url)
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
-      const blob = await res.blob();
+  fetchMediaBlob(source, mimetype)
+    .then(async (blob) => {
       const type = blob.type.split(';')[0]!.trim().toLowerCase();
       if (!VIEWABLE_TYPES.has(type)) {
         tab.close();
@@ -166,13 +184,10 @@ function saveBlob(blob: Blob, name: string | undefined): void {
 }
 
 /** Click handler for a download link: like `openMedia`, but always saves the file under `name`. */
-export function downloadMedia(e: { preventDefault(): void }, url: string, name: string | undefined): void {
-  if (!needsAuth(url)) return;
+export function downloadMedia(e: { preventDefault(): void }, source: MediaSource, name: string | undefined, mimetype?: string): void {
+  if (!isEncryptedFile(source) && !needsAuth(source)) return;
   e.preventDefault();
-  fetchMedia(url)
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`Media download failed: ${res.status}`);
-      saveBlob(await res.blob(), name);
-    })
+  fetchMediaBlob(source, mimetype)
+    .then((blob) => saveBlob(blob, name))
     .catch((err: unknown) => console.warn('[media] download failed', err));
 }

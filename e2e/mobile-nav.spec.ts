@@ -651,10 +651,17 @@ test('AC-V6-6 — pagination keeps its anchor (<= 5 px) and the list sticks to t
   const topId = ids[0];
   const anchor = page.getByTestId(topId);
 
-  const beforeY = await messageList(page).evaluate((el, id) => {
-    el.scrollTop = 0;
-    return el.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect().top;
-  }, topId);
+  // Measured against message-list, not the viewport: the phone security banner (44 px, an account without
+  // encryption set up) can mount ~1 s after the shell and shift the whole column (BUG-19).
+  const offsetInList = (id: string, scrollToTop = false): Promise<number> =>
+    messageList(page).evaluate(
+      (el, [rowId, toTop]) => {
+        if (toTop) el.scrollTop = 0; // same tick as the read, before pagination can prepend
+        return el.querySelector(`[data-testid="${rowId}"]`)!.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      },
+      [id, scrollToTop] as const,
+    );
+  const beforeY = await offsetInList(topId, true);
 
   await expect
     .poll(
@@ -663,8 +670,9 @@ test('AC-V6-6 — pagination keeps its anchor (<= 5 px) and the list sticks to t
     )
     .toBeGreaterThan(ids.length);
 
-  const after = await box(anchor, topId);
-  expect(Math.abs(after.y - beforeY), 'anchor drift <= 5 px').toBeLessThanOrEqual(5);
+  await expect(anchor).toBeAttached();
+  const afterY = await offsetInList(topId);
+  expect(Math.abs(afterY - beforeY), 'anchor drift <= 5 px').toBeLessThanOrEqual(5);
 
   // AC-B3-4 on phone: a new message while at the bottom keeps the list pinned.
   await messageList(page).evaluate((el) => {

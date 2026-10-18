@@ -20,7 +20,8 @@ const SERVER = process.env.HS_SERVER_NAME ?? 'localhost';
 const PASSWORD = 'password123';
 const SEED_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(SEED_DIR, 'assets');
-const OUTPUT_FILE = path.join(SEED_DIR, 'seed-output.json');
+// SEED_OUTPUT_FILE: scripts/hs-pool.mjs seeds its snapshot template without touching the checkout's seed-output.json.
+const OUTPUT_FILE = process.env.SEED_OUTPUT_FILE ?? path.join(SEED_DIR, 'seed-output.json');
 const V3 = '/_matrix/client/v3';
 /** Room version 11: explicit creator power level (100). v12 makes creators "infinite" and rejects them in users. */
 const ROOM_VERSION = '11';
@@ -606,7 +607,16 @@ interface ChannelSpec {
   order: string;
   script: Step[];
   key: string;
+  /**
+   * Phase 5: create the room with `m.room.encryption` (m.megolm.v1.aes-sha2). The seed has no crypto engine (plain
+   * fetch, no Olm account), so encrypted rooms are created **empty**; tests and the demo send into them from the
+   * client. A plaintext message in an encrypted room would render as "unencrypted" warnings in Element, so none is sent.
+   */
+  encrypted?: boolean;
 }
+
+/** Phase 5: exactly what the client puts in `initial_state` for new channels and DMs (`ENCRYPTION_INITIAL_STATE`). */
+const ENCRYPTION_STATE = { type: 'm.room.encryption', state_key: '', content: { algorithm: 'm.megolm.v1.aes-sha2' } };
 
 interface SpaceSpec {
   name: string;
@@ -628,6 +638,8 @@ const SPACES: SpaceSpec[] = [
       { name: 'general', alias: 'general', topic: 'Company-wide chat. Be nice.', members: ['alice', 'bob', 'carol', 'dave'], order: '01', script: GENERAL, key: 'general' },
       { name: 'random', alias: 'random', topic: 'Off-topic, memes, lunch plans.', members: ['alice', 'bob', 'carol', 'dave'], order: '02', script: RANDOM, key: 'random' },
       { name: 'dev', alias: 'dev', topic: 'Engineering talk. Stack traces welcome.', members: ['alice', 'bob', 'carol', 'dave'], order: '03', script: DEV, key: 'dev' },
+      // Phase 5: an encrypted channel, created empty (see ChannelSpec.encrypted; docs/PHASE5_ACCEPTANCE.md AC-E7-1).
+      { name: 'vault', alias: 'vault', topic: 'Encrypted. Say it here.', members: ['alice', 'bob', 'dave'], order: '04', script: [], key: 'vault', encrypted: true },
     ],
   },
   {
@@ -640,6 +652,19 @@ const SPACES: SpaceSpec[] = [
   },
 ];
 
+interface DmSpec {
+  other: string;
+  key: string;
+  script: Step[];
+  encrypted?: boolean;
+}
+
+/** DMs added after Phase 1 (also created by the additive pass on an already seeded server). */
+const EXTRA_DMS: DmSpec[] = [
+  // Phase 5: an encrypted DM, created empty (same reason as #vault).
+  { other: 'dave', key: 'dm-alice-dave', script: [], encrypted: true },
+];
+
 async function main(): Promise<void> {
   console.log(`Seeding ${HS} (server_name ${SERVER})`);
   await waitForHomeserver();
@@ -650,14 +675,15 @@ async function main(): Promise<void> {
   const alice = sessions.alice!;
   const bob = sessions.bob!;
 
+  const powerLevels = { users: { [alice.userId]: 100, [bob.userId]: 50 } };
   const state = await aliasState(`#acme-hq:${SERVER}`, alice);
   if (state === 'live') {
-    console.log('already seeded - run npm run seed:reset');
+    // Phase 5: an already seeded server gets the rooms added since (per-alias idempotence), nothing else changes.
+    await addMissingRooms(sessions, powerLevels);
     return;
   }
   if (state === 'stale') console.log('found a stale #acme-hq alias from a failed run; cleaning up');
 
-  const powerLevels = { users: { [alice.userId]: 100, [bob.userId]: 50 } };
   const rooms: Record<string, string> = {};
   const events: Record<string, string> = {};
 
@@ -684,7 +710,10 @@ async function main(): Promise<void> {
         preset: 'public_chat',
         visibility: 'public',
         power_level_content_override: powerLevels,
-        initial_state: [{ type: 'm.space.parent', state_key: spaceId, content: { via: [SERVER], canonical: true } }],
+        initial_state: [
+          { type: 'm.space.parent', state_key: spaceId, content: { via: [SERVER], canonical: true } },
+          ...(channel.encrypted ? [ENCRYPTION_STATE] : []),
+        ],
       });
       rooms[channel.key] = roomId;
       await sendState(alice, spaceId, 'm.space.child', roomId, { via: [SERVER], order: channel.order });
@@ -693,14 +722,20 @@ async function main(): Promise<void> {
     }
   }
 
-  const dms: { other: string; key: string; script: Step[] }[] = [
+  const dms: DmSpec[] = [
     { other: 'bob', key: 'dm-alice-bob', script: DM_ALICE_BOB },
     { other: 'carol', key: 'dm-alice-carol', script: DM_ALICE_CAROL },
+    ...EXTRA_DMS,
   ];
   for (const dm of dms) {
     const other = sessions[dm.other]!;
-    console.log(`DM alice <-> ${dm.other}`);
-    const roomId = await createRoom(alice, { is_direct: true, preset: 'trusted_private_chat', invite: [other.userId] });
+    console.log(`DM alice <-> ${dm.other}${dm.encrypted ? ' (encrypted)' : ''}`);
+    const roomId = await createRoom(alice, {
+      is_direct: true,
+      preset: 'trusted_private_chat',
+      invite: [other.userId],
+      initial_state: dm.encrypted ? [ENCRYPTION_STATE] : [],
+    });
     await join(other, roomId);
     await addDirect(alice, other.userId, roomId);
     await addDirect(other, alice.userId, roomId);
@@ -715,6 +750,151 @@ async function main(): Promise<void> {
   };
   writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2) + '\n');
   console.log(`Done. Wrote ${path.relative(process.cwd(), OUTPUT_FILE)}`);
+}
+
+/**
+ * Phase 5: additive pass for a server seeded by an earlier phase (`npm run seed`, never `seed:reset`): creates every
+ * channel whose alias does not resolve yet (with its `m.space.child`, members and script) and every DM whose
+ * counterpart is missing from alice's `m.direct`, then merges the new room ids into seed/seed-output.json
+ * (`rooms.vault`, `rooms.dm-alice-dave`). Existing rooms and history are untouched; re-running is a no-op.
+ */
+/**
+ * Re-derive the keyed event ids of a room that was seeded by an earlier run (BUG-15: an additive run on a machine
+ * without seed-output.json must not leave `events` empty). Walks the room history from the start and matches each
+ * script step in order by sender + body (the original body for edited steps); thread replies are matched after
+ * their root. Keys that cannot be matched are left out (and reported) rather than guessed.
+ */
+async function recoverEvents(alice: Session, roomId: string, steps: Step[], events: Record<string, string>): Promise<string[]> {
+  type Msg = { event_id: string; sender: string; type: string; content: { body?: string; msgtype?: string; 'm.relates_to'?: { rel_type?: string } } };
+  const history: Msg[] = [];
+  let from: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const r = await api<{ chunk: Msg[]; end?: string }>('GET', `${V3}/rooms/${enc(roomId)}/messages`, {
+      token: alice.token,
+      query: { dir: 'b', limit: '200', ...(from ? { from } : {}) },
+    });
+    history.push(...r.chunk);
+    if (!r.end || r.chunk.length === 0) break;
+    from = r.end;
+  }
+  history.reverse(); // chronological
+  const messages = history.filter((m) => m.type === 'm.room.message' && m.content?.['m.relates_to']?.rel_type !== 'm.replace');
+  const matches = (m: Msg, who: string, body: string): boolean => m.sender === `@${who}:${SERVER}` && m.content.body === body;
+  const missing: string[] = [];
+  let cursor = 0;
+  for (const step of steps) {
+    const body = step.editFrom ?? step.body;
+    let i = cursor;
+    while (i < messages.length && !matches(messages[i]!, step.who, body)) i++;
+    if (i >= messages.length) {
+      if (step.key) missing.push(step.key);
+      for (let n = 1; n <= (step.thread?.length ?? 0); n++) if (step.threadKey) missing.push(`${step.threadKey}${n}`);
+      continue;
+    }
+    if (step.key) events[step.key] = messages[i]!.event_id;
+    cursor = i + 1;
+    let after = cursor;
+    for (let n = 0; n < (step.thread?.length ?? 0); n++) {
+      const reply = step.thread![n]!;
+      let j = after;
+      while (j < messages.length && !matches(messages[j]!, reply.who, reply.body)) j++;
+      if (j >= messages.length) {
+        if (step.threadKey) missing.push(`${step.threadKey}${n + 1}`);
+        continue;
+      }
+      if (step.threadKey) events[`${step.threadKey}${n + 1}`] = messages[j]!.event_id;
+      after = j + 1;
+    }
+  }
+  return missing;
+}
+
+async function addMissingRooms(sessions: Record<string, Session>, powerLevels: Json): Promise<void> {
+  const alice = sessions.alice!;
+  const added: Record<string, string> = {};
+  const events: Record<string, string> = {};
+  for (const space of SPACES) {
+    const spaceId = await resolveAlias(`#${space.alias}:${SERVER}`, alice.token);
+    if (!spaceId) continue;
+    for (const channel of space.channels) {
+      if ((await aliasState(`#${channel.alias}:${SERVER}`, alice)) === 'live') {
+        // Seeded earlier: re-record its keyed event ids so seed-output.json is complete on any machine (BUG-15).
+        const liveId = await resolveAlias(`#${channel.alias}:${SERVER}`, alice.token);
+        if (liveId && channel.script.some((st) => st.key || st.threadKey)) {
+          const missing = await recoverEvents(alice, liveId, channel.script, events);
+          console.log(`Channel #${channel.name}: event ids recovered${missing.length ? ` (not found: ${missing.join(', ')})` : ''}`);
+        }
+        continue;
+      }
+      console.log(`Channel #${channel.name} (added)`);
+      const roomId = await createRoom(alice, {
+        name: channel.name,
+        room_alias_name: channel.alias,
+        topic: channel.topic,
+        preset: 'public_chat',
+        visibility: 'public',
+        power_level_content_override: powerLevels,
+        initial_state: [
+          { type: 'm.space.parent', state_key: spaceId, content: { via: [SERVER], canonical: true } },
+          ...(channel.encrypted ? [ENCRYPTION_STATE] : []),
+        ],
+      });
+      await sendState(alice, spaceId, 'm.space.child', roomId, { via: [SERVER], order: channel.order });
+      for (const who of channel.members) if (who !== 'alice') await join(sessions[who]!, roomId);
+      await runScript(sessions, roomId, channel.script, events);
+      added[channel.key] = roomId;
+    }
+  }
+  const direct = await getDirect(alice);
+  for (const dm of EXTRA_DMS) {
+    const other = sessions[dm.other]!;
+    if ((direct[other.userId] ?? []).length > 0) continue;
+    console.log(`DM alice <-> ${dm.other}${dm.encrypted ? ' (encrypted)' : ''} (added)`);
+    const roomId = await createRoom(alice, {
+      is_direct: true,
+      preset: 'trusted_private_chat',
+      invite: [other.userId],
+      initial_state: dm.encrypted ? [ENCRYPTION_STATE] : [],
+    });
+    await join(other, roomId);
+    await addDirect(alice, other.userId, roomId);
+    await addDirect(other, alice.userId, roomId);
+    added[dm.key] = roomId;
+  }
+  // Every room id as the server has it now (a stale seed-output.json from another server gets corrected too).
+  const live: Record<string, string> = {};
+  for (const space of SPACES) {
+    const spaceId = await resolveAlias(`#${space.alias}:${SERVER}`, alice.token);
+    if (spaceId) live[space.key] = spaceId;
+    for (const channel of space.channels) {
+      const id = await resolveAlias(`#${channel.alias}:${SERVER}`, alice.token);
+      if (id) live[channel.key] = id;
+    }
+  }
+  const directNow = await getDirect(alice);
+  for (const [who, s] of Object.entries(sessions)) {
+    const id = directNow[s.userId]?.[0];
+    if (who !== 'alice' && id) live[`dm-alice-${who}`] = id;
+  }
+  let previous: { users?: Record<string, string>; rooms?: Record<string, string>; events?: Record<string, string> } = {};
+  try {
+    previous = JSON.parse(readFileSync(OUTPUT_FILE, 'utf8')) as typeof previous;
+  } catch {
+    /* no previous output: write what we know (event ids of the original run are not recoverable) */
+  }
+  const output = {
+    users: Object.fromEntries(Object.entries(sessions).map(([k, s]) => [k, s.userId])),
+    rooms: { ...(previous.rooms ?? {}), ...live, ...added },
+    // Recovered / newly recorded ids win over the file (the server is the truth; a stale file may be from elsewhere).
+    events: { ...(previous.events ?? {}), ...events },
+  };
+  const changed = JSON.stringify(output.rooms) !== JSON.stringify(previous.rooms ?? {}) || JSON.stringify(output.events) !== JSON.stringify(previous.events ?? {});
+  if (Object.keys(added).length === 0 && !changed) {
+    console.log('already seeded, nothing to add - run npm run seed:reset for a fresh dataset');
+    return;
+  }
+  writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2) + '\n');
+  console.log(`Done. Added ${Object.keys(added).join(', ') || 'nothing'}; room ids refreshed in ${path.relative(process.cwd(), OUTPUT_FILE)}`);
 }
 
 main().catch((e: unknown) => {

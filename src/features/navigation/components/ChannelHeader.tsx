@@ -31,10 +31,13 @@
  *
  * testids: channel-header, channel-header-name, channel-header-topic, member-toggle, header-menu,
  *          header-menu-unread, header-threads, header-threads-unread, header-back,
- *          header-thread-room
+ *          header-thread-room, channel-header-lock
+ *
+ * DEV-A-27 (Phase 5): `channel-header-lock` (14 px lock, `title="End-to-end encrypted"`) right after the name
+ * while `RoomSummary.encrypted`; absent in plain rooms. It appears live when a room turns encrypted (AC-E6-6).
  */
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Menu, MessageSquareText, Users } from 'lucide-react';
+import { ArrowLeft, Lock, Menu, MessageSquareText, Users } from 'lucide-react';
 import { useRoomSummary, useIsPhone } from '@/store/hooks.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useOpenThread, useThreadStore, useThreadUnread } from '@/store/threads.ts';
@@ -134,6 +137,7 @@ export function ChannelHeader({ roomId }: { roomId: string }) {
       <span className={`${styles.name} u-truncate`} data-testid="channel-header-name">
         {room.name}
       </span>
+      {room.encrypted && <EncryptedLock />}
 
       {/* The topic is desktop-only: at 412 px it would push the name out of the bar (AC-M3-1). */}
       {!isPhone && room.topic && (
@@ -182,5 +186,14 @@ export function ChannelHeader({ roomId }: { roomId: string }) {
         <ThreadList roomId={roomId} anchor={threadsAnchor} onClose={() => setListOpen(false)} />
       )}
     </div>
+  );
+}
+
+/** DEV-A-27: lock after the room name (both layouts). The wrapper carries the testid + tooltip (an SVG `title` attribute is not a tooltip). */
+function EncryptedLock() {
+  return (
+    <span className={styles.lock} data-testid="channel-header-lock" title="End-to-end encrypted" aria-label="End-to-end encrypted" role="img">
+      <Lock size={14} aria-hidden="true" />
+    </span>
   );
 }

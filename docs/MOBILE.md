@@ -42,6 +42,9 @@ What this path cannot do: **record voice notes**. `getUserMedia` needs a secure 
 plain-`http` proxy - mixed content). Playback of voice notes works. To record in a browser on the phone, either
 use the APK (origin `http://localhost` inside the app *is* a secure context) or on Android Chrome enable
 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` with `http://<ip>:5173`.
+Phase 5: the same insecure origin has **no `crypto.subtle`**, so encrypted attachments (images, files, voice notes
+in encrypted rooms) cannot be encrypted or decrypted there; text in encrypted rooms still works (the Rust engine
+brings its own primitives). Same fixes: the APK, `adb reverse`, or the Chrome flag.
 
 Alternative without Wi-Fi (Android, USB debugging on): `adb reverse tcp:5173 tcp:5173` and
 `adb reverse tcp:8008 tcp:8008`, then the phone browser opens `http://localhost:5173` and the Homeserver URL is

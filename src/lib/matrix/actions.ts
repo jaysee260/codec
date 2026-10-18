@@ -30,7 +30,8 @@ import {
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events.js';
 import { getClient, getClientOrNull } from './client.ts';
 import { serverNameOf } from './config.ts';
-import { getThreadRelation, isGifEvent, isThreadReply } from './utils.ts';
+import { encryptAttachment, type EncryptedFile } from './attachments.ts';
+import { getThreadRelation, isGifEvent, isRoomEncrypted, isThreadReply, MEGOLM_ALGORITHM } from './utils.ts';
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { containerMimeType, voiceFileName } from '../audio/mime.ts';
 import { buildGifContent } from '../gif/message.ts';
@@ -155,9 +156,21 @@ export class ThreadReplyConflictError extends Error {
   }
 }
 
+/**
+ * Phase 5: thrown before anything is sent when the room is encrypted but this session has no crypto engine
+ * (`getCryptoError()` says why). The SDK would throw its own error at send time; this one is predictable.
+ */
+export class EncryptionNotReadyError extends Error {
+  constructor() {
+    super('This room is encrypted, but encryption is not available in this session');
+    this.name = 'EncryptionNotReadyError';
+  }
+}
+
 /** Send a room message, into a thread when `threadRoot` is given (local echo lands in that thread). */
 async function sendRoomMessage(roomId: string, content: Record<string, unknown>, threadRoot?: string): Promise<string> {
   const client = getClient();
+  if (isRoomEncrypted(roomId) && !client.getCrypto()) throw new EncryptionNotReadyError();
   if (!threadRoot) {
     const res = await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
     return res.event_id;
@@ -271,7 +284,10 @@ export async function toggleReaction(roomId: string, targetEventId: string, key:
 // ---------------------------------------------------------------------------
 
 export interface UploadResult {
+  /** The uploaded content's mxc url: the plaintext for plain uploads, the ciphertext when `file` is set. */
   mxc: string;
+  /** Phase 5: the spec `EncryptedFile` (`file` for the event) when the upload was encrypted. */
+  file?: EncryptedFile;
   mimetype: string;
   size: number;
   name: string;
@@ -328,24 +344,49 @@ export async function uploadMedia(blob: Blob, opts: { name?: string; type?: stri
   }, 'Uploading');
 }
 
-/** Upload a file to the media repo. Returns the mxc URL plus metadata for the `info` block. */
-export async function uploadFile(file: File): Promise<UploadResult> {
+/**
+ * Phase 5: encrypt a blob (AES-256-CTR, spec "Sending encrypted attachments") and upload the ciphertext as
+ * `application/octet-stream` under a neutral name, so the server sees neither content, type nor filename.
+ * Resolves with the `file` object for the event (`{ url, key, iv, hashes, v }`). Needs a secure context.
+ */
+export async function uploadEncryptedMedia(blob: Blob): Promise<EncryptedFile> {
+  const { data, info } = await encryptAttachment(await blob.arrayBuffer());
+  const url = await uploadMedia(new Blob([data], { type: 'application/octet-stream' }), { name: 'encrypted', type: 'application/octet-stream' });
+  return { url, ...info };
+}
+
+/**
+ * Upload a file to the media repo. Returns the mxc URL plus metadata for the `info` block. Phase 5: with
+ * `opts.encrypt` (the default when `opts.roomId` is an encrypted room) the bytes are encrypted first and the
+ * result carries `file`; put `file` (not `url`) in the event.
+ */
+export async function uploadFile(file: File, opts: { encrypt?: boolean; roomId?: string } = {}): Promise<UploadResult> {
   const mimetype = file.type || 'application/octet-stream';
   const dims = mimetype.startsWith('image/') ? await imageDimensions(file) : undefined;
+  const encrypt = opts.encrypt ?? isRoomEncrypted(opts.roomId);
+  if (encrypt) {
+    const enc = await uploadEncryptedMedia(file);
+    return { mxc: enc.url, file: enc, mimetype, size: file.size, name: file.name, ...(dims ?? {}) };
+  }
   const mxc = await uploadMedia(file, { name: file.name, type: mimetype });
   return { mxc, mimetype, size: file.size, name: file.name, ...(dims ?? {}) };
 }
 
-/** Upload then send: `m.image` for image/*, `m.file` otherwise. Resolves with the event id. `threadRoot` sends it into a thread. */
+/**
+ * Upload then send: `m.image` for image/*, `m.file` otherwise. Resolves with the event id. `threadRoot` sends it
+ * into a thread. Phase 5: in an encrypted room the upload is encrypted and the event carries `file` instead of `url`.
+ */
 export async function sendFile(roomId: string, file: File, opts: ThreadOptions = {}): Promise<string> {
-  const up = await uploadFile(file);
+  const up = await uploadFile(file, { roomId });
   const isImage = up.mimetype.startsWith('image/');
   const info: Record<string, unknown> = { mimetype: up.mimetype, size: up.size };
   if (isImage && up.w && up.h) {
     info.w = up.w;
     info.h = up.h;
   }
-  const content = { msgtype: isImage ? MsgType.Image : MsgType.File, body: up.name, url: up.mxc, info };
+  const content: Record<string, unknown> = { msgtype: isImage ? MsgType.Image : MsgType.File, body: up.name, info };
+  if (up.file) content.file = up.file;
+  else content.url = up.mxc;
   return sendRoomMessage(roomId, content, opts.threadRoot);
 }
 
@@ -378,6 +419,8 @@ export interface VoiceMessageOptions extends ThreadOptions {
  * `Voice message.ogg`). `size` is `blob.size`, so it always matches the uploaded bytes.
  * Resolves with the event id. Throws on upload/send failure (Dev B shows `recording-error`, AC-V5-2).
  * Phase 3: `opts.threadRoot` sends the voice note into a thread (the thread relation is added to the content).
+ * Phase 5: in an encrypted room the audio is encrypted before upload and `file` replaces `url` (top level and
+ * inside `org.matrix.msc1767.file`, Element's shape).
  */
 export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMessageOptions): Promise<string> {
   const mimetype = containerMimeType(opts.mimetype || blob.type) || 'audio/webm';
@@ -386,18 +429,23 @@ export async function sendVoiceMessage(roomId: string, blob: Blob, opts: VoiceMe
   const waveform = sanitizeWaveform(opts.waveform);
   const size = blob.size;
 
-  const url = await uploadMedia(blob, { name, type: mimetype });
-
-  const content = {
+  const content: Record<string, unknown> = {
     msgtype: MsgType.Audio,
     body: 'Voice message',
-    url,
     info: { duration, mimetype, size },
     'org.matrix.msc1767.text': 'Voice message',
-    'org.matrix.msc1767.file': { url, name, mimetype, size },
     'org.matrix.msc1767.audio': { duration, waveform },
     'org.matrix.msc3245.voice': {},
   };
+  if (isRoomEncrypted(roomId)) {
+    const file = await uploadEncryptedMedia(blob);
+    content.file = file;
+    content['org.matrix.msc1767.file'] = { file, name, mimetype, size };
+  } else {
+    const url = await uploadMedia(blob, { name, type: mimetype });
+    content.url = url;
+    content['org.matrix.msc1767.file'] = { url, name, mimetype, size };
+  }
   return sendRoomMessage(roomId, content, opts.threadRoot);
 }
 
@@ -488,10 +536,18 @@ function viaFor(): string[] {
   return [serverNameOf(getClient().getSafeUserId())];
 }
 
-/** Create a public, unencrypted channel inside a space (sets m.space.parent + m.space.child). */
-export async function createChannel(opts: { spaceId: string; name: string; topic?: string }): Promise<string> {
+/** Phase 5: the `m.room.encryption` state event new rooms and DMs are created with. */
+export const ENCRYPTION_INITIAL_STATE = { type: EventType.RoomEncryption, state_key: '', content: { algorithm: MEGOLM_ALGORITHM } } as const;
+
+/**
+ * Create a channel inside a space (sets m.space.parent + m.space.child). Phase 5: **encrypted by default**
+ * (`m.room.encryption` in `initial_state`); pass `encrypted: false` for a plaintext channel. Join rule stays
+ * public within the space, history `shared`, as before.
+ */
+export async function createChannel(opts: { spaceId: string; name: string; topic?: string; encrypted?: boolean }): Promise<string> {
   const client = getClient();
   const via = viaFor();
+  const encrypted = opts.encrypted ?? true;
   const { room_id } = await retryOnRateLimit(
     () =>
       client.createRoom({
@@ -500,7 +556,10 @@ export async function createChannel(opts: { spaceId: string; name: string; topic
         topic: opts.topic,
         preset: Preset.PublicChat,
         visibility: Visibility.Private,
-        initial_state: [{ type: EventType.SpaceParent, state_key: opts.spaceId, content: { via, canonical: true } }],
+        initial_state: [
+          { type: EventType.SpaceParent, state_key: opts.spaceId, content: { via, canonical: true } },
+          ...(encrypted ? [ENCRYPTION_INITIAL_STATE] : []),
+        ],
       }),
     'Creating a channel',
   );
@@ -517,8 +576,8 @@ export async function createChannel(opts: { spaceId: string; name: string; topic
   return room_id;
 }
 
-/** Create a space (public, unencrypted) with one `general` channel. Resolves with the space room id. */
-export async function createSpace(opts: { name: string; topic?: string }): Promise<string> {
+/** Create a space (spaces are never encrypted, as in Element) with one `general` channel (encrypted by default). Resolves with the space room id. */
+export async function createSpace(opts: { name: string; topic?: string; encrypted?: boolean }): Promise<string> {
   const client = getClient();
   const { room_id } = await retryOnRateLimit(
     () =>
@@ -532,8 +591,29 @@ export async function createSpace(opts: { name: string; topic?: string }): Promi
       }),
     'Creating a space',
   );
-  await createChannel({ spaceId: room_id, name: 'general' });
+  await createChannel({ spaceId: room_id, name: 'general', encrypted: opts.encrypted });
   return room_id;
+}
+
+/** Phase 5: turn encryption on in an existing room (irreversible, as the spec says). No-op when already on. */
+export async function enableRoomEncryption(roomId: string): Promise<void> {
+  if (isRoomEncrypted(roomId)) return;
+  await retryOnRateLimit(
+    () => getClient().sendStateEvent(roomId, EventType.RoomEncryption, { algorithm: MEGOLM_ALGORITHM }, ''),
+    'Enabling encryption',
+  );
+}
+
+/**
+ * Phase 5: start preparing the Megolm session for a room (member list + device keys + key shares) before the
+ * user hits Enter, so the first encrypted send is fast. Call it on composer focus; harmless in plaintext rooms.
+ */
+export function prepareToEncrypt(roomId: string): void {
+  const client = getClientOrNull();
+  const room = client?.getRoom(roomId);
+  const crypto = client?.getCrypto();
+  if (!room || !crypto || !room.hasEncryptionStateEvent()) return;
+  crypto.prepareToEncrypt(room);
 }
 
 /** Invite a user to a room or space. Throws MatrixError (e.g. M_NOT_FOUND for unknown users). */
@@ -564,10 +644,14 @@ async function addToDirectMap(userId: string, roomId: string): Promise<void> {
   await retryOnRateLimit(() => getClient().setAccountData(EventType.Direct, map), 'Saving the DM');
 }
 
-/** Reuse the existing DM with `userId` or create one (is_direct + trusted_private_chat) and record it in m.direct. */
-export async function createDm(userId: string): Promise<string> {
+/**
+ * Reuse the existing DM with `userId` or create one (is_direct + trusted_private_chat) and record it in m.direct.
+ * Phase 5: new DMs are **encrypted by default** (`encrypted: false` opts out); an existing DM is reused as is.
+ */
+export async function createDm(userId: string, opts: { encrypted?: boolean } = {}): Promise<string> {
   const existing = findDmRoomId(userId);
   if (existing) return existing;
+  const encrypted = opts.encrypted ?? true;
   const { room_id } = await retryOnRateLimit(
     () =>
       getClient().createRoom({
@@ -575,6 +659,7 @@ export async function createDm(userId: string): Promise<string> {
         is_direct: true,
         preset: Preset.TrustedPrivateChat,
         invite: [userId],
+        initial_state: encrypted ? [ENCRYPTION_INITIAL_STATE] : [],
       }),
     'Starting a DM',
   );
@@ -681,7 +766,15 @@ export function canRedactEvent(roomId: string, event: MatrixEvent): boolean {
 export function canEditEvent(event: MatrixEvent): boolean {
   const me = getClientOrNull()?.getUserId();
   // Phase 4: GIF messages are not editable (docs/PHASE4_ACCEPTANCE.md; `message-action-edit` hidden on GIF rows).
-  return !!me && event.getSender() === me && !event.isRedacted() && event.getType() === EventType.RoomMessage && !isGifEvent(event);
+  // Phase 5: nor are events still encrypted / undecryptable (`getType()` is the clear type once decrypted).
+  return (
+    !!me &&
+    event.getSender() === me &&
+    !event.isRedacted() &&
+    event.getType() === EventType.RoomMessage &&
+    !event.isDecryptionFailure() &&
+    !isGifEvent(event)
+  );
 }
 
 /** Current user's power level in a room (0 when unknown). */
