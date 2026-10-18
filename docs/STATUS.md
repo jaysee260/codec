@@ -388,3 +388,50 @@ Plan: docs/PHASE6_PLAN.md · Criteria/testids: docs/PHASE6_ACCEPTANCE.md · Tick
 | 18 | PM | Shared API per docs/PHASE6_TICKETS.md (`@/lib/preview`), cache numbers + module map in ARCHITECTURE | done |
 | 19 | PM | `url_preview_ip_range_whitelist` in the test configs + `public/preview-fixtures/*`; pool snapshot rebuild | done |
 | 20 | PM | `clearLinkPreviewCache()` on logout / token rejection | done |
+
+# Read receipts - "sent / seen by"
+
+Plan: docs/RECEIPTS_PLAN.md · Criteria/testids: docs/RECEIPTS_ACCEPTANCE.md · Tickets: docs/RECEIPTS_TICKETS.md · Demo: docs/RECEIPTS_DEMO.md. Planned 2026-10-18 by PM from the orchestrator's settled brief (two Advisor consults, recorded in the plan: "+N" tested with a unit test plus throwaway registered users, no seed change; desktop "Seen by" is a direct toolbar button, overflow menu deferred). Scope: sending / sent status on own messages (check only on my newest unread message), live read avatars under each user's read point (max 3 + "+N", hidden-event receipts attach to the previous row), Seen by / Not seen yet list (popover on desktop, sheet on phone, also from the message actions), threads use threaded receipts, identical in `#vault`, **Send read receipts** toggle (`m.read.private` when off, account data `im.vector.web.settings.sendReadReceipts`, merged). P0 = the two-browser demo script (alice + bob in `#dev` and `#vault`). Waves: A plan + core, B features + tests, C fix wave + regression.
+
+## Wave A - PM + Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PM docs (plan, acceptance, tickets, demo, this section) | P0 | done | PM | Shared API in RECEIPTS_TICKETS.md is the brief's copy until the Principal overwrites it |
+| PRIN-R1 `src/lib/matrix/receipts.ts` core, `src/store/receipts.ts` hooks, bridge receipt version counter, `__matrixPoc.receipts` | P0 | todo | Principal | |
+| PRIN-R2 Private receipts setting (account data merge), `sendReadReceipt` honours it, live `useSendReadReceiptsSetting` | P0 | todo | Principal | |
+| PRIN-R3 `receipts` area in `scripts/select-e2e.mjs`, unit tests, ARCHITECTURE "Read receipts deltas", final Shared API | P0 | todo | Principal | |
+
+## Wave B - Dev A (`src/features/receipts/**`)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-R1 `SendStatus` icon | P0 | todo | Dev A | |
+| DEV-A-R2 `ReadAvatars` (max 3 + "+N", hover / click / tap / keyboard, fixed strip height) | P0 | todo | Dev A | |
+| DEV-A-R3 `SeenByList` (popover / sheet, Seen by / Not seen yet, Escape / outside close, focus return) | P0 | todo | Dev A | |
+| DEV-A-R4 `ReadReceiptsToggle` + mount in `UserFooter.tsx` | P0 | todo | Dev A | |
+
+## Wave B - Dev B (conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-R1 Rows render status + avatars from the hooks, main and thread sources | P0 | todo | Dev B | |
+| DEV-B-R2 "Seen by" in `MessageActions` + `MessageActionSheet` | P0 | todo | Dev B | Direct button; no overflow menu |
+| DEV-B-R3 Scroll stability when avatars appear / move | P0 | todo | Dev B | |
+
+## Wave B - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-R1 `e2e/fixtures/receipts.ts`, `test:e2e:receipts` | P0 | todo | QA | |
+| QA-R2 `e2e/receipts.spec.ts` (desktop, second context for bob) | P0 | todo | QA | "+N" via 4 throwaway registered users (AC-R2-4) |
+| QA-R3 `e2e/mobile-receipts.spec.ts`, regression runs, docs/BUGS.md "Read receipts", regression test per fix | P0 | todo | QA | |
+
+## Read receipts dry run (Wave C)
+| Item | Result |
+|---|---|
+| Full run, both projects (`desktop` + `mobile`, incl. the two receipts specs) | pending |
+| Two-browser demo script (docs/RECEIPTS_DEMO.md) | pending |
+| Open follow-up | - |
+
+## Requests to Principal (Read receipts)
+| # | From | Request | Status |
+|---|---|---|---|
+| 21 | PM | Final Shared API written into docs/RECEIPTS_TICKETS.md "Shared API" and ARCHITECTURE "Read receipts deltas" before Wave B | todo |
+| 22 | PM | `receipts` area in `scripts/select-e2e.mjs` covering `src/features/receipts/**`, `receipts.ts` (lib + store), `MessageRow` / `MessageActions` / `MessageActionSheet` | todo |

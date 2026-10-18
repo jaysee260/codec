@@ -252,3 +252,18 @@ export {
   type ThreadState,
 } from './threads.ts';
 export { type TimelineSource, sourceKey, threadKey } from './timeline.ts';
+
+// Read receipts: hooks live in ./receipts.ts and are re-exported here.
+export {
+  useReceiptStore,
+  useReceiptVersion,
+  useReadPoints,
+  useReadPointsResult,
+  useLatestOwnSentId,
+  useSendStatus,
+  useSeenBy,
+  useSendReadReceiptsSetting,
+  type ReceiptState,
+  type ReadPointsResult,
+} from './receipts.ts';
+export { type Reader, type SeenBy, type SendStatus } from '@/lib/matrix/receipts.ts';
