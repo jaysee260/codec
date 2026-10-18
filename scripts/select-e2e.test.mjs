@@ -54,6 +54,10 @@ describe('select-e2e', () => {
     assert.deepEqual(selectSpecs(['src/features/gif/GifPicker.tsx']), [...SMOKE, 'e2e/gif.spec.ts', 'e2e/mobile-gif.spec.ts'].sort());
   });
 
+  test('a link preview change runs the link preview specs only, plus smoke', () => {
+    assert.deepEqual(selectSpecs(['src/lib/preview/fetch.ts']), [...SMOKE, 'e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts'].sort());
+  });
+
   test('docs-only changes run just the smoke set; a changed spec runs itself', () => {
     assert.deepEqual(selectSpecs(['docs/STATUS.md', 'README.md']), [...SMOKE].sort());
     assert.deepEqual(selectSpecs(['e2e/navigation.spec.ts']), [...SMOKE, 'e2e/navigation.spec.ts'].sort());

@@ -49,6 +49,7 @@ const E2EE = [
   'e2e/e2ee-security-regressions.spec.ts',
 ];
 const VOICE = ['e2e/voice.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts'];
+const LINK_PREVIEW = ['e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts'];
 const CONVERSATION = [
   'e2e/conversation-compose.spec.ts',
   'e2e/conversation-messages.spec.ts',
@@ -58,11 +59,13 @@ const CONVERSATION = [
   'e2e/e2ee-core-timeline.spec.ts',
   'e2e/auth-media.spec.ts',
   ...VOICE,
+  ...LINK_PREVIEW,
 ];
 
 /** Feature areas: changed paths -> the specs that cover them. Overlaps are deliberate (voice notes live in threads and E2EE). */
 export const AREAS = [
   { name: 'voice', match: /^src\/lib\/audio\/|^src\/features\/conversation\/(components\/Voice|hooks\/useVoiceRecorder)/, specs: VOICE },
+  { name: 'link-preview', match: /^src\/(features\/link-preview|lib\/preview)\/|^src\/features\/conversation\/components\/LinkPreviews|^public\/preview-fixtures\//, specs: LINK_PREVIEW },
   { name: 'conversation', match: /^src\/features\/conversation\//, specs: CONVERSATION },
   { name: 'navigation', match: /^src\/features\/navigation\//, specs: ['e2e/navigation.spec.ts', 'e2e/mobile-nav.spec.ts', 'e2e/shell.spec.ts'] },
   { name: 'gif', match: /^src\/(features|lib)\/gif\//, specs: ['e2e/gif.spec.ts', 'e2e/mobile-gif.spec.ts'] },
