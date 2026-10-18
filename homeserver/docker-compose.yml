@@ -14,6 +14,9 @@ services:
     environment:
       SYNAPSE_SERVER_NAME: localhost
       SYNAPSE_REPORT_STATS: "no"
+      # scripts/hs.mjs sets these to the host user on Linux/macOS so Synapse can read data/secrets.
+      UID: ${HS_UID:-991}
+      GID: ${HS_GID:-991}
     volumes:
       - ./data:/data
       - ./homeserver.yaml:/data/homeserver.yaml

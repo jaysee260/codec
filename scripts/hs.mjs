@@ -33,6 +33,13 @@ const WSL_SCRIPT = path.join(HS_DIR, 'wsl', 'hs.sh');
 const KEEP_ON_RESET = new Set(['.gitkeep', 'secrets']);
 const HS_URL = (process.env.HS_URL ?? 'http://localhost:8008').replace(/\/+$/, '');
 const IMAGE = process.env.SYNAPSE_IMAGE ?? 'ghcr.io/element-hq/synapse:latest';
+// On Linux/macOS run Synapse as the host user, so it can read the 0600 files in data/secrets that this script
+// writes (the image's default 991:991 cannot). docker-compose.yml reads HS_UID/HS_GID; Windows keeps 991.
+const HOST_IDS = process.platform === 'win32' ? null : { uid: String(process.getuid()), gid: String(process.getgid()) };
+if (HOST_IDS) {
+  process.env.HS_UID ??= HOST_IDS.uid;
+  process.env.HS_GID ??= HOST_IDS.gid;
+}
 const DOCKER = process.platform === 'win32' ? 'docker.exe' : 'docker';
 
 const MARKER = '# --- matrix-poc overrides ---';
@@ -221,6 +228,7 @@ const docker = {
       '-v', `${path.join(HS_DIR, 'localhost.log.config')}:/data/localhost.log.config`,
       '-e', 'SYNAPSE_SERVER_NAME=localhost',
       '-e', 'SYNAPSE_REPORT_STATS=no',
+      ...(HOST_IDS ? ['-e', `UID=${process.env.HS_UID}`, '-e', `GID=${process.env.HS_GID}`] : []),
       IMAGE, 'generate',
     ]);
   },

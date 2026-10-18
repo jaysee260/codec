@@ -369,8 +369,11 @@ test.describe('DEV-A-5 unread badges', () => {
   test('AC-A5-2 the rail shows unread dots for Acme and Gaming; reading random clears the Acme dot', async ({
     page,
   }) => {
-    await ensureUnread(R.random, 1);
-    await ensureUnread(R.lobby, 1);
+    // Self-sufficient precondition (like AC-A5-3): bob posts fresh messages instead of trusting ensureUnread's
+    // receipt-derived count, which can read 1 while the server's notification count (what the dot shows) is 0.
+    // On GitHub Actions that left no Gaming dot to find.
+    await bob.send(R.random, `[qa] AC-A5-2 unread ${Date.now()}`);
+    await bob.send(R.lobby, `[qa] AC-A5-2 unread ${Date.now()}`);
 
     await expect(page.getByTestId(`space-unread-${R.gaming}`)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId(`space-unread-${R.acme}`)).toBeVisible({ timeout: 10_000 });
