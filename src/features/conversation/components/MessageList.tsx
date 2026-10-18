@@ -54,6 +54,12 @@ import { MessageRow } from './MessageRow.tsx';
 import styles from './MessageList.module.css';
 
 const NEAR_BOTTOM_PX = 40;
+/**
+ * A message row and nothing else. Read receipts put `data-event-id` on the avatar strip inside a row too
+ * (`receipt-avatars`), so a bare `[data-event-id]` could resolve the scroll pins to the strip's box instead of
+ * the row's; `data-group-start` is only ever on rows.
+ */
+const ROW = '[data-group-start][data-event-id]';
 const FLASH_MS = 2600;
 
 /** Scroll position pinned across a backwards pagination. */
@@ -120,6 +126,14 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   /** The row at the top of the viewport and where it sat, refreshed on every scroll (scrolled-up case). */
   const reading = useRef<{ eventId: string; viewportTop: number } | null>(null);
+  /**
+   * Distance from the bottom at the last scroll (0 = truly at the bottom). "Stuck" means within
+   * NEAR_BOTTOM_PX, not exactly at the bottom: a reader parked 2-39 px above it is stuck too, and late growth
+   * must keep *that* gap rather than snap to the real bottom (which moved what they read by the gap, AC-L7-4).
+   */
+  const bottomGap = useRef(0);
+  /** Key of the newest rendered item at the last commit, to tell "a new event arrived" from other commits. */
+  const lastItemKey = useRef<string | null>(null);
 
   const [armed, setArmed] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -148,6 +162,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     anchor.current = null;
     reading.current = null;
     stick.current = true;
+    bottomGap.current = 0;
     setAtBottom(true);
     setArmed(false);
     setFlashId(null);
@@ -173,7 +188,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     const el = containerRef.current;
     const pin = anchor.current;
     if (!el || !pin) return;
-    const row = el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`);
+    const row = el.querySelector<HTMLElement>(`${ROW}[data-event-id="${pin.eventId}"]`);
     if (!row) {
       anchor.current = null; // the pinned row is gone (timeline reset); nothing to hold on to
       return;
@@ -214,7 +229,21 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
       applyAnchor();
       return;
     }
-    if (stick.current) el.scrollTop = el.scrollHeight;
+    // Newest row's key: a change means a new event arrived at the end (keys are stable across the ~txn swap).
+    const last = items.length ? items[items.length - 1]!.key : null;
+    const grewAtEnd = last !== lastItemKey.current;
+    lastItemKey.current = last;
+    if (stick.current) {
+      if (grewAtEnd || bottomGap.current <= 2) {
+        // New events while stuck: follow them to the real bottom (the Phase 1 rule).
+        el.scrollTop = el.scrollHeight;
+        bottomGap.current = 0;
+      } else {
+        // Any other commit (an edit, a typing bump, a reaction): keep the reader's small gap to the bottom.
+        el.scrollTop = el.scrollHeight - el.clientHeight - bottomGap.current;
+      }
+      correctedTo.current = el.scrollTop;
+    }
   }, [items, isPaginating, version, applyAnchor]);
 
   /*
@@ -246,11 +275,11 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     let row: HTMLElement | null = null;
     if (typeof document.elementFromPoint === 'function') {
       const hit = document.elementFromPoint(box.left + 24, box.top + 1);
-      const candidate = hit instanceof HTMLElement ? hit.closest<HTMLElement>('[data-event-id]') : null;
+      const candidate = hit instanceof HTMLElement ? hit.closest<HTMLElement>(ROW) : null;
       if (candidate && el.contains(candidate)) row = candidate;
     }
     if (!row) {
-      for (const r of Array.from(el.querySelectorAll<HTMLElement>('[data-event-id]'))) {
+      for (const r of Array.from(el.querySelectorAll<HTMLElement>(ROW))) {
         if (r.getBoundingClientRect().bottom > box.top) {
           row = r;
           break;
@@ -283,12 +312,18 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
       return;
     }
     if (stick.current) {
-      el.scrollTop = el.scrollHeight;
+      // Late growth while stuck (a card or image resolving, a receipt strip appearing): keep the reader's gap to
+      // the bottom. Gap ~0 is the plain "pinned to the bottom" case (AC-L7-3 / AC-R9-1) and snaps as before; a
+      // small gap means the reader is parked just above the bottom, and snapping would move every row on screen
+      // by that gap even though the growth happened above them (AC-L7-4: 21-22 px).
+      const gap = bottomGap.current;
+      el.scrollTop = gap <= 2 ? el.scrollHeight : el.scrollHeight - el.clientHeight - gap;
+      correctedTo.current = el.scrollTop;
       return;
     }
     const pin = reading.current;
     if (!pin) return;
-    const row = el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`);
+    const row = el.querySelector<HTMLElement>(`${ROW}[data-event-id="${pin.eventId}"]`);
     if (!row) {
       reading.current = null;
       return;
@@ -334,7 +369,9 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     // A scroll we did not cause while a pin is live means the reader took over: drop the pin rather
     // than fight them for the rest of the correction window.
     if (anchor.current && Math.abs(el.scrollTop - correctedTo.current) > 2) anchor.current = null;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    bottomGap.current = Math.max(0, gap);
+    const near = gap < NEAR_BOTTOM_PX;
     stick.current = near;
     setAtBottom(near);
   };
@@ -342,7 +379,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   const load = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const first = el.querySelector<HTMLElement>('[data-event-id]');
+    const first = el.querySelector<HTMLElement>(ROW);
     /*
      * Pin only when there is a row to pin *and* the list is genuinely scrolled away from the bottom
      * (BUG-6). A thread's first pages land in a list still shorter than the viewport, so the top
@@ -362,7 +399,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
       const live = anchor.current;
       // A second page right after a short one: keep holding the row we already promised to hold, and
       // just extend the window. Re-pinning to the new top row is what let the first row slip (AC-B3-2).
-      if (live && el.querySelector(`[data-event-id="${live.eventId}"]`)) {
+      if (live && el.querySelector(`${ROW}[data-event-id="${live.eventId}"]`)) {
         live.until = performance.now() + ANCHOR_WINDOW_MS;
       } else if (first?.dataset.eventId) {
         anchor.current = {
@@ -400,7 +437,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     clearJump();
     const run = async (): Promise<void> => {
       for (let attempt = 0; attempt < 8 && jumpRunRef.current === myNonce; attempt++) {
-        const target = containerRef.current?.querySelector<HTMLElement>(`[data-event-id="${jumpEventId}"]`);
+        const target = containerRef.current?.querySelector<HTMLElement>(`${ROW}[data-event-id="${jumpEventId}"]`);
         if (target) {
           stick.current = false;
           target.scrollIntoView({ block: 'center', behavior: 'smooth' });

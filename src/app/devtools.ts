@@ -136,8 +136,13 @@ const receiptsHook = {
   async setSendReadReceipts(on: boolean): Promise<void> {
     const client = getClientOrNull();
     if (!client) throw new Error('not logged in');
-    await receiptsModule.setSendReadReceipts(client, on);
-    useReceiptStore.setState((s) => ({ settingsVersion: s.settingsVersion + 1 }));
+    const write = receiptsModule.setSendReadReceipts(client, on); // the optimistic override is set synchronously
+    useReceiptStore.setState((s) => ({ settingsVersion: s.settingsVersion + 1 })); // toggle shows the new value now
+    try {
+      await write;
+    } finally {
+      useReceiptStore.setState((s) => ({ settingsVersion: s.settingsVersion + 1 })); // echo landed, or reverted
+    }
   },
   /** Send a read receipt (type per the setting) for `eventId`, or for the newest displayed row of the source. */
   async markRead(roomId: string, eventId?: string, threadRootId?: string): Promise<void> {

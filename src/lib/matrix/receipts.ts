@@ -15,14 +15,17 @@
 import { EventStatus, Room, type MatrixClient, type MatrixEvent, type RoomMember, type Thread } from 'matrix-js-sdk';
 import { memberAvatarUrl } from './utils.ts';
 import {
+  collectReadPoints,
   compareReaders,
-  mapReadPointsToRows,
+  latestReceiptTs,
   mergeSendReadReceipts,
   pickLatestOwnSentId,
-  readSendReadReceipts,
+  ReaderCache,
   RECEIPT_SETTINGS_EVENT_TYPE,
+  resolveSendReadReceipts,
   sameReaders,
-  type ReadPoint,
+  withPendingSendReadReceipts,
+  type ReadPointSource,
   type Reader,
 } from './receipts-core.ts';
 
@@ -48,26 +51,37 @@ export const SEEN_BY_MEMBER_LIMIT = 50;
 /** Avatar size (px, cropped) baked into `Reader.avatarUrl`. */
 export const READER_AVATAR_SIZE = 32;
 
-// Reader objects are reused across rebuilds when nothing about the user changed, so memoised rows keep their props.
-const readerCache = new WeakMap<Room, Map<string, Reader>>();
+// Reader objects are reused across rebuilds when nothing about the user changed (see `ReaderCache`).
+const readerCaches = new WeakMap<Room, ReaderCache>();
 
 function readerOf(room: Room, member: RoomMember, ts: number): Reader {
-  let cache = readerCache.get(room);
+  let cache = readerCaches.get(room);
   if (!cache) {
-    cache = new Map();
-    readerCache.set(room, cache);
+    cache = new ReaderCache();
+    readerCaches.set(room, cache);
   }
-  const avatarUrl = memberAvatarUrl(member, READER_AVATAR_SIZE) || null;
-  const prev = cache.get(member.userId);
-  if (prev && prev.ts === ts && prev.displayName === member.name && prev.avatarUrl === avatarUrl) return prev;
-  const next: Reader = { userId: member.userId, displayName: member.name, avatarUrl, ts };
-  cache.set(member.userId, next);
-  return next;
+  return cache.get(member.userId, member.name, memberAvatarUrl(member, READER_AVATAR_SIZE) || null, ts);
 }
 
-/** Timestamp of the user's latest public receipt on this holder (0 when unknown). Others' private receipts never arrive. */
+/**
+ * Timestamp of the user's read point on this holder: the holder's latest public receipt, or the room's unthreaded
+ * receipt when newer (`Thread.getEventReadUpTo` honours the latter while the thread's own receipt may be null).
+ * Others' private receipts never arrive here.
+ */
 function receiptTs(holder: ReceiptHolder, userId: string): number {
-  return holder.getReadReceiptForUserId(userId)?.data.ts ?? 0;
+  return latestReceiptTs(holder.getReadReceiptForUserId(userId)?.data.ts, roomOf(holder).getLastUnthreadedReceiptFor(userId)?.ts);
+}
+
+/** `ReadPointSource` over a real holder (the pure `collectReadPoints` does the mapping). */
+function sourceOf(holder: ReceiptHolder): ReadPointSource {
+  const room = roomOf(holder);
+  return {
+    timelineIds: () => holder.timeline.map((e) => e.getId() ?? ''),
+    readUpTo: (userId) => holder.getEventReadUpTo(userId),
+    receiptTs: (userId) => receiptTs(holder, userId),
+    // `room.findEventById` searches the threads too; an unthreaded receipt on a thread reply maps to its root row.
+    threadRootOf: (eventId) => room.findEventById(eventId)?.threadRootId,
+  };
 }
 
 /**
@@ -98,26 +112,11 @@ export function buildReadPoints(
 ): Map<string, Reader[]> {
   if (!holder || !displayedEvents.length) return new Map();
   const room = roomOf(holder);
-  const members = otherJoinedMembers(room, myUserId);
-  const byUser = new Map<string, { member: RoomMember; ts: number }>();
-  const points: ReadPoint[] = [];
-  for (const member of members) {
-    const eventId = holder.getEventReadUpTo(member.userId);
-    if (!eventId) continue;
-    byUser.set(member.userId, { member, ts: receiptTs(holder, member.userId) });
-    points.push({ userId: member.userId, eventId });
-  }
-  const orderedIds = holder.timeline.map((e) => e.getId() ?? '');
-  const displayedIds = displayedEvents.map((e) => e.getId() ?? '');
-  const rows = mapReadPointsToRows(orderedIds, displayedIds, points);
+  const members = new Map(otherJoinedMembers(room, myUserId).map((m) => [m.userId, m]));
+  const { rows, ts } = collectReadPoints(sourceOf(holder), [...members.keys()], displayedEvents.map((e) => e.getId() ?? ''));
   const out = new Map<string, Reader[]>();
   for (const [rowId, userIds] of rows) {
-    const readers = userIds
-      .map((id) => {
-        const entry = byUser.get(id)!;
-        return readerOf(room, entry.member, entry.ts);
-      })
-      .sort(compareReaders);
+    const readers = userIds.map((id) => readerOf(room, members.get(id)!, ts.get(id) ?? 0)).sort(compareReaders);
     const prev = opts.previous?.get(rowId);
     out.set(rowId, prev && sameReaders(prev, readers) ? prev : readers);
   }
@@ -177,7 +176,8 @@ export function getSeenBy(holder: ReceiptHolder | null | undefined, event: Matri
     if (holder.hasUserReadEvent(member.userId, eventId)) seen.push(readerOf(room, member, receiptTs(holder, member.userId)));
     else {
       notSeenCount++;
-      if (!truncated) notSeen.push(readerOf(room, member, 0));
+      // Not cached: ts 0 is not a receipt, and these lists are rebuilt only while the list is open.
+      if (!truncated) notSeen.push({ userId: member.userId, displayName: member.name, avatarUrl: memberAvatarUrl(member, READER_AVATAR_SIZE) || null, ts: 0 });
     }
   }
   seen.sort(compareReaders);
@@ -200,17 +200,21 @@ function settingsContent(client: MatrixClient | null | undefined): Record<string
   return client?.getAccountData(RECEIPT_SETTINGS_EVENT_TYPE as never)?.getContent<Record<string, unknown>>();
 }
 
-/** Current value of "Send read receipts" (default ON). Reads account data synchronously; null client = ON. */
+/**
+ * Current value of "Send read receipts" (default ON): the in-flight value while `setSendReadReceipts` is pending,
+ * else account data. Synchronous; null client = ON.
+ */
 export function getSendReadReceipts(client: MatrixClient | null | undefined): boolean {
-  return readSendReadReceipts(settingsContent(client));
+  return resolveSendReadReceipts(settingsContent(client));
 }
 
 /**
  * Write the setting: spreads the existing `im.vector.web.settings` content (Element keeps many keys there) and
  * sets `sendReadReceipts`. Resolves once `/sync` has echoed the change, so `getSendReadReceipts` reads the new
- * value afterwards (`client.setAccountData` waits for the echo).
+ * value afterwards (`client.setAccountData` waits for the echo); meanwhile `getSendReadReceipts` already answers `on`.
  */
 export async function setSendReadReceipts(client: MatrixClient, on: boolean): Promise<void> {
   const merged = mergeSendReadReceipts(settingsContent(client), on);
-  await client.setAccountData(RECEIPT_SETTINGS_EVENT_TYPE as never, merged as never);
+  // Optimistic: receipts sent before the /sync echo already use the new type; a failed write reverts.
+  await withPendingSendReadReceipts(on, () => client.setAccountData(RECEIPT_SETTINGS_EVENT_TYPE as never, merged as never));
 }

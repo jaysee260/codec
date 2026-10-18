@@ -470,8 +470,9 @@ npx playwright test e2e/receipts.spec.ts --project=desktop -g "AC-R7-2"
 npx playwright test e2e/mobile-receipts.spec.ts --project=mobile -g "AC-R5-1"
 ```
 
-**Result (run 3, both projects, 2 workers): 35 passed, 0 failed, 0 skipped** (`receipts.spec.ts` 31/31,
-`mobile-receipts.spec.ts` 4/4). No product defect found; no S1 or S2.
+**Result (run 5, fix wave, both projects, 2 workers): 37 passed, 0 failed, 0 skipped** (`receipts.spec.ts` 33/33 incl.
+REV-R1 / REV-R5, `mobile-receipts.spec.ts` 4/4). Run 4 had 2 #vault failures from a Vite dep re-optimization mid-run
+(`Failed to fetch dynamically imported module .../.vite/deps/rust-crypto-*.js`, so crypto never booted); environment, green on rerun. No product defect found by the e2e run; the fix-wave code review found three (REV-R1 S1, REV-R2 S3, REV-R5 S3, below), all fixed, each with a regression test that fails on the pre-fix commit `ade0095` and passes now.
 
 **Severity rule (read receipts).** `S1` on sight: a public `m.read` sent while "Send read receipts" is OFF, or a viewer
 shown as having read something they did not. `S2`: avatars on the wrong row, status stuck at `sending`, the list jumps
@@ -479,7 +480,9 @@ when avatars / the check appear. `S3`: cosmetic.
 
 | ID | Sev | Criterion | Repro | Owner | Status |
 |---|---|---|---|---|---|
-| - | - | - | none found | - | - |
+| REV-R1 | S1 | AC-R7-2 (review finding 1) | Toggle "Send read receipts" OFF, then receive a message before the account-data `/sync` echo arrives: `getSendReadReceipts` still read the old account data (ON), so a public `m.read` went out. `npx playwright test e2e/receipts.spec.ts --project=desktop -g "REV-R1"` holds the account-data PUT with `page.route` and asserts the receipt for bob's new message is `m.read.private` while the PUT is held, and no `m.read` is sent after the click. On `ade0095` (pre-fix) it fails: "OFF immediately, before the echo", expected false, got true. | Principal | **Fixed** (uncommitted: optimistic `withPendingSendReadReceipts` in `receipts-core.ts`); REV-R1 green |
+| REV-R2 | S3 | AC-R8-1 (review finding 2) | `receipt-avatars` opens a dialog but was `role="group"` with no `aria-haspopup`. Now `role="button"`, `aria-haspopup="dialog"`, `aria-expanded` true while its list is open. AC-R8-1 asserts all three, plus the false -> true -> false cycle. On `ade0095` it fails: expected role "button", got "group". | Dev A | **Fixed** (uncommitted, `ReadAvatars.tsx`); AC-R8-1 green |
+| REV-R5 | S3 | AC-R3-2 / AC-R8-2 (review finding 5) | A **hover** preview swallowed Escape (capture + `stopPropagation`), so Escape with focus in the thread panel closed only the preview, not the panel; an edit could not be cancelled either. Now only a **pinned** list consumes Escape. `-g "REV-R5"`: pinned list + Escape keeps `thread-panel`; hover preview (focus on a thread row's strip) + Escape closes both. On `ade0095` it fails: "a hover preview lets Escape through: the thread panel closes too", expected 0 panels, got 1. | Dev A | **Fixed** (uncommitted, `SeenByList.tsx`); REV-R5 green |
 
 Rulings / test-side notes (no product defect):
 - **AC-R6-2 (Advisor ruling, 2026-10-18).** An *unthreaded* `m.read` (no `thread_id`) on a main message newer than a
@@ -493,12 +496,12 @@ Rulings / test-side notes (no product defect):
 - AC-R5-3 asks for 44 px **tall** targets: `receipt-avatars` is 44 px tall and 34 px wide (one avatar), as specified.
 - **PR-selected set** (`node scripts/select-e2e.mjs origin/master`, 18 specs, both projects, 2 workers): 266 passed,
   2 failed, 11 skipped (the usual fresh-seed / manual skips). Neither failure is caused by read receipts:
-  - `link-preview.spec.ts` AC-L7-4 (scrolled up, a card loading above the viewport): the row being read moves **21 px**,
+  - `link-preview.spec.ts` AC-L7-4 (scrolled up, a card loading above the viewport): **environment-specific** (it
+    passes on GitHub CI for master; this container's Chromium is older). Here the row being read moves **21 px**,
     deterministically (3/3 alone). It fails the same way on the wave-A commit `d6c56d3` (no receipt UI) and on
     **master `f45c086`** (2/2 each, run from a throwaway git worktree), so it predates this branch. A probe of row heights
     shows only the card row changes (102 -> 416 px), with no receipt strip involved, so the error is in the list's
-    reading-pin compensation. Owner: Dev B (`MessageList` scroll hold), new ticket; it was green in the Phase 6 run 3.
-    It is in this PR's CI set, so CI will be red on it until fixed or waived.
+    reading-pin compensation, under this local Chromium only. No ticket.
   - `threads.spec.ts` AC-T6-4: the 40-reply root row in #general did not render within 20 s under the 2-worker load;
     3/3 green in isolation. Load flake, not a defect.
 - Environment: this container's `/home/claude/pwb` had no ffmpeg, so `video: 'retain-on-failure'` failed every test

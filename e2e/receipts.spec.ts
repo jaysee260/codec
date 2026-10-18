@@ -180,6 +180,16 @@ function avatarOf(page: Page, uid: string, scopeTestId = 'message-list') {
   return page.getByTestId(scopeTestId).locator(`[data-testid="receipt-avatar"][data-user-id="${uid}"]`);
 }
 
+/** bob roots a thread in #dev, alice replies T1 (API), alice's page opens the thread panel. */
+async function threadWithAliceReply(page: Page, label: string): Promise<{ root: string; t1: string }> {
+  const { rootId } = await seedThread({ roomId: R.dev, rootSender: 'bob', rootBody: uniq(`${label} root`) });
+  const t1 = await alice.sendThreadReply(R.dev, rootId, uniq(`${label} T1`), { latest: rootId });
+  await expect(mainRow(page, rootId)).toBeVisible({ timeout: RECEIPT_TIMEOUT });
+  await openThreadFromMessage(page, rootId);
+  await expect(threadRowIn(page, t1)).toBeVisible({ timeout: RECEIPT_TIMEOUT });
+  return { root: rootId, t1 };
+}
+
 /* ================================================================== harness */
 
 test('core: __matrixPoc.receipts exposes the QA contract', async ({ page }) => {
@@ -636,15 +646,6 @@ test.describe('AC-R4 Seen by in the message actions', () => {
 /* ================================================================== AC-R6 threads */
 
 test.describe('AC-R6 threads', () => {
-  async function threadWithAliceReply(page: Page, label: string): Promise<{ root: string; t1: string }> {
-    const { rootId } = await seedThread({ roomId: R.dev, rootSender: 'bob', rootBody: uniq(`${label} root`) });
-    const t1 = await alice.sendThreadReply(R.dev, rootId, uniq(`${label} T1`), { latest: rootId });
-    await expect(mainRow(page, rootId)).toBeVisible({ timeout: RECEIPT_TIMEOUT });
-    await openThreadFromMessage(page, rootId);
-    await expect(threadRowIn(page, t1)).toBeVisible({ timeout: RECEIPT_TIMEOUT });
-    return { root: rootId, t1 };
-  }
-
   test('AC-R6-1 a threaded receipt shows in the thread panel only', async ({ page }) => {
     await start(page, R.dev);
     const { root, t1 } = await threadWithAliceReply(page, 'R61');
@@ -852,7 +853,10 @@ test.describe('AC-R8 accessibility', () => {
     await readAs('bob', R.dev, a);
     const strip = receiptAvatars(mainRow(page, a));
     await expect(strip).toBeVisible({ timeout: RECEIPT_TIMEOUT });
-    await expect(strip).toHaveAttribute('role', 'group');
+    // Review finding 2 (2026-10-18): the strip opens a dialog, so it is a button with aria-haspopup / aria-expanded.
+    await expect(strip).toHaveAttribute('role', 'button');
+    await expect(strip).toHaveAttribute('aria-haspopup', 'dialog');
+    await expect(strip).toHaveAttribute('aria-expanded', 'false');
     await expect(strip).toHaveAttribute('aria-label', `Seen by ${DISPLAY_NAMES.bob}`);
     const imgs = strip.locator('img');
     for (let i = 0; i < (await imgs.count()); i += 1) await expect(imgs.nth(i)).toHaveAttribute('alt', '');
@@ -860,6 +864,10 @@ test.describe('AC-R8 accessibility', () => {
     const list = receiptList(page);
     await expect(list).toHaveAttribute('role', 'dialog');
     await expect(list).toHaveAttribute('aria-label', 'Seen by');
+    await expect(strip, 'aria-expanded while its list is open').toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+    await expect(strip, 'aria-expanded once it closed').toHaveAttribute('aria-expanded', 'false');
   });
 
   test('AC-R8-2 keyboard: avatars focusable, Enter / Space open, Escape closes and returns focus', async ({ page }) => {
@@ -924,5 +932,83 @@ test.describe('AC-R9 scroll stability', () => {
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const after = await topOf(anchor);
     expect(Math.abs(after - before), `the row being read moved ${after - before}px`).toBeLessThanOrEqual(2);
+  });
+});
+
+/* ================================================================== review findings (fix wave regressions) */
+
+test.describe('Review findings (regressions)', () => {
+  let settings: Awaited<ReturnType<typeof snapshotSettings>>;
+  test.beforeEach(async () => {
+    settings = await snapshotSettings('alice');
+  });
+  test.afterEach(async () => {
+    await settings.restore();
+  });
+
+  test('REV-R1 toggle OFF in the UI takes effect before the account-data echo: the next receipt is m.read.private (S1)', async ({ page }) => {
+    requireUi('Dev A', ...UI.toggle);
+    const reqs = await start(page, R.dev);
+    const toggle = receiptToggle(page);
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    // Hold the account-data PUT: the server never stores the new value, so no /sync echo can arrive while held.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let held = 0;
+    let passed = 0;
+    const pattern = `**/user/*/account_data/${SETTINGS_TYPE}`;
+    await page.route(pattern, async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      held += 1;
+      await Promise.race([gate, new Promise((r) => setTimeout(r, 30_000))]);
+      passed += 1;
+      await route.continue().catch(() => undefined);
+    });
+    const mark = Date.now();
+    await toggle.click();
+    await expect.poll(() => held, { message: 'the PUT is in flight (held)' }).toBe(1);
+    expect(await appSetting(page), 'OFF immediately, before the echo').toBe(false);
+    const b = await bob.send(R.dev, uniq('REV1 B'));
+    await expect(mainRow(page, b)).toBeVisible({ timeout: RECEIPT_TIMEOUT });
+    await expect.poll(() => reqs.forEvent(b).map((r) => r.type), { timeout: RECEIPT_TIMEOUT, message: 'alice receipts B while the write is held' }).toContain('m.read.private');
+    expect(passed, 'the PUT was still held when the receipt went out').toBe(0);
+    expect(await accountDataOf('alice').then((c) => c?.[SETTINGS_KEY]), 'the server has not seen OFF yet').not.toBe(false);
+    expect(reqs.since(mark).filter((r) => r.type !== 'm.read.private'), 'S1: never a public m.read after the toggle').toEqual([]);
+    release();
+    await expect.poll(async () => (await accountDataOf('alice'))?.[SETTINGS_KEY], { timeout: RECEIPT_TIMEOUT, message: 'the write lands' }).toBe(false);
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(await appSetting(page)).toBe(false);
+    await page.unroute(pattern);
+    expect(await receiptTypesOn('bob', R.dev, b, A), "bob's sync never carries alice on B").toEqual([]);
+    expect(reqs.since(mark).filter((r) => r.type !== 'm.read.private'), 'S1 (end of test)').toEqual([]);
+  });
+
+  test('REV-R5 Escape: a hover preview closes AND the thread panel closes; a pinned list keeps the panel open', async ({ page }) => {
+    requireUi('Dev A', ...UI.avatars, ...UI.list);
+    await start(page, R.dev);
+    const { root, t1 } = await threadWithAliceReply(page, 'REV5');
+    await readAs('bob', R.dev, t1, root);
+    const strip = receiptAvatars(threadRowIn(page, t1));
+    await expect(strip).toBeVisible({ timeout: RECEIPT_TIMEOUT });
+    const list = receiptList(page);
+    const panel = page.getByTestId('thread-panel');
+
+    // Pinned (click): Escape closes the list only.
+    await strip.click();
+    await expect(list).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+    await expect(panel, 'a pinned list consumes Escape: the thread panel stays').toBeVisible();
+    await expect(panel).toHaveAttribute('data-root', root);
+
+    // Hover preview with focus inside the panel: Escape closes the preview and still reaches the panel.
+    await strip.focus();
+    await page.mouse.move(0, 0);
+    await strip.hover();
+    await expect(list).toBeVisible();
+    await expect(strip, 'hover does not move focus out of the panel').toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+    await expect(panel, 'a hover preview lets Escape through: the thread panel closes too').toHaveCount(0);
   });
 });

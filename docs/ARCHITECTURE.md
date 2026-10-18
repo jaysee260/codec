@@ -26,7 +26,16 @@ interface Reader { userId: string; displayName: string; avatarUrl: string | null
 getSendStatus(event, myUserId): SendStatus          // null unless I sent it; status null | SENT -> 'sent'; NOT_SENT | CANCELLED -> 'failed'; else 'sending'
 mapReadPointsToRows(orderedIds, displayedIds, points: { userId, eventId }[]): Map<rowId, userId[]>   // the hidden-event rule
 pickLatestOwnSentId(displayedEvents, myUserId, readPoints): string | null   // the single "sent" check (rule below)
-readSendReadReceipts(content): boolean              // default ON; only `sendReadReceipts: false` is OFF
+collectReadPoints(source: ReadPointSource, userIds, displayedIds): { rows: Map<rowId, userId[]>; ts: Map<userId, number> }
+                                                    // read points -> rows over a holder adapter (timelineIds / readUpTo / receiptTs / threadRootOf);
+                                                    // a read point outside the holder's timeline is retried through threadRootOf (unthreaded
+                                                    // receipt on a thread reply -> the root's main row), else dropped
+latestReceiptTs(holderTs, unthreadedTs): number     // max of the two (0 when unknown): the ts to show for a read point on a holder
+class ReaderCache { get(userId, displayName, avatarUrl, ts): Reader }   // per room; two slots per user (ts 0 and latest ts), identity reuse
+readSendReadReceipts(content): boolean              // the STORED value: default ON; only `sendReadReceipts: false` is OFF
+resolveSendReadReceipts(content): boolean           // the EFFECTIVE value: in-flight override ?? stored (what getSendReadReceipts returns)
+withPendingSendReadReceipts(on, write): Promise<void>   // sets the override, runs the PUT, clears it when the newest write settles
+getPendingSendReadReceipts(): boolean | null;  clearPendingSendReadReceipts()   // the override itself (null = none); logout clears it
 mergeSendReadReceipts(content, on): object          // { ...content, sendReadReceipts: on }  (merge, never clobber)
 RECEIPT_SETTINGS_EVENT_TYPE = 'im.vector.web.settings', SEND_READ_RECEIPTS_KEY = 'sendReadReceipts', compareReaders, sameReaders
 
@@ -38,7 +47,8 @@ buildReadPointsSnapshot(holder, displayedEvents, myUserId, opts?): { readPoints,
 getSeenBy(holder, event | eventId, myUserId): SeenBy              // SeenBy = { seen: Reader[]; notSeen: Reader[]; notSeenCount: number; truncated: boolean }
 otherJoinedMembers(room, myUserId, exceptUserId?): RoomMember[]   // the member snapshot the two above use
 isUnsentLocalEcho(event): boolean                                // `~` id, or status before SENT
-getSendReadReceipts(client): boolean;  setSendReadReceipts(client, on): Promise<void>   // resolves after the /sync echo
+getSendReadReceipts(client): boolean;  setSendReadReceipts(client, on): Promise<void>   // the new value is effective synchronously (override);
+                                                                                        // resolves after the /sync echo; rejects + reverts on failure
 SEEN_BY_MEMBER_LIMIT = 50, READER_AVATAR_SIZE = 32
 
 // src/lib/matrix/actions.ts
@@ -92,6 +102,13 @@ Rules the core implements (settled; see docs/RECEIPTS_PLAN.md and the Advisor ri
   with `m.read` (Synapse clears on both). My own private receipt comes back in `/sync`; others never see it. The
   setting is read live from account data (`ClientEvent.AccountData` -> `settingsVersion`), so a change made in Element
   flips the toggle without a reload; `setSendReadReceipts` spreads the existing `im.vector.web.settings` content.
+  **Optimistic override**: `setSendReadReceipts` sets a module-level in-flight value before the PUT, and
+  `getSendReadReceipts` (hence `sendReadReceipt` and the toggle, one source) returns it until the `/sync` echo lands or
+  the write fails (revert). Overlapping writes: only the newest one's completion clears it. No `m.read` can leak after
+  the user toggled OFF.
+- **Receipt ts on a holder** is `max(holder receipt ts, room.getLastUnthreadedReceiptFor(u).ts)`: `Thread.getEventReadUpTo`
+  honours the room's unthreaded receipt while the thread's own receipt may be null or stale. **Unthreaded receipt on a
+  thread reply**: the main list maps it to `room.findEventById(id).threadRootId` (the root's row) instead of dropping it.
 
 Intended wiring (Dev B): once per list, `const { readPoints, latestOwnSentId } = useReadPointsResult(source, events)` with
 `events` from `useTimeline(source)`; per row `const status = useSendStatus(event)`; render Dev A's `SendStatus` when
@@ -111,8 +128,19 @@ Intended wiring (Dev B): once per list, `const { readPoints, latestOwnSentId } =
   for **every** sender, with the thread id), so a user's read point is at least their own last message.
 - Local-echo receipt: `sendReceipt` adds my synthetic receipt immediately (either type); the real one echoes in the next
   `/sync` and replaces it. `receiptVersion` bumps for both.
-- `client.setAccountData` waits for the `/sync` echo (v43), so `getSendReadReceipts` is correct right after
-  `setSendReadReceipts` resolves. `im.vector.web.settings` is not in the SDK's typed account-data map (`as never` casts).
+- `client.setAccountData` waits for the `/sync` echo (v43) and `getAccountData` keeps the OLD content until then, so a
+  receipt sent in that window would go out with the old type. `setSendReadReceipts` covers it with the optimistic override
+  (`withPendingSendReadReceipts`); never read `readSendReadReceipts(getAccountData(...))` directly on the send path.
+  `im.vector.web.settings` is not in the SDK's typed account-data map (`as never` casts).
+- Element's **room-level** "Send read receipts" override (`im.vector.web.settings` per-room / `RoomSettings`) is **not
+  honoured**: Codec reads only the account-level key. Out of scope (brief: no per-room receipt setting).
+- `Thread.getReadReceiptForUserId` can be null (or stale) while `Thread.getEventReadUpTo` still returns a read point taken
+  from the room's unthreaded receipt (`getLastUnthreadedReceiptFor`): take the max of the two ts, or the thread reader
+  shows "0" / an old time. And an unthreaded receipt can point at a thread reply, which is not in `room.timeline`: resolve
+  it to the reply's `threadRootId` before the row mapping, or the reader vanishes from the main list.
+- `Reader` identity cache: `getSeenBy` builds "not seen" entries with ts 0 and `buildReadPoints` entries with the receipt
+  ts for the same user; a single-slot per-user cache thrashes while a list is open (every rebuild new objects, memoised
+  rows re-render). `ReaderCache` keeps two slots per user and `getSeenBy` does not cache its "not seen" entries at all.
 - `sendReadReceipt(ev, ReceiptType.ReadPrivate)` throws for a pending event (`hasPendingEvent`); `actions.sendReadReceipt`
   still skips `~` ids first.
 - `select-e2e`: `src/lib/matrix/receipts*.ts` is its own area (`receipts-core`) that runs the receipt specs **plus** CORE;

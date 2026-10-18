@@ -77,6 +77,90 @@ export function mapReadPointsToRows(orderedIds: readonly string[], displayedIds:
   return out;
 }
 
+/**
+ * What `collectReadPoints` needs from a receipt holder (`Room` or `Thread`), as plain functions so the algorithm is
+ * unit-testable without the SDK. `receipts.ts` adapts the real holder.
+ */
+export interface ReadPointSource {
+  /** The holder's unfiltered live timeline ids, oldest first. */
+  timelineIds(): string[];
+  /** `holder.getEventReadUpTo(userId)`: the user's read point, or null when unknown / not loaded. */
+  readUpTo(userId: string): string | null;
+  /** Timestamp of the receipt behind that read point (0 when unknown). */
+  receiptTs(userId: string): number;
+  /**
+   * Thread root of an event the holder knows but that is not in its own timeline (an unthreaded receipt pointing
+   * at a thread reply resolves, on the main timeline, to the reply's root row). Undefined when unknown.
+   */
+  threadRootOf(eventId: string): string | undefined;
+}
+
+export interface CollectedReadPoints {
+  /** Row id -> user ids (input order). */
+  rows: Map<string, string[]>;
+  /** Receipt ts per user that landed on a row. */
+  ts: Map<string, number>;
+}
+
+/**
+ * Read points of `userIds` on `source`, attached to `displayedIds` rows. A read point outside the source's timeline
+ * is retried through `threadRootOf` (unthreaded receipt on a thread reply -> the root's main row); still unknown ->
+ * dropped (older than the loaded window, or a thread not fetched yet).
+ */
+export function collectReadPoints(source: ReadPointSource, userIds: readonly string[], displayedIds: readonly string[]): CollectedReadPoints {
+  const ts = new Map<string, number>();
+  if (!userIds.length || !displayedIds.length) return { rows: new Map(), ts };
+  const orderedIds = source.timelineIds();
+  const known = new Set(orderedIds);
+  const points: ReadPoint[] = [];
+  for (const userId of userIds) {
+    let eventId = source.readUpTo(userId);
+    if (!eventId) continue;
+    if (!known.has(eventId)) {
+      const root = source.threadRootOf(eventId);
+      if (!root || !known.has(root)) continue;
+      eventId = root;
+    }
+    points.push({ userId, eventId });
+    ts.set(userId, source.receiptTs(userId));
+  }
+  return { rows: mapReadPointsToRows(orderedIds, displayedIds, points), ts };
+}
+
+/**
+ * The timestamp to show for a user's read point on a holder: the holder's own receipt, or the room's unthreaded
+ * receipt when that is newer. `Thread.getEventReadUpTo` falls back to the room's unthreaded receipt (a reply older
+ * than it counts as read) while the thread's own `getReadReceiptForUserId` can be null, so without this a thread
+ * reader would show ts 0 or a stale time.
+ */
+export function latestReceiptTs(holderTs: number | null | undefined, unthreadedTs: number | null | undefined): number {
+  return Math.max(holderTs ?? 0, unthreadedTs ?? 0);
+}
+
+/**
+ * Reuses `Reader` objects across rebuilds while nothing about the user changed, so memoised rows keep their props.
+ * Keyed by user id **and** ts: `getSeenBy` builds "not seen" entries with ts 0 and `buildReadPoints` entries with
+ * the receipt ts for the same user, and a single-slot cache would thrash between the two while a list is open.
+ */
+export class ReaderCache {
+  /** Two slots per user: the ts-0 ("not seen") reader and the latest timestamped one. Bounded by the member count. */
+  private readonly byUser = new Map<string, { zero?: Reader; latest?: Reader }>();
+
+  get(userId: string, displayName: string, avatarUrl: string | null, ts: number): Reader {
+    let slots = this.byUser.get(userId);
+    if (!slots) {
+      slots = {};
+      this.byUser.set(userId, slots);
+    }
+    const slot: 'zero' | 'latest' = ts === 0 ? 'zero' : 'latest';
+    const prev = slots[slot];
+    if (prev && prev.ts === ts && prev.displayName === displayName && prev.avatarUrl === avatarUrl) return prev;
+    const next: Reader = { userId, displayName, avatarUrl, ts };
+    slots[slot] = next;
+    return next;
+  }
+}
+
 /** Binary search: the id of the last row whose position is <= pos, or null. */
 function rowAtOrBefore(rows: readonly { pos: number; id: string }[], pos: number): string | null {
   let lo = 0;
@@ -121,9 +205,51 @@ export const RECEIPT_SETTINGS_EVENT_TYPE = 'im.vector.web.settings';
 /** The key inside that event. `false` = send `m.read.private`; missing / anything else = public `m.read`. */
 export const SEND_READ_RECEIPTS_KEY = 'sendReadReceipts';
 
-/** Default ON: only an explicit `false` turns public receipts off. */
+/** Default ON: only an explicit `false` turns public receipts off. (Stored value only; see `resolveSendReadReceipts`.) */
 export function readSendReadReceipts(content: Record<string, unknown> | null | undefined): boolean {
   return content?.[SEND_READ_RECEIPTS_KEY] !== false;
+}
+
+/**
+ * Optimistic override while a write is in flight. `client.setAccountData` resolves only when `/sync` has echoed the
+ * new content, and until then `getAccountData` still returns the old value - so a receipt sent in that window (the
+ * user toggles OFF and scrolls) would go out as public `m.read`. `setSendReadReceipts` sets this before the PUT and
+ * clears it when the echo has landed (or the write failed, which reverts to the stored value).
+ */
+let pendingSendReadReceipts: boolean | null = null;
+/** Sequence number of the latest write; an older write's completion must not clear a newer write's override. */
+let pendingWriteSeq = 0;
+
+export function getPendingSendReadReceipts(): boolean | null {
+  return pendingSendReadReceipts;
+}
+
+/**
+ * Run `write` (the account-data PUT + echo wait) with `on` as the in-flight value. The override is visible to
+ * `resolveSendReadReceipts` synchronously, before `write` even starts, and is cleared when the write settles -
+ * resolved (the echo has landed, so the stored value is the new one) or rejected (the stored value is the old one:
+ * the revert). When writes overlap (toggle OFF then ON before the first echo), only the newest one's completion
+ * clears the override, so the effective value is always the user's latest choice.
+ */
+export async function withPendingSendReadReceipts(on: boolean, write: () => Promise<unknown>): Promise<void> {
+  const seq = ++pendingWriteSeq;
+  pendingSendReadReceipts = on;
+  try {
+    await write();
+  } finally {
+    if (seq === pendingWriteSeq) pendingSendReadReceipts = null;
+  }
+}
+
+/** Test / logout hook: forget any in-flight override. */
+export function clearPendingSendReadReceipts(): void {
+  pendingSendReadReceipts = null;
+  pendingWriteSeq++;
+}
+
+/** The effective setting: the in-flight value when a write is pending, else the stored one (default ON). */
+export function resolveSendReadReceipts(content: Record<string, unknown> | null | undefined): boolean {
+  return pendingSendReadReceipts ?? readSendReadReceipts(content);
 }
 
 /** The content to write back: every other key of `im.vector.web.settings` is preserved (merge, never clobber). */

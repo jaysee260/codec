@@ -102,6 +102,9 @@ export function SeenByList({
   const [pos, setPos] = useState<Pos>(() => (isPhone ? {} : placePopover(anchor)));
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Read by the document-level Escape handler: the mode flips hover -> pinned without a remount.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   // Popover position follows the anchor while the timeline scrolls / the window resizes.
   useLayoutEffect(() => {
@@ -119,12 +122,16 @@ export function SeenByList({
     };
   }, [anchor, isPhone]);
 
-  // Escape (capture, so the thread panel / drawers do not also close) and outside pointer-down.
+  // Escape (capture; pinned lists stop it so the thread panel / drawers do not also close) and outside pointer-down.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
-      e.preventDefault();
-      e.stopPropagation();
+      // A hover preview closes but lets the key through (cancel an edit, close the thread panel, ...); only a
+      // pinned list (the user opened it on purpose) consumes Escape.
+      if (modeRef.current === 'pinned') {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       onCloseRef.current('escape');
     };
     const onDown = (e: globalThis.PointerEvent): void => {

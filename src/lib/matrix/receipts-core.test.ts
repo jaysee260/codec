@@ -6,14 +6,22 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventStatus, MatrixEvent } from 'matrix-js-sdk';
 import {
+  clearPendingSendReadReceipts,
+  collectReadPoints,
   compareReaders,
+  getPendingSendReadReceipts,
   getSendStatus,
+  latestReceiptTs,
   mapReadPointsToRows,
   mergeSendReadReceipts,
   pickLatestOwnSentId,
+  ReaderCache,
   readSendReadReceipts,
+  resolveSendReadReceipts,
   sameReaders,
+  withPendingSendReadReceipts,
   type Reader,
+  type ReadPointSource,
 } from './receipts-core.ts';
 
 const ME = '@alice:localhost';
@@ -138,5 +146,162 @@ describe('reader helpers', () => {
     assert.equal(sameReaders([r(1)], [r(2)]), false);
     assert.equal(sameReaders(undefined, []), false);
     assert.equal(sameReaders([], []), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review-finding regressions
+// ---------------------------------------------------------------------------
+
+describe('collectReadPoints (holder -> rows, with the thread-reply fallback)', () => {
+  // Main timeline: m1, thread root t1, m2. The reply $reply lives in the thread, not in the main timeline.
+  const main = ['$m1', '$t1', '$m2'];
+  const source = (readUpTo: Record<string, string | null>, ts: Record<string, number> = {}): ReadPointSource => ({
+    timelineIds: () => main,
+    readUpTo: (u) => readUpTo[u] ?? null,
+    receiptTs: (u) => ts[u] ?? 0,
+    threadRootOf: (id) => (id === '$reply' ? '$t1' : undefined),
+  });
+
+  test('an unthreaded receipt pointing at a thread reply lands on the root row of the main list (finding 4)', () => {
+    const { rows, ts } = collectReadPoints(source({ [BOB]: '$reply' }, { [BOB]: 7 }), [BOB], main);
+    assert.deepEqual([...rows], [['$t1', [BOB]]]);
+    assert.equal(ts.get(BOB), 7);
+  });
+
+  test('the root is subject to the hidden-event rule too, and an unknown read point is still dropped', () => {
+    // Root hidden from the list -> nearest earlier displayed row.
+    assert.deepEqual([...collectReadPoints(source({ [BOB]: '$reply' }), [BOB], ['$m1', '$m2']).rows], [['$m1', [BOB]]]);
+    // Not in the timeline and no known thread root (older than the window): dropped, no ts recorded.
+    const unknown = collectReadPoints(source({ [BOB]: '$old' }), [BOB], main);
+    assert.equal(unknown.rows.size, 0);
+    assert.equal(unknown.ts.size, 0);
+    // No read point at all.
+    assert.equal(collectReadPoints(source({}), [BOB], main).rows.size, 0);
+    assert.equal(collectReadPoints(source({ [BOB]: '$m2' }), [], main).rows.size, 0);
+    assert.equal(collectReadPoints(source({ [BOB]: '$m2' }), [BOB], []).rows.size, 0);
+  });
+
+  test('an in-timeline read point is used as is (no thread lookup) and keeps its ts', () => {
+    let lookups = 0;
+    const src = source({ [BOB]: '$m2', '@carol:localhost': '$m1' }, { [BOB]: 5, '@carol:localhost': 3 });
+    src.threadRootOf = () => {
+      lookups++;
+      return undefined;
+    };
+    const { rows, ts } = collectReadPoints(src, [BOB, '@carol:localhost'], main);
+    assert.deepEqual(rows.get('$m2'), [BOB]);
+    assert.deepEqual(rows.get('$m1'), ['@carol:localhost']);
+    assert.equal(ts.get(BOB), 5);
+    assert.equal(ts.get('@carol:localhost'), 3);
+    assert.equal(lookups, 0);
+  });
+});
+
+describe('latestReceiptTs (thread holder vs unthreaded fallback, finding 3)', () => {
+  test('takes the newer of the holder receipt and the room-level unthreaded receipt; 0 when neither is known', () => {
+    assert.equal(latestReceiptTs(undefined, undefined), 0);
+    assert.equal(latestReceiptTs(null, 0), 0);
+    // Thread has no receipt of its own, the read point came from the unthreaded receipt: show that ts, not 0.
+    assert.equal(latestReceiptTs(undefined, 42), 42);
+    // Thread receipt is stale, the unthreaded one is newer.
+    assert.equal(latestReceiptTs(10, 42), 42);
+    // Thread receipt is the newer one.
+    assert.equal(latestReceiptTs(50, 42), 50);
+  });
+});
+
+describe('ReaderCache (finding 5: seen-by ts 0 vs read-point ts must not thrash)', () => {
+  test('keeps one identity per (user, ts) across interleaved buildReadPoints / getSeenBy calls', () => {
+    const cache = new ReaderCache();
+    const withTs = cache.get(BOB, 'Bob', null, 100);
+    const zero = cache.get(BOB, 'Bob', null, 0); // a "not seen" / unknown-ts entry for the same user
+    assert.notEqual(withTs, zero);
+    // The timestamped entry survives the ts-0 lookup and vice versa (a single-slot cache would rebuild both).
+    assert.equal(cache.get(BOB, 'Bob', null, 100), withTs);
+    assert.equal(cache.get(BOB, 'Bob', null, 0), zero);
+    assert.equal(cache.get(BOB, 'Bob', null, 100), withTs);
+  });
+
+  test('a new ts, name or avatar yields a new object; other users are independent', () => {
+    const cache = new ReaderCache();
+    const a = cache.get(BOB, 'Bob', null, 100);
+    assert.notEqual(cache.get(BOB, 'Bob', null, 200), a);
+    const b = cache.get(BOB, 'Bob', null, 200);
+    assert.notEqual(cache.get(BOB, 'Robert', null, 200), b);
+    const c = cache.get(BOB, 'Robert', null, 200);
+    assert.notEqual(cache.get(BOB, 'Robert', 'http://x/avatar', 200), c);
+    const carol = cache.get('@carol:localhost', 'Carol', null, 200);
+    assert.equal(cache.get('@carol:localhost', 'Carol', null, 200), carol);
+    assert.deepEqual(carol, { userId: '@carol:localhost', displayName: 'Carol', avatarUrl: null, ts: 200 });
+  });
+});
+
+describe('"Send read receipts" optimistic override (finding 1)', () => {
+  const stored = { sendReadReceipts: true }; // what getAccountData still returns until the /sync echo
+  const deferred = (): { promise: Promise<void>; resolve: () => void; reject: (e: Error) => void } => {
+    let resolve!: () => void;
+    let reject!: (e: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+
+  test('the new value is effective synchronously, before the PUT resolves; cleared once the echo landed', async () => {
+    clearPendingSendReadReceipts();
+    assert.equal(resolveSendReadReceipts(stored), true);
+    const put = deferred();
+    const write = withPendingSendReadReceipts(false, () => put.promise);
+    // A receipt sent right now (user toggled OFF and scrolled) must already be private.
+    assert.equal(resolveSendReadReceipts(stored), false);
+    assert.equal(getPendingSendReadReceipts(), false);
+    put.resolve();
+    await write;
+    assert.equal(getPendingSendReadReceipts(), null);
+    // After the echo the stored content is the new one and is what resolves.
+    assert.equal(resolveSendReadReceipts({ sendReadReceipts: false }), false);
+    assert.equal(resolveSendReadReceipts(stored), true);
+  });
+
+  test('a failed PUT reverts to the stored value and rejects', async () => {
+    clearPendingSendReadReceipts();
+    const put = deferred();
+    const write = withPendingSendReadReceipts(false, () => put.promise);
+    assert.equal(resolveSendReadReceipts(stored), false);
+    put.reject(new Error('M_LIMIT_EXCEEDED'));
+    await assert.rejects(write, /M_LIMIT_EXCEEDED/);
+    assert.equal(getPendingSendReadReceipts(), null);
+    assert.equal(resolveSendReadReceipts(stored), true);
+  });
+
+  test('overlapping writes: the older write settling does not clear the newer override', async () => {
+    clearPendingSendReadReceipts();
+    const first = deferred();
+    const second = deferred();
+    const w1 = withPendingSendReadReceipts(false, () => first.promise);
+    const w2 = withPendingSendReadReceipts(true, () => second.promise);
+    assert.equal(resolveSendReadReceipts({ sendReadReceipts: true }), true);
+    first.resolve();
+    await w1;
+    // The first echo landed (stored = false) but the ON write is still in flight: the user's latest choice wins.
+    assert.equal(getPendingSendReadReceipts(), true);
+    assert.equal(resolveSendReadReceipts({ sendReadReceipts: false }), true);
+    second.resolve();
+    await w2;
+    assert.equal(getPendingSendReadReceipts(), null);
+    assert.equal(resolveSendReadReceipts({ sendReadReceipts: true }), true);
+  });
+
+  test('clearPendingSendReadReceipts (logout) drops an in-flight override', async () => {
+    const put = deferred();
+    const write = withPendingSendReadReceipts(false, () => put.promise);
+    assert.equal(getPendingSendReadReceipts(), false);
+    clearPendingSendReadReceipts();
+    assert.equal(getPendingSendReadReceipts(), null);
+    put.resolve();
+    await write;
+    assert.equal(getPendingSendReadReceipts(), null);
   });
 });

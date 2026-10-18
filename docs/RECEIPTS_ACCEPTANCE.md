@@ -20,7 +20,7 @@ Extends docs/ACCEPTANCE.md and the Phase 2-6 acceptance docs (conventions, regis
 | testid | Element |
 |---|---|
 | `receipt-status` (+`data-status="sending\|sent\|failed"`) | Own rows only. One per row, at the row's trailing edge. `sending`: hollow circle, `aria-label="Sending…"`, `title="Sending…"`. `sent`: check, `aria-label="Sent"`, `title="Sent"`. `failed`: the existing failed UI keeps its testids; `receipt-status[data-status="failed"]` wraps or sits next to it. Absent on other people's rows, and absent on own rows that are not the newest own unread message (see AC-R1-3). |
-| `receipt-avatars` (+`data-count` = number of readers, `data-event-id`) | Strip under a row, present only when at least one other user's latest read point is this row. `role="group"`, `aria-label="Seen by Bob Ruiz, Carol Nguyen"` (display names, newest reader first, max 3 names then "and N others"). Hover (desktop) and click / tap open `receipt-list`. |
+| `receipt-avatars` (+`data-count` = number of readers, `data-event-id`) | Strip under a row, present only when at least one other user's latest read point is this row. `role="button"`, `aria-haspopup="dialog"`, `aria-expanded` (true while its list is open), `aria-label="Seen by Bob Ruiz, Carol Nguyen"` (display names, newest reader first, max 3 names then "and N others"). Hover (desktop) and click / tap open `receipt-list`. |
 | `receipt-avatar` (+`data-user-id`) | One per reader shown, max 3, `<img>` or initial fallback with `alt=""` (the group carries the label) |
 | `receipt-more` | "+N" chip when `data-count > 3`, text `+N` |
 | `receipt-list` (+`data-event-id`, `data-mode="popover\|sheet"`) | The Seen by list. `role="dialog"`, `aria-label="Seen by"`, `aria-modal="true"` on phone. Exactly one in the document at a time. Escape and outside click (`receipt-list-backdrop` on phone) close it. |
@@ -108,7 +108,7 @@ Extends docs/ACCEPTANCE.md and the Phase 2-6 acceptance docs (conventions, regis
 ### AC-R8 Accessibility (DEV-A-R2, DEV-A-R3)
 | ID | P | Given / When / Then |
 |---|---|---|
-| AC-R8-1 | P0 | `receipt-status` has `aria-label` "Sending…" / "Sent" and a matching `title`; `receipt-avatars` has `role="group"` and `aria-label` "Seen by <names>"; individual `receipt-avatar` images have `alt=""`; `receipt-list` has `role="dialog"` and `aria-label="Seen by"`. |
+| AC-R8-1 | P0 | `receipt-status` has `aria-label` "Sending…" / "Sent" and a matching `title`; `receipt-avatars` has `role="button"`, `aria-haspopup="dialog"`, `aria-expanded` and `aria-label` "Seen by <names>"; individual `receipt-avatar` images have `alt=""`; `receipt-list` has `role="dialog"` and `aria-label="Seen by"`. |
 | AC-R8-2 | P0 | Given `receipt-list` is open (popover or sheet), when **Escape** is pressed, then it closes and focus returns to the trigger; `receipt-avatars` is focusable (`tabindex="0"`) and Enter / Space opens the list. |
 | AC-R8-3 | P1 | Avatars and the status icon respect `prefers-reduced-motion` (no slide animation when set); contrast of `receipt-more` text meets 4.5:1 in both themes. |
 

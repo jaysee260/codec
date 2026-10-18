@@ -2,7 +2,7 @@
  * Read avatars under a row (DEV-A-R2, AC-R2-*, AC-R5-1/3, AC-R8-1/2): the users whose latest read point is this
  * row, newest first, max 3 stacked circles + "+N".
  *
- *   receipt-avatars[data-count][data-event-id]  role=group, aria-label "Seen by A, B, C and N others", tabindex 0
+ *   receipt-avatars[data-count][data-event-id]  role=button, aria-haspopup=dialog, aria-expanded, aria-label "Seen by A, B, C and N others", tabindex 0
  *   receipt-avatar[data-user-id]                img or initial fallback, alt=""
  *   receipt-more                                "+N"
  *
@@ -97,8 +97,9 @@ function ReadAvatarsImpl({ source, eventId, readers, className }: ReadAvatarsPro
       data-testid="receipt-avatars"
       data-count={readers.length}
       data-event-id={eventId}
-      role="group"
+      role="button"
       aria-label={seenByLabel(readers)}
+      aria-haspopup="dialog"
       aria-expanded={mine}
       tabIndex={0}
       onClick={onClick}

@@ -9,13 +9,14 @@
  * displayed events' identity and the room-list version (member names / avatars, lazy-loaded members).
  * `settingsVersion` bumps when `im.vector.web.settings` account data changes (this device or another).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { create } from 'zustand';
 import type { MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { loadMembers } from '@/lib/matrix/actions.ts';
 import {
   buildReadPointsSnapshot,
+  clearPendingSendReadReceipts,
   getReceiptHolder,
   getSeenBy,
   getSendReadReceipts,
@@ -54,8 +55,9 @@ export function bumpReceiptSettingsVersion(): void {
   useReceiptStore.setState((s) => ({ settingsVersion: s.settingsVersion + 1 }));
 }
 
-/** Logout. */
+/** Logout: forget the per-room counters and any in-flight "Send read receipts" override. */
 export function resetReceipts(): void {
+  clearPendingSendReadReceipts();
   useReceiptStore.setState((s) => ({ receiptVersion: {}, settingsVersion: s.settingsVersion + 1 }));
 }
 
@@ -159,19 +161,20 @@ export function useSeenBy(source: TimelineSource | null, eventId: string | null 
  */
 export function useSendReadReceiptsSetting(): [boolean, (on: boolean) => Promise<void>] {
   const settingsVersion = useReceiptStore((s) => s.settingsVersion);
-  const [pending, setPending] = useState<boolean | null>(null);
+  // `getSendReadReceipts` already returns the in-flight value while a write is pending (the same source the send
+  // path reads), so the toggle and `sendReadReceipt` can never disagree; the version bumps around the write re-read it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const stored = useMemo(() => getSendReadReceipts(getClientOrNull()), [settingsVersion]);
+  const on = useMemo(() => getSendReadReceipts(getClientOrNull()), [settingsVersion]);
   const setOn = useCallback(async (on: boolean): Promise<void> => {
     const client = getClientOrNull();
     if (!client) throw new Error('Not logged in');
-    setPending(on);
+    const write = setSendReadReceipts(client, on); // sets the pending override synchronously
+    bumpReceiptSettingsVersion();
     try {
-      await setSendReadReceipts(client, on);
-      bumpReceiptSettingsVersion();
+      await write;
     } finally {
-      setPending(null);
+      bumpReceiptSettingsVersion(); // echo landed, or the write failed and the stored value is back
     }
   }, []);
-  return [pending ?? stored, setOn];
+  return [on, setOn];
 }

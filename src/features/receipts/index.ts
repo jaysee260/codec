@@ -26,6 +26,7 @@
  * - `ReadAvatars({ source, eventId, readers, className? })` -> `receipt-avatars[data-count][data-event-id]`;
  *   null when `readers` is empty/undefined (the row grows by the strip height when the first reader arrives).
  *   Fixed 22 px strip (44 px hit area on phone via negative margins, so layout height stays 22 px), right-aligned.
+ *   `role="button"`, `aria-haspopup="dialog"`, `aria-expanded`, aria-label "Seen by …", `tabindex=0`.
  *   Owns its open state: hover (desktop) opens the list, click / tap / Enter / Space pins it.
  * - `openSeenBy({ source, eventId, trigger?, mode? })` / `closeSeenBy()` / `useSeenByOpen()`: the single list.
  *   The list renders in its own host mounted on `document.body` on first open (so it survives the toolbar or the
