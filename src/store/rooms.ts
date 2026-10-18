@@ -230,6 +230,9 @@ function summarize(room: Room, dmUserId: string | undefined, parentSpaceId: stri
 export function recomputeRooms(): void {
   const client = getClientOrNull();
   if (!client) return;
+  // BUG-18 belt and braces: before the initial sync has landed (`getSyncState()` is null) the SDK holds a partial
+  // room list; computing (and marking `ready`, which triggers the first-load landing) from it is always wrong.
+  if (client.getSyncState() === null) return;
 
   const dmUserByRoom = new Map<string, string>();
   for (const [userId, roomIds] of Object.entries(getDirectMap())) {

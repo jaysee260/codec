@@ -105,7 +105,14 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
     timelines.call();
     threadsVersion.call();
   };
-  const scheduleRooms = (): void => rooms.call();
+  // BUG-18: nothing before the initial sync is `Prepared`. Account data, presence, device / decryption events and
+  // the first rooms of the initial sync all arrive earlier and would run `recomputeRooms` on a partial world (seen:
+  // 0 rooms, sync state null), whose first-load landing rule then picks Home / the first DM and persists it. The
+  // `Prepared` handler below does the first full recompute; until then the scheduler is a no-op.
+  let prepared = client.getSyncState() === SyncState.Prepared || client.getSyncState() === SyncState.Syncing;
+  const scheduleRooms = (): void => {
+    if (prepared) rooms.call();
+  };
 
   // Phase 3: ThreadEvent.* only fire on the Room. One listener set per room, attached at bind and on arrival.
   const roomListeners = new Map<string, () => void>();
@@ -146,6 +153,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
     if (state === SyncState.Syncing) scheduleRooms(); // every /sync response: unread counts, last activity
     if (state === SyncState.Prepared || (state === SyncState.Syncing && prev !== SyncState.Syncing)) {
       // Initial sync done (or reconnected after a gap): rebuild everything in one go.
+      prepared = true;
       rooms.cancel();
       recomputeRooms();
       const all = client.getRooms();
