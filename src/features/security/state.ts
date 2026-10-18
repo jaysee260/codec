@@ -3,7 +3,7 @@
  * Everything about the crypto itself lives in `useSecurityStore` (`@/store`); this store never mirrors it.
  */
 import { create } from 'zustand';
-import { useSecurityStore, type RecoveryState, type SecurityState } from '@/store';
+import { useSecurityStore, type PendingPrompt, type RecoveryState, type SecurityState } from '@/store';
 
 /** What `openSecurityDialog` opens: `setup` -> setup-dialog, `verify` -> verify-dialog, `unlock` -> recovery-dialog. */
 export type SecurityDialogKind = 'setup' | 'verify' | 'unlock';
@@ -15,16 +15,24 @@ interface SecurityUiState {
   open: SecurityDialogKind | null;
   /** Banners dismissed for this page load (per need: dismissing `verify` does not hide a later `unlock`). */
   dismissed: Partial<Record<BannerNeed, true>>;
+  /**
+   * A recovery-key prompt the user hid (X / Escape) without answering: SecurityDialogs does not pop the dialog
+   * back up for this same prompt (a new prompt does); it stays pending and renders when the dialog is reopened
+   * from the banner (`bannerNeed` says `unlock` while it waits). Compared by identity with the store's `prompt`.
+   */
+  hiddenPrompt: PendingPrompt | null;
   openDialog(kind: SecurityDialogKind): void;
-  closeDialog(): void;
+  /** Close whatever dialog is open. Never answers a prompt: pass the pending one to keep it from re-opening. */
+  closeDialog(hide?: PendingPrompt | null): void;
   dismiss(need: BannerNeed): void;
 }
 
 export const useSecurityUiStore = create<SecurityUiState>((set) => ({
   open: null,
   dismissed: {},
+  hiddenPrompt: null,
   openDialog: (kind) => set({ open: kind }),
-  closeDialog: () => set({ open: null }),
+  closeDialog: (hide) => set(hide ? { open: null, hiddenPrompt: hide } : { open: null }),
   dismiss: (need) => set((s) => ({ dismissed: { ...s.dismissed, [need]: true } })),
 }));
 
@@ -42,11 +50,14 @@ export function openSecurityDialog(kind: SecurityDialogKind): void {
 }
 
 /**
- * The banner's need: the store's `hint`, except `restoring` wins while keys arrive from the backup. (AC-E5-5, a
+ * The banner's need: the store's `hint`, except `restoring` wins while keys arrive from the backup and `unlock`
+ * while a recovery-key prompt waits for an answer (the user hid the dialog). (AC-E5-5, a
  * recovery key without cross-signing -> `unlock`, is the store's `securityHint` rule.)
  */
 export function bannerNeed(s: SecurityState): BannerNeed | null {
   if (!s.cryptoReady) return null;
+  // A recovery-key prompt left pending (dialog hidden mid-unlock): the banner is the way back to it.
+  if (s.prompt?.kind === 'recovery-key') return 'unlock';
   if (s.recovery.busy === 'restore' || (s.recovery.busy === 'unlock' && s.recovery.progress)) return 'restoring';
   return s.hint;
 }

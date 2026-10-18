@@ -1,5 +1,5 @@
 # Runs on every pull request into master and every push to master.
-#   build  typecheck + production build (npm run build)
+#   build  typecheck + production build (npm run build) + unit tests (npm run test:unit, node:test, src/**/*.test.ts)
 #   e2e    the full Playwright suite (desktop + mobile projects), in parallel: Playwright's global setup builds the
 #          seed snapshot and starts one throwaway Synapse (from homeserver/.venv) + one Vite per worker (issue #2)
 name: CI
@@ -33,6 +33,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run build
+      - name: Unit tests
+        run: npm run test:unit
 
   e2e:
     name: E2E tests

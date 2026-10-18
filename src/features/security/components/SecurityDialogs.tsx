@@ -6,7 +6,9 @@
  *  2. setup-dialog     a freshly made key not yet confirmed (`newRecoveryKey`; it is shown once even if the dialog was
  *                      closed while working), a setup in flight, or `open === 'setup'` on an account without secret storage
  *  3. recovery-dialog  `open === 'unlock'`, `open === 'setup'` on an account that already has secret storage (AC-E5-5),
- *                      or the SDK asking for the secret storage key with no dialog open
+ *                      or the SDK asking for the secret storage key with no dialog open (it re-opens by itself for
+ *                      every new prompt, also after Hide; only a prompt the user hid with X / Escape stays hidden,
+ *                      `useSecurityUiStore.hiddenPrompt`, until reopened from the banner)
  *  4. security-prompt-dialog  a password / SSO prompt with no dialog open (the user closed the dialog mid-flow)
  */
 import { useSecurityStore } from '@/store';
@@ -22,7 +24,9 @@ export function SecurityDialogs() {
   const showKey = useSecurityStore((s) => s.newRecoveryKey !== null);
   const setupBusy = useSecurityStore((s) => s.recovery.busy === 'setup');
   const hasSecretStorage = useSecurityStore((s) => !!s.status?.secretStorageReady);
-  const promptKind = useSecurityStore((s) => s.prompt?.kind ?? null);
+  const prompt = useSecurityStore((s) => s.prompt);
+  const hiddenPrompt = useSecurityUiStore((s) => s.hiddenPrompt);
+  const promptKind = prompt && prompt !== hiddenPrompt ? prompt.kind : null;
 
   if (incoming || open === 'verify') return <VerificationDialog />;
   if (showKey) return <SetupEncryptionDialog />;
