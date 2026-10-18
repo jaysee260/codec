@@ -76,6 +76,16 @@ test.afterEach(async ({ page }, info) => {
 test.afterAll(async () => {
   for (const { roomId, parent } of created) {
     try {
+      if (!parent) {
+        // A space made in the UI comes with its own #general: leave it too, or alice keeps an
+        // orphan encrypted "general" in Other Rooms after every run.
+        const kids = await alice.hierarchy(roomId).catch(() => ({ rooms: [] as { room_id: string }[] }));
+        for (const kid of kids.rooms) {
+          if (kid.room_id === roomId) continue;
+          await alice.leaveRoom(kid.room_id).catch(() => undefined);
+          await alice.forgetRoom(kid.room_id).catch(() => undefined);
+        }
+      }
       if (parent) await alice.sendStateEvent(parent, 'm.space.child', roomId, {});
       await alice.leaveRoom(roomId);
       await alice.forgetRoom(roomId);
@@ -196,8 +206,8 @@ test.describe('AC-E1 crypto boot', () => {
     await expect(page.getByTestId('login-form')).toBeVisible({ timeout: 60_000 });
     await expectCryptoWiped(page);
     expect(await storedSession(page)).toBeNull();
-    // BUG-11: a token rejected after boot goes through the plain logout path (no message).
-    await expect.soft(page.getByText(/Session expired/i), 'login form says "Session expired"').toBeVisible();
+    // BUG-11 regression (61e6cef): the mid-session token rejection says why on the login form.
+    await expect(page.getByText(/Session expired/i), 'login form says "Session expired"').toBeVisible();
   });
 });
 

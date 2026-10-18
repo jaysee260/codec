@@ -265,6 +265,7 @@ keys survive logout · setup offers a new key on an account that already has sec
 | BUG-15 | AC-E8-3 (Phase 1 suites) | S2 | Principal (`seed/`) | fixture load | `seed/seed-output.json` keeps the 11 seeded event ids | `"events": {}` since the additive `npm run seed` (2026-10-17 23:54): `conversation.spec` and smoke steps 3+ throw "has no event" | Fixed (seed re-records event ids); regression guard in `e2e/fixtures/seed.ts` loadSeed |
 | BUG-16 | registry | S3 | Dev A or PM | helpers | `verify-close` / `recovery-close` / `setup-close` | One shared `dialog-close` in all three | Not a bug: the corner X has its own id since c59d1f8, footer buttons keep `dialog-close`; pinned by the BUG-16 regression test |
 | BUG-17 | demo rows 8-9 | S3 | PM (docs/PHASE5_PLAN.md) | smoke step 13 | After the emoji match, window 3 offers Unlock and the user pastes the key | Window 1 holds the backup key, so the SAS hands it over and the restore runs by itself; the banner flashes `unlock` then disappears | **Fixed** (PM, 2026-10-18): demo rows 8-9 reworded (row 8: history restores by itself after the emoji match; row 9: the recovery-key path with window 1 closed), Recovery decision row, AC-E4-4, AC-E2-6, AC-E5-1, AC-E5-2 and PHASE5_DEMO.md aligned; step 13 accepts both |
+| BUG-18 | AC-A1-2, AC-E8-3 (smoke step 1, Phase 1-4 suites) | S2 | Principal (`src/store/rooms.ts` `recomputeRooms`, `src/store/bridge.ts`) | full regression 2026-10-18 | A fresh login (no `nav.selection`) lands on Acme HQ / #general | Lands on Home / DM Bob in 3 of 4 tries (`navigation` AC-A1-2 `--repeat-each=4`). Likely: the first-load rule (`firstReady && spaces.length > 0`) runs on a debounced recompute fired mid initial sync (Phase 5 decryption / state events), before the spaces are known, so it falls back to `dms[0]`. Apply the first-load landing only once the initial sync is `Prepared` | Open. Causes 85 of 87 red tests in the run below |
 
 **Known limit (not a bug):** a *redacted* encrypted edit seen from history renders as "Message deleted": room v11
 redaction empties the whole `m.room.encrypted` content, so no client can tell it was an edit (Element does the same).
@@ -277,6 +278,14 @@ quote; the Principal's 21179cb (a) grid, (b) no rows for edits / reactions, (c) 
 
 Not automated: AC-E2-8 (`decrypting` lasts milliseconds), AC-E4-2 wrong password (first upload needs no UIA, so no
 password is ever asked), AC-E5-7 (needs 50+ sessions in one backup). All `test.fixme` with the reason.
+
+**Full regression 2026-10-18 (61e6cef, `--output e2e/results/qa-regression-1018-0136`).** Desktop 121 passed /
+53 failed / 35 skipped; mobile 37 / 34 / 10. All red but two tests is BUG-18: the test lands on DM Bob, or it cannot find a
+`channel-item-*` of Acme HQ. QA fixes in the tests: `navigation` AC-A3-1 now expects the m.direct rooms alice is
+*joined* to (e2ee suites leave their throwaway DMs), AC-A6-3 expects an encrypted channel (AC-E6-1 supersedes
+"unencrypted"; PM: please reword AC-A6-3), and the `e2ee-core` AC-E6-1 teardown also leaves the #general that comes
+with a new space. Five orphan encrypted "general" rooms from earlier runs are still in alice's Other Rooms. They need
+cleanup by someone allowed to change shared homeserver data.
 
 ### Manual 704.chat checklist (AC-E8-4)
 Real server: https://matrix.704.chat, SSO via Keycloak, Element on the side. Mark `ok` / `fail: <what>`.

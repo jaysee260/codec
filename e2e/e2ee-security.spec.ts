@@ -310,7 +310,7 @@ test.describe('regressions', () => {
     const u = await freshUser('qaunknown');
     await loginWith(page, { username: u.username, password: u.password, displayName: u.username });
     await waitForStatus(page);
-    // BUG-14: the pill says "false" once status lands; AC-E4-1 says "unknown" until an identity exists.
+    // BUG-14 regression (61e6cef): "unknown" until the account has an identity, not "false".
     await expect(verifiedAttr(page)).toHaveAttribute('data-verified', 'unknown');
   });
 
