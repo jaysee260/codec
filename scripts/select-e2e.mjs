@@ -16,6 +16,7 @@
  *   - playwright.config.ts: CORE + the harness checks, unless only comments and the projects' testMatch/testIgnore
  *     lists changed; then the specs newly named there
  *   - test infrastructure and global styles (INFRA): CORE + the harness checks (FULL_ONLY)
+ *   - .github/workflows/: as INFRA, unless only comments and the `concurrency:` block changed; then nothing beyond smoke
  *   - other files under src/, e2e/, public/ (CSS modules, recordings, images, preview pages): whatever imports or
  *     names them
  *   - docs, markdown, and anything else: nothing beyond smoke
@@ -42,8 +43,10 @@ export const INFRA = [
   /^homeserver\//,
   /^scripts\/(hs|hs-pool)\.mjs$/,
   /^scripts\/lib\//,
-  /^\.github\/workflows\//,
 ];
+
+/** CI workflows: test infrastructure too, unless only the concurrency settings changed. */
+const WORKFLOWS = /^\.github\/workflows\//;
 
 /** Dependencies that every page or the test run itself sits on (-> CORE). */
 export const TOOLING = /^(@playwright\/|playwright$|vite$|@vitejs\/|typescript$|react$|react-dom$|matrix-js-sdk$|@matrix-org\/|zustand$)/;
@@ -149,6 +152,9 @@ export function buildGraph(root = ROOT) {
 
 const isSpec = (f) => /^e2e\/[^/]+\.spec\.ts$/.test(f);
 const isComment = (line) => /^\s*(\*|\/\/|\/\*|$)/.test(line);
+const isYamlComment = (line) => /^\s*(#|$)/.test(line);
+/** Workflow lines that only decide which runs cancel which, not what a run does. */
+const CONCURRENCY = /^\s*(concurrency:|group:|cancel-in-progress:)/;
 
 /**
  * Adds the specs covering `start`: walk up its importers, ending at area-owned files and at specs. A file most of the
@@ -200,6 +206,12 @@ export function selectSpecs(changed, ctx) {
   const core = (harness = false) => [...CORE, ...(harness ? FULL_ONLY : [])].forEach((s) => specs.add(s));
   const { graph } = ctx;
   for (const file of changed) {
+    if (WORKFLOWS.test(file)) {
+      const { added, removed } = ctx.diff(file);
+      const lines = [...added, ...removed];
+      if (!lines.length || !lines.filter((l) => !isYamlComment(l)).every((l) => CONCURRENCY.test(l))) core(true);
+      continue;
+    }
     if (INFRA.some((re) => re.test(file))) {
       core(true);
       continue;
