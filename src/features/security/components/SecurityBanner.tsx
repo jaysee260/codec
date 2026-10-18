@@ -5,6 +5,11 @@
  *   setup     "Set up encryption for this account"   action "Set up"  -> setup-dialog
  *   verify    "Verify this session"                  action "Verify"  -> verify-dialog
  *   unlock    "Unlock your message history"          action "Unlock"  -> recovery-dialog
+ *             (verified session: "Older messages are locked" / "Enter your recovery key or import keys from
+ *             Element"; hidden for the rest of the session once keys were imported)
+ *   unavailable "Older messages are locked" (one line)   action "Fix" -> recovery-dialog (E2: `locked` /
+ *             `unavailable` phase). Its dismissal is remembered for this device across reloads (localStorage flag
+ *             keyed by user + device id, a value only)
  *   restoring "Restoring keys..." + N of M           no action, no dismiss
  *
  * Dismiss hides that need for this page load only (`useSecurityUiStore.dismissed`), except while a recovery-key
@@ -13,19 +18,37 @@
  */
 import { KeyRound, LoaderCircle, ShieldAlert, X } from 'lucide-react';
 import { useSecurityStore } from '@/store';
-import { bannerNeed, openSecurityDialog, useSecurityUiStore, type BannerNeed, type SecurityDialogKind } from '../state.ts';
+import {
+  bannerNeed,
+  isUnavailableDismissed,
+  openSecurityDialog,
+  rememberUnavailableDismissed,
+  useSecurityUiStore,
+  type BannerNeed,
+  type SecurityDialogKind,
+} from '../state.ts';
 import styles from './SecurityBanner.module.css';
 
 const COPY: Record<Exclude<BannerNeed, 'restoring'>, { text: string; action: string; dialog: SecurityDialogKind }> = {
   setup: { text: 'Set up encryption for this account', action: 'Set up', dialog: 'setup' },
   verify: { text: 'Verify this session', action: 'Verify', dialog: 'verify' },
   unlock: { text: 'Unlock your message history', action: 'Unlock', dialog: 'unlock' },
+  unavailable: { text: 'Older messages are locked', action: 'Fix', dialog: 'unlock' },
+};
+
+/** `unlock` on a verified session (backup key not available): older messages, not the session, are locked. */
+const LOCKED_HISTORY_COPY = {
+  text: 'Older messages are locked',
+  action: 'Unlock',
+  dialog: 'unlock' as SecurityDialogKind,
+  sub: 'Enter your recovery key or import keys from Element',
 };
 
 const SUBTEXT: Record<Exclude<BannerNeed, 'restoring'>, string> = {
   setup: 'Create a recovery key so you can read your messages on other devices.',
   verify: 'Confirm it is you with another device or your recovery key.',
   unlock: 'Enter your recovery key to read older encrypted messages.',
+  unavailable: '',
 };
 
 export function SecurityBanner() {
@@ -35,8 +58,13 @@ export function SecurityBanner() {
   // A pending recovery-key prompt (dialog hidden mid-unlock) overrides a dismissal: the banner is the only way
   // back to it, and the unlock waits on it.
   const promptPending = useSecurityStore((s) => s.prompt?.kind === 'recovery-key');
+  const verified = useSecurityStore((s) => !!s.status?.verified);
+  const userId = useSecurityStore((s) => s.status?.userId ?? null);
+  const deviceId = useSecurityStore((s) => s.status?.deviceId ?? null);
+  // Remembered per device across reloads (read on render: a value in localStorage, no subscription needed).
+  const unavailableDismissed = need === 'unavailable' && !!userId && !!deviceId && isUnavailableDismissed(userId, deviceId);
 
-  if (!need || (dismissed && !promptPending)) return null;
+  if (!need || ((dismissed || unavailableDismissed) && !promptPending)) return null;
 
   if (need === 'restoring') {
     const total = progress?.total ?? 0;
@@ -61,14 +89,15 @@ export function SecurityBanner() {
     );
   }
 
-  const copy = COPY[need];
+  // Verified but the backup key is missing: the history is what is locked, and a key file is the other way in.
+  const copy = need === 'unlock' && verified ? LOCKED_HISTORY_COPY : { ...COPY[need], sub: SUBTEXT[need] };
   const Icon = need === 'unlock' ? KeyRound : ShieldAlert;
   return (
     <div className={styles.banner} data-testid="security-banner" data-need={need} role="region" aria-label="Encryption">
       <Icon size={16} className={styles.icon} aria-hidden="true" />
       <span className={styles.text}>
         <span className={styles.title}>{copy.text}</span>
-        <span className={styles.sub}>{SUBTEXT[need]}</span>
+        {copy.sub && <span className={styles.sub}>{copy.sub}</span>}
       </span>
       <button type="button" className={styles.action} data-testid="security-banner-action" onClick={() => openSecurityDialog(copy.dialog)}>
         {copy.action}
@@ -79,7 +108,10 @@ export function SecurityBanner() {
         data-testid="security-banner-dismiss"
         title="Dismiss"
         aria-label="Dismiss"
-        onClick={() => useSecurityUiStore.getState().dismiss(need)}
+        onClick={() => {
+          if (need === 'unavailable' && userId && deviceId) rememberUnavailableDismissed(userId, deviceId);
+          useSecurityUiStore.getState().dismiss(need);
+        }}
       >
         <X size={16} />
       </button>
