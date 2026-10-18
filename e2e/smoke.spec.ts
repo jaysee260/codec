@@ -162,7 +162,7 @@ test.describe('demo script (QA-3 smoke)', () => {
     // The demo script is written against a fresh seed: this step shows the seeded 3 on #random.
     await requireFreshSeed(test);
     const list = page.getByTestId('channel-list');
-    expect(await itemNames(list, 'channel-item-')).toEqual([NAMES.general, NAMES.random, NAMES.dev]);
+    expect(await itemNames(list, 'channel-item-')).toEqual([NAMES.general, NAMES.random, NAMES.dev, NAMES.vault]);
 
     // Badge must match the count derived from receipts + timeline; on a fresh seed that is 3.
     const derived = (await bob.unreadFor(R.random, ALICE)).count;

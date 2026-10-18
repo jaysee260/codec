@@ -9,6 +9,7 @@
  *    E2E_POOL_FALLBACK; the server on 8008 is used as is (never started or reset here).
  */
 import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { baseUrlFor, hsUrlFor, poolSize } from './fixtures/pool.ts';
 
 async function answering(url: string): Promise<boolean> {
@@ -43,6 +44,13 @@ export default async function globalSetup(): Promise<(() => void) | void> {
     console.log(`[e2e] a homeserver already answers on ${hsUrlFor(0)}; reusing it (set E2E_WORKERS>1 or stop it to run on a fresh snapshot).`);
     return;
   }
-  pool('up', '--workers', String(n));
+  // --replace: a previous run's pool that was not torn down (crash, Ctrl-C) is this run's to restart.
+  pool('up', '--workers', String(n), '--replace');
+  // Fresh-seed verdicts (fixtures/fresh.ts) are persisted per pool instance only after a restore; drop the last run's.
+  const tmp = 'e2e/tmp';
+  for (const name of existsSync(tmp) ? readdirSync(tmp) : []) {
+    if (/^fresh-w\d+\.json$/.test(name)) rmSync(`${tmp}/${name}`, { force: true });
+  }
+  process.env.E2E_POOL_RESTORED = '1';
   return () => pool('down');
 }

@@ -25,7 +25,7 @@ npm run test:e2e:mobile                                     # Phase 2 phone suit
 npm run test:e2e:threads                                    # Phase 3 thread specs (both projects)
 npm run test:e2e:gif                                        # Phase 4 GIF specs (both projects)
 npm run test:android-build                                  # APK build + manifest checks
-npx playwright test e2e/conversation.spec.ts -g "AC-B3-2" --project=desktop
+npx playwright test e2e/conversation-timeline.spec.ts -g "AC-B3-2" --project=desktop
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile
 npx playwright show-trace e2e/results/<project>/<test-dir>/trace.zip
 ```
@@ -246,9 +246,9 @@ with the registry composer, `thread-root`, `thread-replies-divider`, `thread-mes
 ## Phase 5 (end-to-end encryption)
 
 ```
-npm run test:e2e:e2ee                                              # e2ee-core + e2ee-media + e2ee-security (desktop)
+npm run test:e2e:e2ee                                              # e2ee-core-* + e2ee-media + e2ee-security-* (desktop)
 npx playwright test e2e/smoke.spec.ts --project=desktop -g "step 13" # Phase 5 demo walk-through -> e2e/results/demo/13-*
-npx playwright test e2e/e2ee-security.spec.ts --project=desktop -g "AC-E5-2"
+npx playwright test e2e/e2ee-security-chain.spec.ts --project=desktop -g "AC-E5-2"
 ```
 Prefix with `PLAYWRIGHT_BROWSERS_PATH=/tmp/claude-0/pwb` in the build container. Security chains and the demo run on
 **throwaway accounts** (`freshUser()`): cross-signing cannot be undone, so alice's account is never set up by a test.
@@ -270,6 +270,13 @@ keys survive logout · setup offers a new key on an account that already has sec
 | BUG-20 | AC-E8-3 | S2 | QA (`e2e/auth-media.spec.ts`) | full regression 2 | Every test's browser contexts closed at its end | The SSO login-token test never closed its `browser.newContext()`, so a logged-in alice synced (with crypto) for the whole run; later logins took 16 s+ in "Setting up encryption" / "Syncing" and missed the 20 s shell timeout (5 desktop tests) | Fixed (test): context closed in `finally` |
 | BUG-21 | AC-E8-3, AC-SH-2 | S2 | QA (`e2e/fixtures/auth.ts`) + coordinator (homeserver data) | full regression 3 | Test logins leave no devices behind | `loginAs` never logged out: alice has **1206 devices, 790 with device keys**. Since Phase 5 every login queries and every encrypted send shares keys with all of them. Logins slow down over a run (shell > 20 s, AC-SH-2 11.6 s, AC-E5-6 backup count stuck) | Test half fixed: `loginAs` logs out the sessions of earlier tests (`navigation` run: +2 devices for 29 tests). Server reset 2026-10-18 cleared them. Run 4 holds: alice 1 -> 11 devices over 290 tests (6 web, 4 API-helper logins) |
 | BUG-22 | AC-G8-1, demo step 7 | S3 | QA (`gif.spec`, `mobile-gif.spec`, `smoke.spec`) | full regression 4 | GIF decoded / thumbnail box <= 400 px | Read once right after mount: `naturalWidth` 0 (decode not done) and `boundingBox()` null (bubble re-rendering). Flaky in long runs; the dev server watching `e2e/results` (Faster test runs thread) widens the window | Fixed (test): both polled. AC-G7-1 3/3, smoke demo chain and mobile-gif green in isolation |
+| BUG-23 | AC-B1-1, AC-B3-1, AC-A2-3, smoke steps 2/3/5/6 | S2 | QA (`e2e/fixtures/fresh.ts`) | issue #2 run 1 (also with 1 worker) | The fresh-seed guard lets its 7 tests run on a pristine seed | Always skipped "requires a fresh seed" since 6cb6989: the seed posts a `late` thread reply into #general after `general.last`, and the probe took the newest event of any kind | Fixed (test): the probe ignores `m.thread` replies; regression `test-harness` BUG-23 |
+| BUG-24 | same as BUG-23 | S3 | QA (`fresh.ts`) + `e2e/global-setup.ts` | issue #2 run 1 | A worker restarted after a failure keeps the verdict taken on the pristine server | It re-probed the server earlier tests had dirtied and skipped guarded tests | Fixed (test): after a pool restore the first verdict is persisted per instance (`e2e/tmp/fresh-w<i>.json`, cleared by global setup); no restore = old behaviour; regression `test-harness` BUG-24 |
+| BUG-25 | PERF-1, PERF-6 | S2 | coordinator (`vite.config.ts`) | issue #2 run 1 (load avg 19 on 4 cores) | Idle Vite dev servers cost ~nothing during a run | Each Vite's watcher stat-ed Playwright trace files in `e2e/results` (~6400 statx/s, ~45% of a core per Vite, x N workers); logins timed out at 20 s | Fixed: `server.watch.ignored` (e2e/results, playwright-report, homeserver, ...); regression `test-harness` BUG-25 |
+| BUG-26 | smoke step 2 (AC-A2-1) | S3 | QA (`e2e/smoke.spec.ts`) | issue #2, pristine seed after BUG-23 | Acme channel list = the seed's [general, random, dev, vault] | Spec expected [general, random, dev]: stale since Phase 5 added #vault, masked by the BUG-23 skip | Fixed (test): expectation lists #vault (Advisor ruling) |
+| BUG-27 | AC-A5-2 | S2 | Principal (`scripts/hs-pool.mjs`) + PM (`docs/SEED_DATA.md`) | issue #2, pristine snapshot | Pristine seed: alice's only Acme unread is #random, so reading it clears the Acme dot | The snapshot bakes in `send-encrypted-sample.mjs`, leaving 4 unread in #vault (seed contract: created empty); the dot stays | Open: snapshot build should mark #vault read for alice (receipt + `m.fully_read`); spec unchanged (Advisor ruling) |
+
+The literal `${MARKER}` line in `homeserver/homeserver.yaml` (unparsable YAML since f6fce71) is fixed by PR #5, regression `homeserver-config.spec.ts`.
 
 **Known limit (not a bug):** a *redacted* encrypted edit seen from history renders as "Message deleted": room v11
 redaction empties the whole `m.room.encrypted` content, so no client can tell it was an edit (Element does the same).

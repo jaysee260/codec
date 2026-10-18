@@ -25,9 +25,25 @@
  * The verdict is probed once per worker process and cached: the run itself dirties both signals
  * (the very first test that posts into #general moves the window), so a later re-probe would
  * report "dirty" for a run that started clean and would skip tests that should have run.
+ *
+ * Pool runs (issue #2): when global setup restored the homeserver pool it sets `E2E_POOL_RESTORED=1` and deletes
+ * `e2e/tmp/fresh-w<i>.json`; the first verdict taken on pool instance i is then written there, so a worker that
+ * Playwright restarts after a failure reuses the verdict taken on the pristine server instead of re-probing the
+ * server the earlier tests dirtied (BUG-24). Without a restore (`E2E_REUSE_SERVERS`, a reused :8008, WSL1) nothing is
+ * persisted and every worker process probes once, as before.
+ *
+ * Thread replies do not count as "events after the seeded last message": the seed itself posts a late thread reply
+ * into #general after `general.last` (seed/seed.ts, Phase 3), and thread replies never enter the main timeline window
+ * (BUG-23).
  */
-import { asUser } from './matrix-api.ts';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { asUser, type MatrixEventJson } from './matrix-api.ts';
+import { workerIndex } from './pool.ts';
 import { eventId, resolveRoom } from './seed.ts';
+
+const TMP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'tmp');
 
 /** Seeded unread for #random on a fresh seed (docs/SEED_DATA.md, AC-A5-1). */
 const RANDOM_UNREAD_ON_FRESH_SEED = 3;
@@ -50,6 +66,52 @@ export interface FreshSeedTest {
 
 let probed: Promise<FreshSeedReport> | undefined;
 
+/** True for an event in a thread (`m.relates_to.rel_type === 'm.thread'`): it is not part of the main timeline. */
+export function isThreadReply(event: MatrixEventJson): boolean {
+  const rel = (event.content as { 'm.relates_to'?: { rel_type?: unknown } } | undefined)?.['m.relates_to'];
+  return rel?.rel_type === 'm.thread';
+}
+
+/** The newest main-timeline event in a `/messages?dir=b` chunk (newest first), skipping thread replies. */
+export function newestMainTimelineEvent(chunk: MatrixEventJson[]): MatrixEventJson | undefined {
+  return chunk.find((event) => !isThreadReply(event));
+}
+
+/** Where pool instance `i`'s verdict is persisted for the rest of the run. */
+export function freshVerdictFile(i: number): string {
+  return resolve(TMP_DIR, `fresh-w${i}.json`);
+}
+
+/** Deletes every persisted verdict (global setup, right after restoring the pool). */
+export function clearFreshVerdicts(maxWorkers: number): void {
+  for (let i = 0; i < maxWorkers; i += 1) rmSync(freshVerdictFile(i), { force: true });
+}
+
+/**
+ * Returns the verdict persisted in `file` when there is one, otherwise runs `probe` and persists its result there
+ * (atomically). With no `file`, just probes.
+ */
+export async function loadOrProbe(
+  file: string | undefined,
+  probe: () => Promise<FreshSeedReport>,
+): Promise<FreshSeedReport> {
+  if (file && existsSync(file)) {
+    try {
+      return JSON.parse(readFileSync(file, 'utf8')) as FreshSeedReport;
+    } catch {
+      // A torn or foreign file: fall through and probe (the write below replaces it).
+    }
+  }
+  const report = await probe();
+  if (file) {
+    mkdirSync(dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(report));
+    renameSync(tmp, file);
+  }
+  return report;
+}
+
 async function probeSeed(): Promise<FreshSeedReport> {
   const reasons: string[] = [];
   const alice = await asUser('alice');
@@ -57,7 +119,7 @@ async function probeSeed(): Promise<FreshSeedReport> {
   const random = await resolveRoom('random');
 
   // 1. The newest event in #general is still the last seeded message (nothing was posted after it).
-  const newest = (await alice.messages(general, 1))[0];
+  const newest = newestMainTimelineEvent(await alice.messages(general, 50));
   const newestId = newest?.event_id;
   const expectedNewest = eventId('general.last');
   if (newestId !== expectedNewest) {
@@ -77,9 +139,9 @@ async function probeSeed(): Promise<FreshSeedReport> {
   return { fresh: reasons.length === 0, reasons, newestGeneralEvent: newestId, randomUnread: unread.count };
 }
 
-/** Probes the homeserver once per worker and caches the verdict for the rest of the run. */
+/** Probes the homeserver once per worker (once per pool instance after a restore) and caches the verdict. */
 export function checkFreshSeed(): Promise<FreshSeedReport> {
-  probed ??= probeSeed();
+  probed ??= loadOrProbe(process.env.E2E_POOL_RESTORED ? freshVerdictFile(workerIndex()) : undefined, probeSeed);
   return probed;
 }
 

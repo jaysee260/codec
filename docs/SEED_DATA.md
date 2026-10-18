@@ -165,3 +165,4 @@ Sample content comes from `npm run e2ee:sample` (bob: "vault sample 1..3" + one 
 `seed/e2ee-keys.json` (gitignored); a browser session imports them with `__matrixPoc.security.importRoomKeys(json)`, and
 `npm run verify:e2ee` checks the room, the wire shape and the ciphertext on the server. A browser device that logs in later cannot read
 these messages without the keys file or a key backup (that is the point).
+The e2e snapshot (`scripts/hs-pool.mjs`) bakes this sample in: every pristine clone has bob's 3 texts + 1 image in `#vault`, **already read by alice** (so the Acme space dot still depends only on `#random`/`#lobby`).

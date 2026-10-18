@@ -20,7 +20,8 @@ const SERVER = process.env.HS_SERVER_NAME ?? 'localhost';
 const PASSWORD = 'password123';
 const SEED_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(SEED_DIR, 'assets');
-const OUTPUT_FILE = path.join(SEED_DIR, 'seed-output.json');
+// SEED_OUTPUT_FILE: scripts/hs-pool.mjs seeds its snapshot template without touching the checkout's seed-output.json.
+const OUTPUT_FILE = process.env.SEED_OUTPUT_FILE ?? path.join(SEED_DIR, 'seed-output.json');
 const V3 = '/_matrix/client/v3';
 /** Room version 11: explicit creator power level (100). v12 makes creators "infinite" and rejects them in users. */
 const ROOM_VERSION = '11';

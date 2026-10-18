@@ -8,7 +8,8 @@
  *                                                 run seed/seed.ts + scripts/send-encrypted-sample.mjs, stop, keep the
  *                                                 data dir. Cached under homeserver/data/pool/snapshot, keyed by a hash of
  *                                                 the seed inputs + Synapse version; rebuilt only when that changes.
- *   node scripts/hs-pool.mjs up [--workers N]     restore N fresh copies and start them on 8008..8008+N-1 (default N:
+ *   node scripts/hs-pool.mjs up [--workers N] [--replace]
+ *                                                 restore N fresh copies and start them on 8008..8008+N-1 (default N:
  *                                                 E2E_WORKERS or the e2e default); copies the snapshot's seed files back
  *                                                 into seed/. Builds the snapshot first when it is missing or stale.
  *   node scripts/hs-pool.mjs down                 stop every instance the last `up` started (data dirs + logs kept)
@@ -42,7 +43,12 @@ import { native } from './lib/hs-native.mjs';
 export const POOL_DIR = path.join(DATA_DIR, 'pool');
 const SNAPSHOT_DIR = path.join(POOL_DIR, 'snapshot');
 const TEMPLATE_DIR = path.join(POOL_DIR, 'template');
-const STATE_FILE = path.join(POOL_DIR, 'state.json');
+/**
+ * Instances and state live per base port, so a manual pool on HS_POOL_BASE_PORT=8020 (agents' checks) never sees or
+ * stops the default one on 8008 that a Playwright run owns. The snapshot is shared.
+ */
+const RUN_DIR = Number(process.env.HS_POOL_BASE_PORT ?? DEFAULT_HS_PORT) === DEFAULT_HS_PORT ? POOL_DIR : path.join(POOL_DIR, `base-${Number(process.env.HS_POOL_BASE_PORT)}`);
+const STATE_FILE = path.join(RUN_DIR, 'state.json');
 const SEED_DIR = path.join(ROOT, 'seed');
 const BASE_PORT = Number(process.env.HS_POOL_BASE_PORT ?? DEFAULT_HS_PORT);
 const BUILD_PORT = Number(process.env.HS_POOL_BUILD_PORT ?? 8030);
@@ -54,6 +60,7 @@ const SNAPSHOT_INPUTS = [
   'seed/seed.ts',
   'homeserver/homeserver.yaml',
   'homeserver/localhost.log.config',
+  'scripts/hs-pool.mjs',
   'scripts/send-encrypted-sample.mjs',
   'scripts/lib/e2ee-api.mjs',
   'scripts/lib/gif-api.mjs',
@@ -133,7 +140,7 @@ function run(cmd, args, { env = {}, logFile, label }) {
 // ---------------------------------------------------------------------------
 
 function instanceDir(i) {
-  return path.join(POOL_DIR, `hs-${i}`);
+  return path.join(RUN_DIR, `hs-${i}`);
 }
 
 /** Writes homeserver.yaml + log.config into `dir` for a Synapse on `port`. */
@@ -228,13 +235,14 @@ export async function buildSnapshot(backend, { force = false } = {}) {
   const buildLog = path.join(POOL_DIR, 'snapshot-build.log');
   rmSync(buildLog, { force: true });
 
-  // seed.ts always writes seed/seed-output.json and merges into a stale one; start from a clean slate.
-  rmSync(path.join(SEED_DIR, 'seed-output.json'), { force: true });
+  // seed.ts writes its ids to SEED_OUTPUT_FILE: inside the template, never into the checkout's seed/seed-output.json
+  // (a live Playwright run may be reading that one; `up` installs the snapshot's copy when it restores).
+  const outputFile = path.join(TEMPLATE_DIR, 'seed-output.json');
 
   const inst = await startInstance(backend, { index: 'template', dir: TEMPLATE_DIR, port: BUILD_PORT });
   console.log(`[hs-pool] template Synapse up on ${inst.url} (${fmtMs(Date.now() - t0)})`);
   try {
-    const env = { HS_URL: inst.url };
+    const env = { HS_URL: inst.url, SEED_OUTPUT_FILE: outputFile };
     const t1 = Date.now();
     run(process.execPath, ['seed/seed.ts'], { env, logFile: buildLog, label: 'seed/seed.ts' });
     console.log(`[hs-pool] seed/seed.ts done (${fmtMs(Date.now() - t1)})`);
@@ -242,7 +250,8 @@ export async function buildSnapshot(backend, { force = false } = {}) {
     const keysFile = path.join(TEMPLATE_DIR, 'e2ee-keys.json');
     run(process.execPath, ['scripts/send-encrypted-sample.mjs', '--keys', keysFile], { env, logFile: buildLog, label: 'scripts/send-encrypted-sample.mjs' });
     console.log(`[hs-pool] send-encrypted-sample.mjs done (${fmtMs(Date.now() - t2)})`);
-    if (!existsSync(path.join(SEED_DIR, 'seed-output.json'))) throw new Error('seed/seed.ts did not write seed/seed-output.json');
+    if (!existsSync(outputFile)) throw new Error(`seed/seed.ts did not write ${outputFile}`);
+    await markVaultRead(inst.url, outputFile);
   } catch (e) {
     await backend.stop(inst);
     throw new Error(`${e.message}\n(full output: ${buildLog})`);
@@ -255,10 +264,11 @@ export async function buildSnapshot(backend, { force = false } = {}) {
   rmSync(staging, { recursive: true, force: true });
   mkdirSync(path.join(staging, 'seed'), { recursive: true });
   renameSync(path.join(TEMPLATE_DIR, 'e2ee-keys.json'), path.join(staging, 'seed', 'e2ee-keys.json'));
+  renameSync(outputFile, path.join(staging, 'seed', 'seed-output.json'));
   for (const f of ['homeserver.yaml', 'log.config', 'homeserver.pid']) rmSync(path.join(TEMPLATE_DIR, f), { force: true });
   renameSync(path.join(TEMPLATE_DIR, 'synapse.log'), path.join(staging, 'template-synapse.log'));
   renameSync(TEMPLATE_DIR, path.join(staging, 'data'));
-  for (const name of ['seed-output.json', 'assets']) {
+  for (const name of ['assets']) {
     const src = path.join(SEED_DIR, name);
     if (existsSync(src)) cpSync(src, path.join(staging, 'seed', name), { recursive: true });
   }
@@ -268,6 +278,40 @@ export async function buildSnapshot(backend, { force = false } = {}) {
   renameSync(staging, SNAPSHOT_DIR);
   console.log(`[hs-pool] snapshot ${hash} built in ${fmtMs(meta.buildMs)} -> ${path.relative(ROOT, SNAPSHOT_DIR)} (${dirSizeMb(path.join(SNAPSHOT_DIR, 'data'))} MB)`);
   return meta;
+}
+
+/**
+ * The e2ee sample leaves bob's 4 events unread for alice in #vault; docs/SEED_DATA.md promises the Acme channels other
+ * than #random/#lobby start read (navigation AC-A5-2 depends on it), so alice reads #vault before the snapshot is taken.
+ */
+async function markVaultRead(hsUrl, outputFile) {
+  const v3 = `${hsUrl}/_matrix/client/v3`;
+  const json = async (res) => {
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`${res.url} -> ${res.status} ${JSON.stringify(body)}`);
+    return body;
+  };
+  const seed = JSON.parse(readFileSync(outputFile, 'utf8'));
+  const vault = seed.rooms?.vault;
+  if (!vault) throw new Error('seed-output.json has no "vault" room; cannot mark it read for alice');
+  const login = await json(
+    await fetch(`${v3}/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'm.login.password', identifier: { type: 'm.id.user', user: 'alice' }, password: 'password123', initial_device_display_name: 'hs-pool read marker' }),
+    }),
+  );
+  const auth = { authorization: `Bearer ${login.access_token}`, 'content-type': 'application/json' };
+  try {
+    const room = encodeURIComponent(vault);
+    const { chunk } = await json(await fetch(`${v3}/rooms/${room}/messages?dir=b&limit=1`, { headers: auth }));
+    const last = chunk?.[0]?.event_id;
+    if (!last) throw new Error('#vault has no events to mark read');
+    await json(await fetch(`${v3}/rooms/${room}/read_markers`, { method: 'POST', headers: auth, body: JSON.stringify({ 'm.fully_read': last, 'm.read': last }) }));
+    console.log(`[hs-pool] #vault marked read for alice at ${last}`);
+  } finally {
+    await fetch(`${v3}/logout`, { method: 'POST', headers: auth }).catch(() => {});
+  }
 }
 
 function dirSizeMb(dir) {
@@ -285,10 +329,15 @@ function dirSizeMb(dir) {
 
 /** Copies the snapshot's seed-output.json / e2ee-keys.json / assets into seed/ so the fixtures match the clones. */
 function restoreSeedFiles() {
+  // The default pool (8008) is what the fixtures use, so its seed files go to seed/. A pool on another base port
+  // (manual checks while a Playwright run is live) gets them under its own dir and must not touch seed/.
+  const target = RUN_DIR === POOL_DIR ? SEED_DIR : path.join(RUN_DIR, 'seed');
+  mkdirSync(target, { recursive: true });
+  if (target !== SEED_DIR) console.log(`[hs-pool] seed files for this pool: ${path.relative(ROOT, target)}/ (seed/ left alone)`);
   for (const name of SEED_OUTPUTS) {
     const src = path.join(SNAPSHOT_DIR, 'seed', name);
     if (!existsSync(src)) continue;
-    const dst = path.join(SEED_DIR, name);
+    const dst = path.join(target, name);
     rmSync(dst, { recursive: true, force: true });
     cpSync(src, dst, { recursive: true });
   }
@@ -298,16 +347,23 @@ function restoreSeedFiles() {
 // Commands
 // ---------------------------------------------------------------------------
 
-export async function up({ workers } = {}) {
+export async function up({ workers, replace = false } = {}) {
   const n = Number(workers ?? process.env.E2E_WORKERS ?? defaultWorkers());
   if (!Number.isInteger(n) || n < 1 || n > 16) throw new Error(`workers must be 1..16, got ${workers}`);
   const backend = pickBackend();
-  mkdirSync(POOL_DIR, { recursive: true });
+  mkdirSync(RUN_DIR, { recursive: true });
 
   const previous = readState();
   if (previous) {
-    console.log('[hs-pool] stopping the previous pool first');
-    await stopState(BACKENDS[previous.backend] ?? backend, previous, { quiet: true });
+    const prevBackend = BACKENDS[previous.backend] ?? backend;
+    const alive = previous.instances.filter((inst) => prevBackend.alive(inst));
+    if (alive.length && !replace) {
+      throw new Error(
+        `a pool started ${previous.startedAt} is still running on ${alive.map((i) => i.port).join(', ')} (${STATE_FILE}). It may belong to a live Playwright run: leave it, or pass --replace to stop and restart it.`,
+      );
+    }
+    console.log(alive.length ? '[hs-pool] --replace: stopping the previous pool first' : '[hs-pool] clearing stale state of a pool that is no longer running');
+    await stopState(prevBackend, previous, { quiet: true });
   }
   for (let i = 0; i < n; i++) {
     if (await answering(BASE_PORT + i)) {
@@ -395,7 +451,7 @@ async function main() {
       await buildSnapshot(pickBackend(), { force: args.includes('--force') });
       return;
     case 'up':
-      await up({ workers: argValue(args, '--workers') });
+      await up({ workers: argValue(args, '--workers'), replace: args.includes('--replace') });
       return;
     case 'down':
       await down();
@@ -426,7 +482,7 @@ async function main() {
       return;
     }
     default:
-      console.error('usage: node scripts/hs-pool.mjs <snapshot [--force]|fresh|up [--workers N]|down|status|clean|probe>');
+      console.error('usage: node scripts/hs-pool.mjs <snapshot [--force]|fresh|up [--workers N] [--replace]|down|status|clean|probe>');
       process.exit(2);
   }
 }
