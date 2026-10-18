@@ -1,12 +1,17 @@
 # Runs on every pull request into master and every push to master.
-#   build  typecheck + production build (npm run build) + unit tests (npm run test:unit, node:test, src/**/*.test.ts)
-#   e2e    the full Playwright suite (desktop + mobile projects), in parallel: Playwright's global setup builds the
-#          seed snapshot and starts one throwaway Synapse (from homeserver/.venv) + one Vite per worker (issue #2)
+#   build  typecheck + production build (npm run build) + unit tests (npm run test:unit, node:test, src/**/*.test.ts + scripts/**/*.test.mjs)
+#   e2e    Playwright (desktop + mobile projects), in parallel: Playwright's global setup builds the seed snapshot and
+#          starts one throwaway Synapse (from homeserver/.venv) + one Vite per worker (issue #2).
+#          Pushes to master, manual runs and PRs labelled `full-e2e` run the whole suite. Other PRs never do: they run
+#          the smoke walk-throughs plus the specs that depend on what they change (scripts/select-e2e.mjs; a change to
+#          the client core or the test setup runs a small core set, and master's full run covers the rest).
 name: CI
 
 on:
   pull_request:
     branches: [master]
+    # `labeled` so adding `full-e2e` re-runs the PR with the whole suite.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master]
   workflow_dispatch:
@@ -42,10 +47,22 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # select-e2e diffs the PR against its base.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Pick specs
+        id: pick
+        env:
+          FULL: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-e2e') }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$FULL" = "true" ]; then specs=ALL; else specs=$(node scripts/select-e2e.mjs "$BASE"); fi
+          echo "Specs: $specs"
+          echo "specs=$specs" >> "$GITHUB_OUTPUT"
       # --ignore-scripts skips the postinstall browser download; the next step installs it with its OS deps.
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
@@ -55,9 +72,11 @@ jobs:
       - name: Install Synapse
         run: python -m venv homeserver/.venv && homeserver/.venv/bin/pip install 'matrix-synapse[url-preview]'
       - name: Run Playwright
-        run: npx playwright test
+        run: |
+          if [ "$SPECS" = "ALL" ]; then npx playwright test; else npx playwright test $SPECS; fi
         env:
           CI: 'true'
+          SPECS: ${{ steps.pick.outputs.specs }}
       - name: Synapse logs
         if: failure()
         run: tail -n 200 homeserver/data/pool/snapshot-build.log homeserver/data/pool/hs-*/synapse.log || true
