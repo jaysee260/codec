@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test:unit": "node --test \"src/**/*.test.ts\"",
+    "test:unit": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",
     "seed": "node seed/seed.ts",
     "seed:reset": "node scripts/hs.mjs reset && node seed/seed.ts",
     "hs:up": "node scripts/hs.mjs up && node scripts/rtc.mjs up",
@@ -71,6 +71,7 @@
     "livekit-client": "^2.23.0",
     "lucide-react": "^1.49.0",
     "matrix-js-sdk": "^43.0.0",
+    "ogg-opus-decoder": "^1.7.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.15"

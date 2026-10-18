@@ -1,13 +1,14 @@
 /**
  * Microphone recording with MediaRecorder (Phase 2, PRIN-5).
  *
- * Format decision (coordinator + advisor, recorded in docs/ARCHITECTURE.md "Phase 2 deltas"): record in
- * whatever the platform offers and send that, with the real container type in `info.mimetype`:
- *   Android WebView / desktop Chromium  audio/webm;codecs=opus   -> info.mimetype audio/webm
- *   iOS WKWebView / Safari              audio/mp4 (AAC)          -> info.mimetype audio/mp4
- *   Firefox                             audio/ogg;codecs=opus    -> info.mimetype audio/ogg
- * No transcoding in the POC (`encodeToOggOpus` in index.ts is the P1 seam). Duration comes from recorder
- * timing or `decodeAudioData` (analysis.ts) - never from `<audio>.duration`, which is Infinity for WebM blobs.
+ * Format decision (orchestrator, docs/VOICE_FORMAT_PLAN.md / docs/ARCHITECTURE.md "Phase 2 deltas"): record in
+ * whatever the platform offers; `encodeToOggOpus` (encode.ts) then remuxes WebM/Opus to Ogg/Opus losslessly
+ * (no re-encoding) and leaves the rest alone, so `info.mimetype` is:
+ *   Android WebView / desktop Chromium  audio/webm;codecs=opus   -> remuxed -> info.mimetype audio/ogg
+ *   Firefox / Safari >= 18.4            audio/ogg;codecs=opus    -> as is   -> info.mimetype audio/ogg
+ *   old iOS WKWebView / Safari          audio/mp4 (AAC)          -> as is   -> info.mimetype audio/mp4
+ * Duration and waveform come from the ORIGINAL recording (recorder timing or `decodeAudioData`, analysis.ts) -
+ * never from `<audio>.duration`, which is Infinity for WebM blobs.
  */
 
 /**

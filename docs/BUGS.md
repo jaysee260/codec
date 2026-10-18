@@ -101,7 +101,9 @@ were never run. The suites annotate them as `not run here`.
 
 ### Waived
 
-**AC-V2-4** (`info.mimetype` is `audio/ogg` on Chromium). docs/ARCHITECTURE.md "Phase 2 deltas"
+**AC-V2-4** — *no longer waived* since the voice-format change (see "Voice format" below): Chromium
+now sends `audio/ogg` and `e2e/voice.spec.ts` asserts it. Original Phase 2 text, for history:
+(`info.mimetype` is `audio/ogg` on Chromium). docs/ARCHITECTURE.md "Phase 2 deltas"
 records the decision to send the native `MediaRecorder` container with no transcoding; Chromium and
 the Android WebView therefore produce `audio/webm`. Verified instead: the mimetype is one of
 `audio/ogg` / `audio/webm` / `audio/mp4` **and** the uploaded bytes really are that container
@@ -326,6 +328,31 @@ Real server: https://matrix.704.chat, SSO via Keycloak, Element on the side. Mar
 | 10 | AC-E3-7 | Image from Element (with a thumbnail) renders in codec; voice note from Element plays in codec | | | |
 | 11 | interop | Image, file and voice note sent from codec open / play in Element | | | |
 | 12 | AC-E1-3 | Log out of codec, log in again: new session, banner back (DevTools > Application > IndexedDB: no old `matrix-poc-crypto:` store) | | | |
+
+## Voice format (Ogg remux + software-decode fallback, docs/VOICE_FORMAT_PLAN.md)
+
+QA pass against `e2e/ogg-remux.spec.ts` (Node, the remuxer on the real Chromium fixtures
+`e2e/fixtures/chromium-{1s,3s}.webm`, judged by the independent reader `e2e/fixtures/ogg.ts`),
+`e2e/voice-compat.spec.ts` (native vs fallback playback; the "old iPhone" simulation is
+`e2e/fixtures/old-iphone.ts`) and `e2e/voice.spec.ts` (AC-V2-4 now asserted), all in the `mobile`
+project, on the dirty homeserver. Notes go to `#dev`.
+
+```
+npx playwright test -c playwright.local.config.ts e2e/ogg-remux.spec.ts e2e/voice-compat.spec.ts e2e/voice.spec.ts --project=mobile
+npx playwright test -c playwright.local.config.ts e2e/voice-compat.spec.ts --project=mobile -g "AC-F5"
+```
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-32 | decision 1 (lossless remux), AC-F1 | S3 | web-mobile-emulated (Node) | no | Principal | `remuxWebmOpusToOgg(chromium-3s.webm sliced to 60 % of its bytes)` — a recording cut in the middle of a SimpleBlock. | The truncated trailing block is dropped (the remuxer's own header says so): 34 audio packets, the 34 complete SimpleBlocks. | 35 packets: the partial block was emitted as a full Opus packet (a corrupt last frame). `readElement()` clamped `dataEnd` to the buffer, so the `el.end > cluster.dataEnd` truncation check in the packet loop could never fire. | `e2e/ogg-remux.spec.ts` "remux of a WebM cut mid-cluster …" | **Fixed** (Principal, `src/lib/audio/ogg.ts`: elements record `truncated`, the packet loop breaks on it). Re-verified: the regression test passes. |
+| BUG-31 | AC-A5-2 | S3 | web-desktop | no | QA | Full suite in CI (3 pool workers): an E2EE spec adds encrypted #vault to Acme on the same server before `navigation.spec.ts` runs; repro locally with `E2E_WORKERS=1` running `e2ee-core-boot`, `e2ee-core-timeline`, `navigation` on desktop. | After reading #random the Acme dot goes away only when no other Acme channel is unread. | The test summed only #general/#dev via the receipt-derived `unreadFor`, which cannot see bob's `m.room.encrypted` messages, so it expected the dot gone while #vault was still unread. Test bug, not an app bug; order-dependent on master too. | `e2e/navigation.spec.ts` AC-A5-2 | **Fixed**: the precondition now reads the channel list's own `channel-unread-*` badges (what the dot sums); asserts the dot stays when any remain. Re-verified with the repro order. |
+| — | AC-V1-2 | — | web-mobile-emulated | no | — | Baseline run before the change: AC-V1-2 (live level meter) failed once. | — | Passed in every run of this pass (full voice run, and the suite alone). Not reproducible; environment flake of the fake mic in this container's Chromium, not a voice-format regression. | — | Not a bug. |
+| — | phone demo step 1 | — | web-mobile-emulated | no | — | `mobile-smoke.spec.ts` run as the first spec right after the dev server cold-started (same run as the voice specs). | Lands in #general. | Header read "random" once (the pre-seeded `nav.selection` race the voice.spec `openRoom` helper already works around); the 12 later serial steps did not run. The suite alone right after: 13/13 green. | — | Not a voice-format defect; flake on a cold dev server. |
+
+Regression tests added for Dev B's notes (no bug found, kept as guards): a native `play()` that never
+settles switches to the fallback after the ~4 s stall timeout (`voice-compat.spec.ts` "stalled native
+play() …"), and a WKWebView-style `canPlayType` that *lies* (`'maybe'`) recovers through the
+`<audio>` format-error path ("old iPhone whose canPlayType lies").
 
 ## Phase 4 (GIF picker)
 

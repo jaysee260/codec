@@ -386,18 +386,24 @@ test.describe('DEV-A-5 unread badges', () => {
     await expect(page.getByTestId(`space-unread-${R.gaming}`)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId(`space-unread-${R.acme}`)).toBeVisible({ timeout: 10_000 });
 
-    const otherAcmeUnread =
-      (await admin.unreadFor(R.general)).count + (await admin.unreadFor(R.dev)).count;
     await openChannel(page, R.random);
     await expect(page.getByTestId(`channel-unread-${R.random}`)).toHaveCount(0, { timeout: 10_000 });
 
+    // The Acme dot sums every Acme channel, not just #general/#dev: other specs on the same pool server add
+    // channels to Acme (the E2EE specs' encrypted #vault, whose bob messages the receipt-derived
+    // `unreadFor` cannot see because they are m.room.encrypted). So the precondition is the channel list's
+    // own badges, which are exactly what the dot adds up.
+    const otherBadges = page.getByTestId('channel-list').locator('[data-testid^="channel-unread-"]');
+    const otherAcmeUnread = await otherBadges.count();
     if (otherAcmeUnread === 0) {
       await expect(page.getByTestId(`space-unread-${R.acme}`)).toHaveCount(0, { timeout: 10_000 });
     } else {
+      const ids = await otherBadges.evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
       annotate(
         'seed-drift',
-        `AC-A5-2: #general/#dev carry ${otherAcmeUnread} unread on this homeserver, so the Acme rail dot is expected to stay. Run \`npm run seed:reset\` to assert the disappearance.`,
+        `AC-A5-2: other Acme channels still show unread (${ids.join(', ')}), so the Acme rail dot is expected to stay. Run \`npm run seed:reset\` to assert the disappearance.`,
       );
+      await expect(page.getByTestId(`space-unread-${R.acme}`)).toBeVisible();
     }
     // The Gaming dot is untouched by reading an Acme channel.
     await expect(page.getByTestId(`space-unread-${R.gaming}`)).toBeVisible();

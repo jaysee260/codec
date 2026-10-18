@@ -15,12 +15,12 @@
  *  - **AC-V1-6** (P2) the 120 s auto-stop: two minutes of wall clock per run.
  *  - **AC-V3-7** bar colouring is a visual criterion; the mobile smoke writes the screenshot.
  *
- * ## Waived
- *  - **AC-V2-4** "`info.mimetype` is `audio/ogg` on Chromium". docs/ARCHITECTURE.md "Phase 2 deltas"
- *    records the orchestrator decision: the POC sends the native `MediaRecorder` container with no
- *    transcoding, so Chromium produces `audio/webm`. This spec asserts the mimetype is one of the
- *    three allowed containers *and* that the bytes really are that container (AC-V2-3), which is the
- *    part that protects interop.
+ * ## Voice format (docs/VOICE_FORMAT_PLAN.md)
+ *  - **AC-V2-4** "`info.mimetype` is `audio/ogg` on Chromium" is no longer waived: Chromium's WebM/Opus
+ *    recording is losslessly remuxed to Ogg/Opus before upload (AC-F1/F2/F3), so the AC-V2 test below
+ *    asserts `audio/ogg`, `Voice message.ogg`, `OggS` bytes and a valid CRC on every page. Playback on
+ *    browsers without Ogg/WebM support (the "old iPhone" simulation) is `e2e/voice-compat.spec.ts`;
+ *    the remuxer itself is `e2e/ogg-remux.spec.ts`.
  *
  * ## Freshness
  * Nothing here needs a fresh seed: alice's notes are located by the settled event id of the row this
@@ -38,6 +38,7 @@ import {
 } from './fixtures/matrix-api.ts';
 import { resolveRoom, userId, type RoomKey, type UserKey } from './fixtures/seed.ts';
 import { messageList, row, settledEventId } from './fixtures/ui.ts';
+import { parseOggPages } from './fixtures/ogg.ts';
 import { computed, denyMicrophone, expectTapTarget, openNavDrawer, tapRoom } from './fixtures/mobile.ts';
 
 const ALICE = userId('alice');
@@ -264,7 +265,7 @@ test('AC-V1-5 — switching room while recording discards the recording', async 
 
 /* ================================================================== AC-V2 sent event */
 
-test('AC-V2-1/2/3 — recording-send produces a contract-shaped m.audio whose bytes match its mimetype', async ({
+test('AC-V2-1/2/3/4, AC-F1/F2/F3 — recording-send produces a contract-shaped audio/ogg m.audio whose bytes are Ogg', async ({
   page,
 }) => {
   const roomId = await openRoom(page, 'dev');
@@ -329,10 +330,23 @@ test('AC-V2-1/2/3 — recording-send produces a contract-shaped m.audio whose by
   );
   expect(media.contentType).toContain(String(c.info.mimetype));
 
-  // AC-V2-4 is waived for the POC (see the spec header); record what Chromium actually produced.
+  // AC-V2-4 / AC-F1 / AC-F2: Chromium records WebM/Opus and the app remuxes it to Ogg/Opus before upload.
+  expect(c.info.mimetype, 'AC-F1: info.mimetype').toBe('audio/ogg');
+  expect(c['org.matrix.msc1767.file'].mimetype, 'AC-F1: msc1767.file.mimetype').toBe('audio/ogg');
+  expect(c['org.matrix.msc1767.file'].name, 'AC-F1: msc1767.file.name').toBe('Voice message.ogg');
+  expect(String.fromCharCode(...media.bytes.subarray(0, 4)), 'AC-F2: bytes start with OggS').toBe('OggS');
+  expect(media.contentType, 'AC-F2: served content type').toContain('audio/ogg');
+  const ogg = parseOggPages(media.bytes);
+  expect(ogg.trailing, 'no bytes after the last Ogg page').toBe(0);
+  expect(
+    ogg.pages.filter((p) => p.crcStored !== p.crcComputed).map((p) => p.sequence),
+    'every Ogg page CRC is valid',
+  ).toEqual([]);
+  expect(ogg.pages[0].bos && ogg.pages[ogg.pages.length - 1].eos, 'BOS first, EOS last').toBe(true);
+  expect(String.fromCharCode(...ogg.packets[0].subarray(0, 8))).toBe('OpusHead');
   test.info().annotations.push({
-    type: 'AC-V2-4 (waived)',
-    description: `Chromium recorded ${c.info.mimetype}; bytes are ${media.container} (${media.magicHex}). docs/ARCHITECTURE.md: no transcoding in the POC.`,
+    type: 'AC-V2-4 / AC-F2',
+    description: `Chromium note sent as ${c.info.mimetype} (${media.magicHex}), ${ogg.pages.length} Ogg pages, ${c.info.size} B, ${c.info.duration} ms.`,
   });
 });
 
@@ -749,6 +763,6 @@ test.afterAll(() => {
   test.info().annotations.push({
     type: 'not run here',
     description:
-      'AC-V5-3 (Android permission prompt), AC-V1-6 (120 s auto-stop) and AC-V3-7 (bar colours, see e2e/demo-mobile/) are manual/device criteria. AC-V2-4 is waived (docs/ARCHITECTURE.md Phase 2 deltas).',
+      'AC-V5-3 (Android permission prompt), AC-V1-6 (120 s auto-stop) and AC-V3-7 (bar colours, see e2e/demo-mobile/) are manual/device criteria.',
   });
 });
