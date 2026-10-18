@@ -3,7 +3,7 @@
  * Everything about the crypto itself lives in `useSecurityStore` (`@/store`); this store never mirrors it.
  */
 import { create } from 'zustand';
-import { useSecurityStore, type SecurityState } from '@/store';
+import { useSecurityStore, type RecoveryState, type SecurityState } from '@/store';
 
 /** What `openSecurityDialog` opens: `setup` -> setup-dialog, `verify` -> verify-dialog, `unlock` -> recovery-dialog. */
 export type SecurityDialogKind = 'setup' | 'verify' | 'unlock';
@@ -42,13 +42,12 @@ export function openSecurityDialog(kind: SecurityDialogKind): void {
 }
 
 /**
- * The banner's need. `restoring` wins while keys arrive from the backup. AC-E5-5: an account that already has
- * secret storage (a recovery key made in Element) is never offered `setup`, it is offered `unlock` instead.
+ * The banner's need: the store's `hint`, except `restoring` wins while keys arrive from the backup. (AC-E5-5, a
+ * recovery key without cross-signing -> `unlock`, is the store's `securityHint` rule.)
  */
 export function bannerNeed(s: SecurityState): BannerNeed | null {
   if (!s.cryptoReady) return null;
   if (s.recovery.busy === 'restore' || (s.recovery.busy === 'unlock' && s.recovery.progress)) return 'restoring';
-  if (s.hint === 'setup' && s.status?.secretStorageReady) return 'unlock';
   return s.hint;
 }
 
@@ -57,10 +56,16 @@ export function formatRecoveryKey(key: string): string {
   return (key.replace(/\s+/g, '').match(/.{1,4}/g) ?? []).join(' ');
 }
 
-/** `recovery-error` copy (AC-E5-3) from the store's `recovery.error`. */
-export function recoveryErrorText(message: string | null): string | null {
-  if (!message) return null;
-  if (/incorrect/i.test(message)) return 'That recovery key is not correct';
-  if (/not a valid recovery key/i.test(message)) return 'Not a recovery key';
-  return message;
+/** `recovery-error` copy (AC-E5-3) from the store's `recovery.errorKind`; other failures (network, backup) get a generic line. */
+export function recoveryErrorText(recovery: Pick<RecoveryState, 'error' | 'errorKind'>): string | null {
+  switch (recovery.errorKind) {
+    case 'wrong':
+      return 'That recovery key is not correct';
+    case 'invalid':
+      return 'Not a recovery key';
+    case 'none':
+      return 'This account has no recovery key yet. Verify with another device, or set up encryption';
+    default:
+      return recovery.error ? 'Could not unlock right now. Check your connection and try again' : null;
+  }
 }

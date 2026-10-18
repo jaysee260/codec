@@ -69,7 +69,7 @@ export function RecoveryDialog() {
       setInput('');
       setDone(true);
     } else {
-      setError(recoveryErrorText(useSecurityStore.getState().recovery.error) ?? 'That recovery key is not correct');
+      setError(recoveryErrorText(useSecurityStore.getState().recovery) ?? 'Could not unlock right now. Try again');
     }
   };
 
