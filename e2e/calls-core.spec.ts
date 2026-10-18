@@ -86,7 +86,8 @@ test('AC-C0: calls are refused in unencrypted rooms, allowed in the encrypted DM
   await expect(calls.start(page, R.dmPlain)).rejects.toThrow(/encrypted/i);
   const s = await calls.state(page);
   expect(s.activeCall).toBeNull();
-  expect(s.lastError?.code).toBe('unencrypted');
+  // Wave 2: CallHost turns lastError into a toast and clears it, so it may already be null here.
+  expect([null, 'unencrypted']).toContain(s.lastError?.code ?? null);
 });
 
 test('AC-C1..C4: ring, accept, encrypted audio both ways, hang-up, history', async ({ page, browser }) => {

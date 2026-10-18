@@ -441,7 +441,7 @@ Plan: docs/PHASE7_PLAN.md · Criteria/testids + manual 704.chat checklist: docs/
 | Item | Result |
 |---|---|
 | Gate run after `livekit-client` + worker bundling (`desktop`, `mobile`, `test:e2e:e2ee`, `test:e2e:threads`) | not yet run |
-| Full runs incl. `test:e2e:call` and smoke step 14, both projects | not yet run |
+| Full runs incl. `test:e2e:call` and smoke step 14, both projects | Wave 2 (`7f5bf37`), 3 workers: 360 passed / 5 failed / 12 skipped; the 5 are BUG-33..37 (docs/BUGS.md Phase 7). Smoke step 14 not written yet |
 | Desktop demo script 1-9 (docs/PHASE7_PLAN.md) | not yet run |
 | Android: AC-R9-2/4/5 on a real phone (PRIN-31) | not yet run |
 | Manual 704.chat checklist M1-M15 (JC, Charlie, Juanjo; needs product Phase 0 on the homelab) | not yet run |

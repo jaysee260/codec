@@ -10,7 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import { resolveRoom, userId } from './fixtures/seed.ts';
 import { e2eeAfterEach, requireUi, secondContext, waitForStatus, type SecondContext } from './fixtures/e2ee.ts';
-import { box, expectTapTarget, navDrawer, openNavDrawer, closeNavDrawer, settleAnimations } from './fixtures/mobile.ts';
+import { box, expectTapTarget, navDrawer, openNavDrawer, closeNavDrawer, type Box } from './fixtures/mobile.ts';
+import type { Locator } from '@playwright/test';
 import {
   callHook,
   callScreen,
@@ -67,17 +68,32 @@ async function daveDesktop(browser: import('@playwright/test').Browser): Promise
   return c;
 }
 
+/**
+ * The card and the call screen carry infinite animations (ring pulse, speaking outline), so `settleAnimations` (which
+ * awaits every animation's `finished`) would wait forever: wait for two equal boxes 100 ms apart instead.
+ */
+async function stableBox(locator: Locator, label: string): Promise<Box> {
+  let prev = await box(locator, label);
+  for (let i = 0; i < 20; i += 1) {
+    await new Promise((r) => setTimeout(r, 100));
+    const next = await box(locator, label);
+    if (next.x === prev.x && next.y === prev.y && next.width === prev.width && next.height === prev.height) return next;
+    prev = next;
+  }
+  return prev;
+}
+
 const viewportOf = (page: Page): { width: number; height: number } => page.viewportSize()!;
 
 test('AC-R5-6: the incoming card covers the viewport, 56 px Accept / Decline at the bottom, vibration with a repeating pattern', async ({ page }) => {
   requireUi('Dev B', 'incoming-call', 'incoming-call-accept', 'incoming-call-decline');
   await phoneDm(page);
   const ring = await ringAlice(R.dm, { from: 'dave' });
+  await waitForCallState(page, (st) => st.incoming.some((c) => c.roomId === R.dm), 'the API ring reaches the phone store', 15_000);
   const card = incomingCard(page);
   await expect(card).toBeVisible({ timeout: 10_000 });
-  await settleAnimations(card);
   const vp = viewportOf(page);
-  const b = await box(card, 'incoming-call');
+  const b = await stableBox(card, 'incoming-call');
   expect(b.x).toBeLessThanOrEqual(1);
   expect(b.y).toBeLessThanOrEqual(1);
   expect(b.width).toBeGreaterThanOrEqual(vp.width - 1);
@@ -108,9 +124,8 @@ test('AC-R9-1, R6-4 (phone): full-screen call, 56 px bottom controls, speaker to
   await waitForCallState(page, connectedWith(DAVE), 'phone connected with dave', 30_000);
 
   const screen = callScreen(page);
-  await settleAnimations(screen);
   const shell = await box(page.getByTestId('app-shell'), 'app-shell');
-  const s = await box(screen, 'call-screen');
+  const s = await stableBox(screen, 'call-screen');
   expect(s.x).toBeLessThanOrEqual(shell.x + 1);
   expect(s.y).toBeLessThanOrEqual(shell.y + 1);
   expect(s.width).toBeGreaterThanOrEqual(shell.width - 1);

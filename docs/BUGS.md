@@ -408,6 +408,89 @@ test after it. Either way nothing leaves the machine. No run in this pass record
 | AC-G8-4 (reduced motion shows `stillUrl` plus `message-gif-play`; clicking play animates) | **Not covered by a dedicated test this pass** — the other DEV-B-25 P1 half, not in the QA-19 brief. The ingredients are all verified elsewhere: AC-G1-3 asserts every `<id>.png` still frame is served, and the contract test asserts `stillUrl` reaches the wire. What is missing is a `page.emulateMedia({ reducedMotion: 'reduce' })` test of the `paused` -> `playing` transition. | QA, if it is promoted to P0 |
 | Element interop (the GIF body shows as a link and the server unfurls it) | Needs a second client by hand. The wire half is asserted: `msgtype` is `m.text` and the url is the last whitespace-separated token of `body`, which is what makes Element linkify and unfurl it. | stakeholder, manual |
 
+## Phase 7 (voice calls)
+
+QA-34..38 against `e2e/calls-core.spec.ts` (Principal's core spec, taken over by QA), `e2e/call-dm.spec.ts`,
+`e2e/call-room.spec.ts` (desktop) and `e2e/mobile-call.spec.ts` (phone); helpers in `e2e/fixtures/call.ts`. Local Synapse +
+the per-worker LiveKit 1.13.10 + Node lk-jwt stack (`hs-pool`), Chromium's fake mic. Dirty seed allowed. The DM callee is
+**dave** (`dm-alice-dave` is the only encrypted DM; `dm-alice-bob` is plain); `#vault` (alice, bob, dave) is the room;
+the 7-member drop-in room and the `@signal_*` ghost rooms are created per run via API.
+
+```
+npm run test:e2e:calls                                          # calls-core + call-dm + call-room, desktop
+npm run test:e2e:calls:mobile                                   # mobile-call, mobile
+E2E_WORKERS=3 npx playwright test e2e/calls-core.spec.ts e2e/call-dm.spec.ts e2e/call-room.spec.ts e2e/mobile-call.spec.ts
+npx playwright test e2e/call-dm.spec.ts -g "AC-R5-4" --project=desktop
+```
+
+**Severity rule (Phase 7).** `S1`: a call that connects without E2EE, a call started in an unencrypted room, a mic held
+after leave, a ring that never stops. `S2`: wrong or missing chat lines, multi-device not stopping, chip / indicator
+stale. `S3`: cosmetic.
+
+**Result (Wave 2, `7f5bf37` + QA test fixes, 3 workers):** call specs 19 tests: **14 passed, 5 failed**, all five on
+product defects below (no S1). The chains keep running past a known defect (`expect.soft`), so every other assertion in
+the failing tests passed. The 60 s ring runs in real time (request #24 in docs/STATUS.md for a ring timeout override).
+**Wave 2 full run** (`E2E_WORKERS=3 npx playwright test`, both projects, 21.5 min): **360 passed, 5 failed, 12 skipped**.
+The 5 failures are exactly the call tests above (BUG-33..37); nothing outside Phase 7 regressed (Phase 1-6 suites,
+e2ee, threads, mobile all green; AC-E6-3 green after its test-order fix). The 12 skips are the usual fresh-seed guards
+(AC-B1-1, AC-B3-1, AC-A2-3, smoke steps 2/3/5/6), clipboard / manual / device-only criteria (AC-B8-4, AC-E2-8,
+AC-E4-2, AC-E5-7, AC-T3-5).
+
+| ID | Sev | Criterion | Repro | Owner | Status |
+|---|---|---|---|---|---|
+| BUG-33 | S2 | AC-R5-1 (ringtone after the first click) | A ring that arrives before any gesture on the page never starts the ringtone: the store calls `ringtone.play()` once when `incoming` becomes non-empty (`src/store/call.ts` ~l.316), `play()` returns early without a gesture, and nothing retries after the click that removes "Click anywhere to hear the ringtone". `ringtone.lastPlayedAt` stays `null` after the click. `npx playwright test e2e/call-dm.spec.ts -g "AC-R4-1, R5" --project=desktop` (step AC-R5-1, soft). Fix: on the first gesture while `incoming` is non-empty, call `ringtone.play()` (e.g. a one-shot listener in `ringtone.ts` that replays a pending start). | Principal | Open |
+| BUG-34 | S2 | AC-R3-6, AC-R6-6 (ended line `participants`) | The `ended` `dev.matrixpoc.call` has no `participants` (`buildCallLineContent({ kind: 'ended' })` in `src/lib/rtc/lines.ts` and `sendEndLines` in `src/store/call.ts` never pass them); the ruling says `participants` = who was in the call. Seen in the 1:1 chain (`[]` instead of alice + dave) and the 3-person `#vault` call (`[]` instead of alice, bob, dave). `npx playwright test e2e/call-room.spec.ts -g "AC-R6-6" --project=desktop`. | Principal | Open |
+| BUG-35 | S2 | AC-R5-4 (caller hangs up before an answer) | dave rings alice and hangs up while it is still ringing: alice's card closes in time, but **no** `missed` line is ever sent, so alice has no "Missed call from Dave" and no Call back. `sendEndLines` only sends `missed` for `endReason === 'no-answer'`; a `hangup` while ringing with nobody joined (and nobody declined) is also a missed call (AC-R5-4: "the same missed line appears"). `npx playwright test e2e/call-dm.spec.ts -g "AC-R5-4" --project=desktop`. | Principal | Open |
+| BUG-36 | S3 | AC-R7-1 (wording) | The started row reads "Dave Okafor started a call"; the registry text is "X started a voice call" (`describeCallEvent` in `src/lib/rtc/timeline.ts`; `lines.ts formatCallLine` already says "voice call"). `npx playwright test e2e/call-dm.spec.ts -g "AC-R7-1" --project=desktop` (soft). | Principal | Open |
+| BUG-37 | S3 | AC-R4-5 (one toast) | Mic denied shows the "Codec can't use your microphone…" toast **twice**. `CallErrorToast` (`src/features/call/CallHost.tsx`) calls `showToast` in an effect and then `clearError()`; React StrictMode (dev build) runs the effect twice with the same `error` before the clear lands. Fix: remember the last toasted error object in a ref, or take-and-clear in one store call. `npx playwright test e2e/call-dm.spec.ts -g "AC-R4-5" --project=desktop` (soft). | Dev B | Open |
+
+**Contract notes for the PM / Principal (not defects).**
+- The decliner / caller sees their own line as "You declined" / "You started a call" (`describeCallEvent` `myUserId`);
+  AC-R5-3 writes the name on both timelines. The specs accept "You" on the sender's own device. Needs one line in the AC.
+- The `no-answer` / `ended` screen's Close is `call-close` (not in the registry, which only says "a Close"). The specs use it.
+- A drop-in start sends **no** `rtc.notification` (ARCHITECTURE: `ring: false` is a quiet join; the "started" row is the
+  opening membership); AC-R3-2 says `notification_type: "notification"`. The spec accepts either and annotates.
+- `CallHost` turns `lastError` into a toast and clears it at once, so `__matrixPoc.call.state().lastError` is usually
+  `null` right after a refused start; `calls-core.spec.ts` AC-C0 and `call-dm.spec.ts` AC-R4-5 now accept null.
+
+**Test-side fixes made during the run (no product change).** `settleAnimations` waits for every animation's `finished`,
+which never comes on the incoming card / call screen (infinite pulse): `mobile-call.spec.ts` uses a stable-box poll
+instead (AC-R5-6 went from a 60 s hang to 6 s green). The main DM chain now opens the DM on dave's side after he
+accepts from another room. `cleanupCalls()` clears every seeded user's `m.call` membership before and after each test.
+
+**Test-order bug fixed: AC-E6-3** (`e2e/e2ee-core-boot.spec.ts`, red on PR #15's selected-spec CI run incl. retry; Principal
+reproduced it on a fresh snapshot). The test expected a `/keys/query` or `/keys/claim` *after* focusing the #vault
+composer, but alice's rust crypto already queries bob's and dave's device keys at login (all #vault members are in the
+first sync); after the focus, `prepareToEncrypt`'s only request is `GET /rooms/<vault>/members`. It passed only when an
+earlier spec on the same worker had left a claimable device. Not a product bug. The test now installs its listener
+before login and asserts (a) a `/keys/query` naming bob and dave before any `/send/m.room.encrypted`, and (b) the
+members request after the composer focus, with nothing sent. Green on its own (whole spec 11/11) and in the full run.
+
+**Device-only (not automatable here):** AC-R5-6 / AC-R9-2 Android back (decline / minimise), AC-R9-4/5 foreground
+service, lock screen and `POST_NOTIFICATIONS` (PRIN-31 report), real ringtone sound and vibration.
+
+### Manual 704.chat checklist (AC-R10-5; JC, Charlie, Juanjo after Wave 20; homelab LiveKit)
+
+Pass = all P0 rows green. Record `pass` / `fail (BUG-n)` / `n/a` per tester.
+
+| # | P | Steps | Pass when | JC | Charlie | Juanjo |
+|---|---|---|---|---|---|---|
+| M1 | P0 | JC (web, LAN) calls Charlie from their DM; Charlie's phone (app open) rings | Ring within 3 s, JC's name on the card, ringtone + vibration | | | |
+| M2 | P0 | Charlie accepts; talk for 5 minutes | Both hear each other clearly, no drop, no echo with the earpiece; timers agree within 2 s | | | |
+| M3 | P0 | Either side leaves | Both screens close; "Call ended, 5 min" in the DM on both devices | | | |
+| M4 | P0 | Juanjo, outside the home network on mobile data, calls JC and is called by JC | Same quality as M2; connects within 5 s; works again on Wi-Fi away from home | | | |
+| M5 | P0 | All three in `#lobby` (encrypted, 3 members): JC starts, Charlie accepts, Juanjo joins by the chip; speak in turn; one mutes; one leaves | Speaker outline follows the talker; crossed mic on the muted person; the call continues for two; chip shows the count to the one who left | | | |
+| M6 | P0 | Decline a call; let another ring out for 60 s | "X declined" line; red "Missed call from X" with Call back; "Missed call" preview + badge; Call back starts a call | | | |
+| M7 | P0 | JC has Codec in Chrome and on the phone; Charlie calls; JC answers on the phone | Both ring; the browser stops ringing and its card closes | | | |
+| M8 | P0 | On the phone, in a call: lock the screen 2 min, then another app 2 min | Audio both ways; "Codec call" notification; Hang up from the notification ends the call | | | |
+| M9 | P0 | Deny the mic permission, then tap the phone icon | Clear message with how to allow; no call screen, no line, nobody rung | | | |
+| M10 | P0 | Open the call screen | Lock icon. Server: LiveKit shows E2EE frames; `tcpdump` on the tunnel host shows no RTP | | | |
+| M11 | P0 | Open `#general` or any unencrypted room | Phone icon disabled with "Calls need an encrypted room" | | | |
+| M12 | P1 | Call someone whose phone's Codec is closed | No ring (expected); "Missed call" when they next open Codec | | | |
+| M13 | P1 | Walk out of Wi-Fi range mid-call (handover to mobile data) | "Reconnecting..." then audio within 20 s, or a clean "Call ended" | | | |
+| M14 | P1 | Firefox and Safari on a laptop: receive and make one call each | Audio both ways | | | |
+| M15 | P1 | Join from a new, unverified device | Audio both ways within 5 s; note any "No call keys from X yet" and whether a re-join clears it | | | |
+
 ## Phase 6 (link preview cards)
 
 QA-30..33 against `e2e/link-preview.spec.ts` (desktop) and `e2e/mobile-link-preview.spec.ts` (phone), helpers in

@@ -283,20 +283,35 @@ test.describe('AC-E6 encrypted by default', () => {
   });
 
   test('AC-E6-3 #vault composer is encrypted and keys are prepared before the first send', async ({ page }) => {
+    // Test-order fix (docs/BUGS.md Phase 7): alice's rust crypto queries bob's and dave's device keys at login (all
+    // #vault members arrive in the first sync), so "a /keys/query or /keys/claim after focusing the composer" only held
+    // when an earlier spec on the worker had left a claimable device. Deterministic form of the same intent: (a) the
+    // /keys/query naming bob and dave happens before any encrypted send (listener installed before login), (b) focusing
+    // the #vault composer runs prepareToEncrypt, whose request is GET /rooms/<vault>/members, and still nothing is sent.
+    const R_VAULT = encodeURIComponent(R.vault);
+    const queried = new Set<string>();
+    let sent = false;
+    let queriedBeforeSend = false;
+    let membersFetched = 0;
+    page.on('request', (r) => {
+      const url = r.url();
+      if (/\/keys\/query/.test(url)) {
+        const body = r.postData() ?? '';
+        for (const u of [userId('bob'), userId('dave')]) if (body.includes(u)) queried.add(u);
+        if (!sent && queried.size === 2) queriedBeforeSend = true;
+      }
+      if (/\/send\/m\.room\.encrypted\//.test(url)) sent = true;
+      if (r.method() === 'GET' && url.includes(`/rooms/${R_VAULT}/members`)) membersFetched += 1;
+    });
     await loginWith(page, 'alice');
     await waitForStatus(page);
     await openChannel(page, R.general);
-    const keyRequests: string[] = [];
-    page.on('request', (r) => {
-      if (/\/keys\/(claim|query)/.test(r.url())) keyRequests.push(r.url());
-    });
-    let sent = false;
-    page.on('request', (r) => {
-      if (/\/send\/m\.room\.encrypted\//.test(r.url())) sent = true;
-    });
+    await expect.poll(() => [...queried].sort(), { timeout: 15_000, message: "a /keys/query naming bob and dave (alice's crypto prepares the #vault members' keys)" }).toEqual([userId('bob'), userId('dave')].sort());
+    expect(queriedBeforeSend, 'the device-key query happened before any encrypted send').toBe(true);
+    const membersBefore = membersFetched;
     await openVault(page);
     await composer(page).click();
-    await expect.poll(() => keyRequests.length, { timeout: 10_000, message: 'a /keys/query or /keys/claim after opening #vault / focusing the composer' }).toBeGreaterThan(0);
+    await expect.poll(() => membersFetched, { timeout: 10_000, message: 'GET /rooms/<vault>/members after focusing the composer (prepareToEncrypt)' }).toBeGreaterThan(membersBefore);
     expect(sent, 'no send happened yet').toBe(false);
     await uiHalf('Dev B', ['composer'], async () => {
       if (await page.getByTestId('composer').count()) {
