@@ -14,6 +14,8 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
+import * as E2 from './fixtures/e2ee.ts';
+import * as E2API from './fixtures/e2ee-api.ts';
 import { requireFreshSeed } from './fixtures/fresh.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { BODIES, DISPLAY_NAMES, NAMES, eventId, resolveRoom, uniqueName, userId } from './fixtures/seed.ts';
@@ -62,8 +64,8 @@ import {
   typeAndSend,
 } from './fixtures/ui.ts';
 
-test.describe.configure({ mode: 'serial' });
-
+// Serial inside each describe (steps 1-12 share one page); step 13 (Phase 5) is its own group so a seed-dependent
+// red step above cannot skip it.
 const ALICE = userId('alice');
 const BOB = userId('bob');
 const CAROL = userId('carol');
@@ -96,6 +98,7 @@ const DEMO_QUERY = queryMatching(3, ['tacos', 'taco', 'cat', 'party']) ?? 'cat';
 const SECOND_QUERY = queryMatching(2, ['party', 'cat', 'taco']) ?? 'party';
 
 test.describe('demo script (QA-3 smoke)', () => {
+  test.describe.configure({ mode: 'serial' });
   test.beforeAll(async ({ browser }) => {
     R.acme = await resolveRoom('acme-hq');
     R.gaming = await resolveRoom('gaming');
@@ -685,5 +688,161 @@ test.describe('demo script (QA-3 smoke)', () => {
     await stepShot(page, 12, 'bob-gif');
 
     guard.assertClean();
+  });
+});
+
+/* ================================================================== step 13: Phase 5 desktop demo (QA-28, AC-E8-2) */
+
+/**
+ * docs/PHASE5_PLAN.md "Desktop demo script" rows 1-11, one screenshot per row into `e2e/results/demo/13-*`.
+ * Window 1 / window 3 = the "alice" of the script, window 2 = the "bob". Played by two **throwaway accounts**
+ * (owner + peer) in their own space with an encrypted `vault` room: row 2 sets up cross-signing for good, which
+ * must never happen to the shared seeded alice. At most two contexts are open (window 2 closes before window 3).
+ */
+test.describe('step 13 — Phase 5 E2EE demo (rows 1-11)', () => {
+  test('step 13 — set up, encrypted send, UTD for a newcomer, media, verify + unlock a new session, encrypted by default', async ({ browser }) => {
+    test.setTimeout(420_000);
+    const owner = await E2API.freshUser('demoowner');
+    const peer = await E2API.freshUser('demopeer');
+    const spaceId = await E2API.createRoom(owner.token, { name: 'Demo HQ', space: true, invite: [peer.userId] });
+    const vault = await E2API.createRoom(owner.token, { name: 'vault', encrypted: true, spaceId, invite: [peer.userId] });
+    await E2API.joinRoom(peer.token, spaceId);
+    await E2API.joinRoom(peer.token, vault);
+    const O: E2.Account = { username: owner.username, password: owner.password, displayName: owner.username };
+    const P: E2.Account = { username: peer.username, password: peer.password, displayName: peer.username };
+    annotate('demo-accounts', `owner ${owner.userId} plays alice, peer ${peer.userId} plays bob`);
+    const openVault = async (p: Page): Promise<void> => {
+      if (!(await channelItem(p, vault).isVisible().catch(() => false))) await openSpace(p, spaceId);
+      await channelItem(p, vault).click();
+      await expect(messageList(p)).toBeVisible();
+    };
+
+    // 1. log in: crypto stage, setup banner, lock on vault
+    const w1 = await E2.secondContext(browser, O, { login: false });
+    const stages = await E2.traceLoadingStages(w1.page);
+    await E2.loginWith(w1.page, O);
+    expect(await stages.stages()).toContain('crypto');
+    await expect(E2.banner(w1.page)).toHaveAttribute('data-need', 'setup', { timeout: 20_000 });
+    await expect(w1.page.getByTestId('security-banner-action')).toHaveText(/Set up/);
+    await openVault(w1.page);
+    await expect(w1.page.getByTestId('channel-header-lock')).toBeVisible();
+    await stepShot(w1.page, 13, '01-setup-banner');
+
+    // 2. set up: key shown once, banner gone, Verified pill
+    const key = await E2.setUpEncryption(w1.page, owner.password);
+    expect(key).toMatch(E2.RECOVERY_KEY_RE);
+    await expect(E2.banner(w1.page)).toHaveCount(0, { timeout: 15_000 });
+    await expect(w1.page.getByTestId('current-user')).toHaveAttribute('data-verified', 'true', { timeout: 15_000 });
+    await stepShot(w1.page, 13, '02-verified');
+
+    // 3. send, encrypted on the wire
+    await typeAndSend(w1.page, 'hello from codec');
+    const hello = await settledEventId(rowByText(w1.page, 'hello from codec'), 20_000);
+    E2API.expectEncryptedOnWire(await E2API.rawEvent(owner.token, vault, hello));
+    await stepShot(w1.page, 13, '03-hello-sent');
+
+    // 4. window 2: the peer sees a no-backup placeholder for the message sent before his device existed
+    const w2 = await E2.secondContext(browser, P);
+    await E2.waitForStatus(w2.page);
+    await expect(E2.banner(w2.page)).toHaveAttribute('data-need', 'setup', { timeout: 20_000 });
+    await openVault(w2.page);
+    const ph = await E2.expectUtd(w2.page, hello, 'no-backup', 20_000);
+    await expect(ph).toContainText(/key backup/);
+    await stepShot(w2.page, 13, '04-peer-placeholder');
+
+    // 5. live message decrypts in window 2
+    await typeAndSend(w1.page, 'second message');
+    await E2.expectDecryptedRow(w2.page, 'second message', 5_000);
+    await stepShot(w2.page, 13, '05-peer-live');
+
+    // 6. image + voice note, decrypted in window 2; the server holds ciphertext
+    await w1.page.getByTestId('composer-file-input').setInputFiles('e2e/fixtures/test-image.png');
+    const imgRow = messageList(w1.page).locator('[data-testid^="message-$"]').filter({ has: w1.page.getByTestId('message-image') }).last();
+    const imgId = await settledEventId(imgRow, 30_000);
+    await w1.page.getByTestId('composer-mic').click();
+    await expect(w1.page.getByTestId('recording-timer')).toHaveText('0:02', { timeout: 10_000 });
+    await w1.page.getByTestId('recording-send').click();
+    const voiceRow = messageList(w1.page).locator('[data-testid^="message-$"]').filter({ has: w1.page.getByTestId('voice-message') }).last();
+    const voiceId = await settledEventId(voiceRow, 30_000);
+    await expect(row(w2.page, imgId).getByTestId('message-image')).toHaveAttribute('data-state', 'ready', { timeout: 20_000 });
+    const voice = row(w2.page, voiceId).getByTestId('voice-message');
+    await expect(voice).toHaveAttribute('data-encrypted', 'true', { timeout: 20_000 });
+    await voice.getByTestId('voice-play').click();
+    await expect(voice.getByTestId('voice-pause')).toBeVisible({ timeout: 10_000 });
+    const imgState = await E2.eventState(w1.page, vault, imgId);
+    const bytes = await E2API.rawMediaBytes(owner.token, imgState.content!.file.url);
+    expect(E2API.startsWith(bytes, E2API.PNG_SIGNATURE), 'the server returns ciphertext').toBe(false);
+    await stepShot(w2.page, 13, '06-peer-media');
+    await w2.close();
+
+    // 7. window 3: the owner again (new device): verify banner, locked history with Unlock
+    const w3 = await E2.secondContext(browser, O);
+    await E2.waitForStatus(w3.page);
+    await expect(E2.banner(w3.page)).toHaveAttribute('data-need', 'verify', { timeout: 20_000 });
+    await openVault(w3.page);
+    await E2.expectUtd(w3.page, hello, 'locked-backup', 20_000);
+    await expect(row(w3.page, hello).getByTestId('message-undecryptable-action')).toHaveText(/Unlock/);
+    await stepShot(w3.page, 13, '07-new-session-locked');
+
+    // 8. verify with window 1: same emoji, both match
+    await E2.verifyBetween(w1.page, w3.page);
+    await expect(w3.page.getByTestId('current-user')).toHaveAttribute('data-verified', 'true', { timeout: 20_000 });
+    await stepShot(w3.page, 13, '08-verified-by-emoji');
+
+    // 9. unlock with the key (unless SAS already handed over the backup key): every placeholder flips, no reload
+    // Window 1 holds the backup key, so the SAS usually hands it over and the restore runs by itself (the banner
+    // shows `unlock` for a moment, then nothing). Only unlock by hand when the hint stays `unlock`.
+    const settled = await E2.waitForCrypto(w3.page, (st) => st.hint === null && !st.recovery.busy, 'auto-restore after SAS', 15_000).catch(() => null);
+    if (settled) {
+      annotate('demo-row-9', 'after SAS the backup key came over with the verification; no manual Unlock was needed (docs/PHASE5_PLAN.md rows 8-9 expect one)');
+    } else {
+      await E2.unlockWith(w3.page, key);
+      await E2.closeDialog(w3.page, 'recovery-dialog');
+    }
+    await expect(row(w3.page, hello).getByTestId('message-body')).toHaveText('hello from codec', { timeout: 20_000 });
+    await expect(row(w3.page, imgId).getByTestId('message-image')).toHaveAttribute('data-state', 'ready', { timeout: 20_000 });
+    await expect(row(w3.page, voiceId).getByTestId('voice-message')).toBeVisible();
+    await expect(messageList(w3.page).getByTestId('message-undecryptable')).toHaveCount(0);
+    await stepShot(w3.page, 13, '09-unlocked');
+
+    // 10. reload: still verified and decrypted, no banner; log out + in: banner back
+    await w3.page.reload();
+    await expect(w3.page.getByTestId('app-shell')).toBeVisible({ timeout: 30_000 });
+    await E2.waitForStatus(w3.page);
+    await expect(w3.page.getByTestId('current-user')).toHaveAttribute('data-verified', 'true', { timeout: 20_000 });
+    await expect(E2.banner(w3.page)).toHaveCount(0, { timeout: 15_000 });
+    await openVault(w3.page);
+    await expect(row(w3.page, hello).getByTestId('message-body')).toHaveText('hello from codec', { timeout: 20_000 });
+    await stepShot(w3.page, 13, '10-reloaded');
+    await w3.page.getByTestId('logout-button').click();
+    await E2.loginWith(w3.page, O);
+    await expect(E2.banner(w3.page)).toBeVisible({ timeout: 20_000 });
+    await stepShot(w3.page, 13, '10-new-device-banner');
+    await w3.close();
+
+    // 11. window 1: new channel and a DM with dave, both locked
+    await openSpace(w1.page, spaceId);
+    await w1.page.getByTestId('channel-add').click();
+    await expect(w1.page.getByTestId('create-channel-encrypted-note')).toBeVisible();
+    await w1.page.getByTestId('create-channel-name').fill('secrets');
+    await w1.page.getByTestId('create-channel-submit').click();
+    await expect(w1.page.getByTestId('create-channel-dialog')).toHaveCount(0, { timeout: 30_000 });
+    await expect(w1.page.getByTestId('channel-header-name')).toContainText('secrets', { timeout: 20_000 });
+    await expect(w1.page.getByTestId('channel-header-lock')).toBeVisible();
+    await stepShot(w1.page, 13, '11-channel-locked');
+    await openHome(w1.page);
+    await w1.page.getByTestId('dm-new').click();
+    await expect(w1.page.getByTestId('new-dm-encrypted-note')).toBeVisible();
+    await w1.page.getByTestId('new-dm-user-id').fill(userId('dave'));
+    await w1.page.getByTestId('new-dm-submit').click();
+    await expect(w1.page.getByTestId('new-dm-dialog')).toHaveCount(0, { timeout: 30_000 });
+    await expect(w1.page.getByTestId('channel-header-name')).toContainText(DISPLAY_NAMES.dave, { timeout: 20_000 });
+    await expect(w1.page.getByTestId('channel-header-lock')).toBeVisible();
+    await stepShot(w1.page, 13, '11-dm-locked');
+    await w1.close();
+  });
+
+  test.afterEach(async ({ page }, info) => {
+    await E2.e2eeAfterEach(page, info);
   });
 });

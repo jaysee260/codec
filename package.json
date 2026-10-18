@@ -41,6 +41,7 @@
     "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e:threads": "playwright test e2e/threads.spec.ts e2e/mobile-threads.spec.ts",
     "test:e2e:gif": "playwright test e2e/gif.spec.ts e2e/mobile-gif.spec.ts",
+    "test:e2e:e2ee": "playwright test e2e/e2ee-core.spec.ts e2e/e2ee-media.spec.ts e2e/e2ee-security.spec.ts --project=desktop",
     "test:e2e:report": "playwright show-report",
     "test:e2e:fixtures": "node e2e/fixtures/make-test-assets.mjs",
     "test:e2e:fresh": "npm run seed:reset && npm run test:e2e",

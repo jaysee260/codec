@@ -243,6 +243,59 @@ with the registry composer, `thread-root`, `thread-replies-divider`, `thread-mes
 | D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. **Closed** (Dev A, 2026-10-08): `relativeTime.ts` deleted, `ThreadList.tsx` imports `formatRelative` from `@/lib/format.ts`; one implementation of the pinned strings. |
 | D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
 
+## Phase 5 (end-to-end encryption)
+
+```
+npm run test:e2e:e2ee                                              # e2ee-core + e2ee-media + e2ee-security (desktop)
+npx playwright test e2e/smoke.spec.ts --project=desktop -g "step 13" # Phase 5 demo walk-through -> e2e/results/demo/13-*
+npx playwright test e2e/e2ee-security.spec.ts --project=desktop -g "AC-E5-2"
+```
+Prefix with `PLAYWRIGHT_BROWSERS_PATH=/tmp/claude-0/pwb` in the build container. Security chains and the demo run on
+**throwaway accounts** (`freshUser()`): cross-signing cannot be undone, so alice's account is never set up by a test.
+
+**S1 on sight (Phase 5):** plaintext reaches the wire in an encrypted room · a raw encrypted mxc is navigated to ·
+keys survive logout · setup offers a new key on an account that already has secret storage.
+
+| BUG | AC ref | Sev | Owner | Found | Expected | Actual | Status |
+|---|---|---|---|---|---|---|---|
+| BUG-11 | AC-E1-4 | S3 | Principal (`src/store/session.ts`) | `e2ee-core` AC-E1-4 | A token rejected after boot shows "Session expired" on the login form | Wipe is correct, but `onSessionLoggedOut` -> plain `logout()`: no message (only the boot-time path says it) | Open (soft assert) |
+| BUG-12 | AC-SH layout, AC-T6 | S1 | Principal (`src/app/Shell.tsx`) | thread panel `hidden` in AC-E2-5 | Members / thread panel beside `main` | `security-dialogs-host` was a grid child: panels pushed to a 2nd row, height 0 | Fixed 21179cb; regression `e2ee-core` "(21179cb a)" |
+| BUG-13 | AC-E2-5 | - | PM | `e2ee-core` AC-E2-5 | Reactions `m.room.encrypted` on the wire | `m.reaction` in clear: matrix-js-sdk never encrypts reactions (Element parity) | Ruled: PM rewords AC-E2-5; test asserts the clear relation only |
+| BUG-14 | AC-E4-1 | S3 | Principal (`UserFooter`) or PM | `e2ee-security` AC-E4-1 | `current-user[data-verified="unknown"]` on an account with no cross-signing | `"false"` once status lands | Open (own test, fails) |
+| BUG-15 | AC-E8-3 (Phase 1 suites) | S2 | Principal (`seed/`) | fixture load | `seed/seed-output.json` keeps the 11 seeded event ids | `"events": {}` since the additive `npm run seed` (2026-10-17 23:54): `conversation.spec` and smoke steps 3+ throw "has no event" | Open; blocks the Phase 1-4 regression run |
+| BUG-16 | registry | S3 | Dev A or PM | helpers | `verify-close` / `recovery-close` / `setup-close` | One shared `dialog-close` in all three | Open (helpers accept both) |
+| BUG-17 | demo rows 8-9 | S3 | PM (docs/PHASE5_PLAN.md) | smoke step 13 | After the emoji match, window 3 offers Unlock and the user pastes the key | Window 1 holds the backup key, so the SAS hands it over and the restore runs by itself; the banner flashes `unlock` then disappears | Open: reword rows 8-9 (step 13 accepts both) |
+
+**Known limit (not a bug):** a *redacted* encrypted edit seen from history renders as "Message deleted": room v11
+redaction empties the whole `m.room.encrypted` content, so no client can tell it was an edit (Element does the same).
+Live, it is hidden (regression test). **Dev only:** a Vite HMR wave during boot can leave the page on
+"Setting up encryption..." (seen once while devs were saving files); not reproducible in a build.
+
+Regression tests for fixes found by others (JC's rule): Dev B's redacted relations and stuck "Decrypting..." reply
+quote; the Principal's 21179cb (a) grid, (b) no rows for edits / reactions, (c) banner with no rooms, (d) `errorKind`,
+(e) newest incoming request, (f) `unlock` hint for secret storage without cross-signing. All in `e2ee-core` / `e2ee-security`.
+
+Not automated: AC-E2-8 (`decrypting` lasts milliseconds), AC-E4-2 wrong password (first upload needs no UIA, so no
+password is ever asked), AC-E5-7 (needs 50+ sessions in one backup). All `test.fixme` with the reason.
+
+### Manual 704.chat checklist (AC-E8-4)
+Real server: https://matrix.704.chat, SSO via Keycloak, Element on the side. Mark `ok` / `fail: <what>`.
+
+| # | AC | Check | JC | Charlie | Juanjo |
+|---|---|---|---|---|---|
+| 1 | AC-E5-8 | Log in via Keycloak; banner says **Verify** (never **Set up**); unlock with the recovery key you have in Element | | | |
+| 2 | AC-E5-8 | Same with the **passphrase** instead of the key (if you have one) | | | |
+| 3 | AC-E5-8 | All 6 encrypted rooms read: old history decrypted, no "Unable to decrypt" left after the restore | | | |
+| 4 | AC-E5-8 | Element still unlocks with the same key afterwards (key unchanged) | | | |
+| 5 | AC-E4-8 | Verify codec from Element (Element starts): same 7 emoji, both say verified | | | |
+| 6 | AC-E4-8 | Verify from codec (codec starts, Element accepts) | | | |
+| 7 | AC-E4-8 | Element's session list shows the codec session with a green shield | | | |
+| 8 | AC-E4-8 | Brand-new SSO account: **Set up** opens the Keycloak popup ("Finish signing in in the window that opened"), the key appears after the popup closes | | | |
+| 9 | interop | Text from codec decrypts in Element, and Element's text decrypts in codec | | | |
+| 10 | AC-E3-7 | Image from Element (with a thumbnail) renders in codec; voice note from Element plays in codec | | | |
+| 11 | interop | Image, file and voice note sent from codec open / play in Element | | | |
+| 12 | AC-E1-3 | Log out of codec, log in again: new session, banner back (DevTools > Application > IndexedDB: no old `matrix-poc-crypto:` store) | | | |
+
 ## Phase 4 (GIF picker)
 
 Wave 11 QA pass (QA-19 / QA-20) against `e2e/gif.spec.ts` (desktop, 16 tests) and

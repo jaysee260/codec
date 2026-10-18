@@ -23,6 +23,9 @@ QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..
 | `mobile-smoke.spec.ts` | mobile | the `docs/PHASE2_PLAN.md` **phone** demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` phone thread walk-through as step 11; serial, one screenshot per sub-step into `e2e/demo-mobile/` |
 | `threads.spec.ts` | desktop | AC-T1 .. AC-T9: the thread wire contract, main-timeline hygiene, panel geometry, the summary row, Reply in thread, ThreadView, the Threads list, in-thread edits/reactions/delete/media |
 | `mobile-threads.spec.ts` | mobile | AC-T3-4, AC-T4-6, AC-T5-2, AC-T7-1/2/4/7, AC-T8-1..3, and the AC-V6-1 composer rules applied to `thread-composer-*` |
+| `e2ee-core.spec.ts` | desktop | Phase 5 AC-E1 (crypto boot, reload, logout wipe), AC-E2 (decrypt, UTD, late decryption, relations), AC-E6 (encrypted by default), AC-E7-3, + regressions |
+| `e2ee-media.spec.ts` | desktop | Phase 5 AC-E3: encrypted image / file / voice (decrypted shape, ciphertext on the media repo, hash check, lazy load) |
+| `e2ee-security.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 on throwaway accounts: setup, SAS (match / mismatch / decline), recovery key and passphrase unlock, backup, + regressions |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
@@ -57,6 +60,7 @@ npm run test:e2e:desktop      # Phase 1 suite only          (= playwright test -
 npm run test:e2e:mobile       # Phase 2 phone suites only    (= playwright test --project=mobile)
 npm run test:e2e:smoke        # the desktop demo script only
 npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
+npm run test:e2e:e2ee         # Phase 5 E2EE specs, desktop (helpers: fixtures/e2ee.ts, fixtures/e2ee-api.ts)
 npm run test:e2e:fresh        # seed:reset + both projects   <-- the intended full run
 npm run test:android-build    # APK build + aapt checks (NOT a Playwright project; see below)
 

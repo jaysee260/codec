@@ -30,7 +30,10 @@ export type RoomKey =
   | 'gaming'
   | 'lobby'
   | 'dm-alice-bob'
-  | 'dm-alice-carol';
+  | 'dm-alice-carol'
+  // Phase 5 (PRIN-22): the encrypted channel and the encrypted DM.
+  | 'vault'
+  | 'dm-alice-dave';
 
 export type EventKey =
   | 'general.first'
@@ -59,6 +62,7 @@ const ALIASES: Partial<Record<RoomKey, string>> = {
   dev: `#dev:${SERVER_NAME}`,
   gaming: `#gaming:${SERVER_NAME}`,
   lobby: `#lobby:${SERVER_NAME}`,
+  vault: `#vault:${SERVER_NAME}`,
 };
 
 function loadSeed(): SeedOutput {
@@ -167,6 +171,7 @@ export const NAMES = {
   random: 'random',
   dev: 'dev',
   lobby: 'lobby',
+  vault: 'vault',
 } as const;
 
 export const TOPICS = {
