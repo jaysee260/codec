@@ -2,7 +2,7 @@
 
 Legend: `todo` / `in-progress` / `done` / `blocked`. Update your row when you start, finish, or get stuck; put the blocker or commit in Notes. PM refreshes this at each phase boundary.
 
-Last updated: 2026-10-17 (Phase 5 E2EE planned, all tickets todo, see the Phase 5 block at the end; Phase 4 done at `89a1b80`, authenticated media + SSO merged in PR #1 `2bd3833`; Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
+Last updated: 2026-10-18 (Phase 7 voice calls planned, all tickets todo, see the Phase 7 block at the end; Phase 6 done, see its block). Earlier: 2026-10-17 (Phase 5 E2EE planned, all tickets todo, see the Phase 5 block at the end; Phase 4 done at `89a1b80`, authenticated media + SSO merged in PR #1 `2bd3833`; Phase 3 complete at HEAD, working tree uncommitted; final runs, rulings and the only open bug, BUG-4, in the Phase 3 block at the end). Phase 2: Wave 2 snapshot `5814c90` (Phase 2 Wave 1 `0913d00`; Phase 1 block below is as of 2026-09-30, end of Wave 3). Commits: `f5e796c` Wave 1, `b19cb62` .gitattributes, `86fae64` Wave 2, `e714746` Wave 3, `68c85a7` AC-B10-2 test fix. The BUG-3 fix (`actions.ts`, `rooms.ts`, homeserver config) and this docs pass are in the working tree, to be committed by the orchestrator.
 
 ## Wave 1 - Principal
 | Item | Status | Owner | Notes |
@@ -379,3 +379,62 @@ Plan: docs/PHASE6_PLAN.md · Criteria/testids: docs/PHASE6_ACCEPTANCE.md · Tick
 | 18 | PM | Shared API per docs/PHASE6_TICKETS.md (`@/lib/preview`), cache numbers + module map in ARCHITECTURE | done |
 | 19 | PM | `url_preview_ip_range_whitelist` in the test configs + `public/preview-fixtures/*`; pool snapshot rebuild | done |
 | 20 | PM | `clearLinkPreviewCache()` on logout / token rejection | done |
+
+---
+
+# Phase 7 - Voice calls (product "voice Phase 1", MVP)
+
+Plan: docs/PHASE7_PLAN.md · Criteria/testids + manual 704.chat checklist: docs/PHASE7_ACCEPTANCE.md · Tickets: docs/PHASE7_TICKETS.md. Planned 2026-10-18 by PM from `matrix-poc/voice-calls/PLAN.md` (Advisor rulings recorded there; PM doubts and the Advisor's Wave 19 rulings in `voice-calls/working/advisor-questions.md`, applied to the docs the same day: keys reach unverified devices so the hint is "No call keys from X yet"; Codec builds and parses the ring with explicit `m.mentions.user_ids`; exact js-sdk 43 event names; `joinRTCSession`; LiveKit 1.13.10 and lk-jwt-service 0.9.0 pins; third context only for the three named tests). Scope: encrypted voice calls on MatrixRTC + self-hosted LiveKit, DMs ring, rooms ring at <= 5 members else drop-in (orchestrator default, JC can change), Android foreground service in scope, ring-when-closed / voice channels / video out. P0 = the desktop demo script (two windows, local Synapse + local LiveKit, fake mic). Homelab server install is product Phase 0 (JC via Hubot). Waves: 19 Principal core (PRIN-27 first, PRIN-28 gate run by QA right after), 20 devs + QA in parallel with the Principal on Android, 21 regression + fix wave + manual 704.chat checklist.
+
+## Wave 19 - Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PRIN-27 Local RTC dev stack (binary LiveKit + Node jwt port per Synapse, Synapse flags, well-known `rtc_foci`, pool wiring, `rtc:probe`, `calls-core.spec.ts`) | P0 | in-progress | Principal | `rtc-stack.mjs`, `lk-jwt.mjs`, `rtc.mjs`, `hs.mjs` / `hs-pool.mjs` wiring, `homeserver.yaml` flags + well-known, `livekit-token.ts`, the `rtc:*` and `test:e2e:calls` script lines landed in the working tree before planning (docs aligned to them, no Docker needed). Left per Advisor Q7: `LIVEKIT_VERSION` 1.9.4 -> 1.13.10. Lands first; QA's `requireRtc` and both devs need it |
+| PRIN-28 livekit-client 2.23 + E2EE worker bundling; js-sdk stays 43 (`m.call.member`, `/sfu/get`; 44 bump deferred, recorded in ARCHITECTURE); e2ee + threads suites green | P0 | todo | Principal | `livekit-client` already in `package.json`; orchestrator runs `npm install`; QA-38 gate run right after |
+| PRIN-29 `src/lib/rtc/**` `CallSession` (membership, token, focus, LiveKit, E2EE keys, delayed leave, reconnect, mic) | P0 | todo | Principal | |
+| PRIN-30 `src/store/call.ts`, bridge events, `policy.ts`, `lines.ts` (`dev.matrixpoc.call`), `previewText`, ringtone, multi-device, busy, timeout | P0 | todo | Principal | Store shapes frozen by day 3 for Dev B |
+| PRIN-31 Android foreground service (Capawesome 7.0.1), manifest, speakerphone shim, real-phone lock-screen check, MOBILE.md | P0 | todo | Principal | Wave 20 |
+| PRIN-32 Shell hosts (`call-host`, `data-in-call`, back order), `__matrixPoc.call`, ARCHITECTURE "Phase 7 deltas" | P0 | todo | Principal | |
+| PRIN-33 Bridge detection (`m.bridge`, `@signal_*`), `canCall` bridged reasons | P1 | todo | Principal | First P1 to cut; the Signal bridge lands after this phase |
+
+## Wave 20 - Dev A (navigation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-33 Header: mount `CallButton`, `header-join-call` chip, phone fit | P0 | todo | Dev A | |
+| DEV-A-34 Sidebar `room-call-indicator`, missed-call red preview | P0 | todo | Dev A | |
+| DEV-A-35 Chip tooltip, aria, keyboard | P2 | todo | Dev A | Not scheduled before the demo |
+
+## Wave 20 - Dev B (`src/features/call/**` + conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-35 `CallButton` (modes, disabled reasons, bridged hint, mic-denied toast) | P0 | todo | Dev B | |
+| DEV-B-36 `IncomingCallCard` (Accept / Decline, ringtone gate, title flash, auto-close, phone + vibration) | P0 | todo | Dev B | |
+| DEV-B-37 `CallScreen` + `InCallBar` (tiles, timer, lock, states, controls, desktop panel / phone full screen) | P0 | todo | Dev B | |
+| DEV-B-38 Timeline call lines `message-call` + `call-back` | P0 | todo | Dev B | |
+| DEV-B-39 Phone: Android back, speaker wiring, keyboard vs bar, 56 px | P1 | todo | Dev B | |
+
+## Wave 20 - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-34 `e2e/fixtures/call.ts` (`requireRtc`, `cleanupCalls`, contexts, `ringAlice`, stubs), `test:e2e:call` | P0 | todo | QA | |
+| QA-35 `e2e/call-dm.spec.ts` (desktop) | P0 | todo | QA | Multi-device tests open a third context, serial |
+| QA-36 `e2e/call-room.spec.ts` | P0 | todo | QA | Bridged rows are P1 |
+| QA-37 `e2e/mobile-call.spec.ts` + smoke step 14 in both smoke specs | P0 | todo | QA | |
+| QA-38 Gate run after PRIN-28, regression runs, docs/BUGS.md "Phase 7" + manual checklist table, regression test per fix | P0 | todo | QA | |
+
+## Phase 7 dry run (Wave 21)
+| Item | Result |
+|---|---|
+| Gate run after `livekit-client` + worker bundling (`desktop`, `mobile`, `test:e2e:e2ee`, `test:e2e:threads`) | not yet run |
+| Full runs incl. `test:e2e:call` and smoke step 14, both projects | not yet run |
+| Desktop demo script 1-9 (docs/PHASE7_PLAN.md) | not yet run |
+| Android: AC-R9-2/4/5 on a real phone (PRIN-31) | not yet run |
+| Manual 704.chat checklist M1-M15 (JC, Charlie, Juanjo; needs product Phase 0 on the homelab) | not yet run |
+| Open bugs | BUG-4 (S3, environment) carried over; AC-E6-3 ordering dependency (Phase 6 follow-up) still open |
+
+## Requests to Principal (Phase 7)
+| # | From | Request | Status |
+|---|---|---|---|
+| 21 | PM | Shared API per docs/PHASE7_TICKETS.md (`src/lib/rtc/**`, `useCallStore` + hooks, `getCallLine` / `previewText`, ringtone, `native.ts` call service, Shell `call-host`, `__matrixPoc.call`) | todo |
+| 22 | PM | Local call stack wired into `hs.mjs` / `hs-pool.mjs`, Synapse flags, well-known `rtc_foci`, `rtc:*` script lines; pool snapshot rebuild by the orchestrator | done in the working tree (probe behaviour and `E2E_NO_RTC` messages per AC-R1-3/4 still to check) |
+| 23 | PM | Store shapes (`activeCall`, `incoming`, `liveByRoom`) frozen by Wave 19 day 3, with a mock state setter on `__matrixPoc.call` so Dev B can build the screens before the core connects | todo |

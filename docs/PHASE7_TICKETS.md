@@ -1,0 +1,118 @@
+# Phase 7 Tickets
+
+Priorities: **P0** = the desktop demo script in docs/PHASE7_PLAN.md breaks without it. P1 = noticeably better (bridge detection and reconnect polish are the first P1s to cut). P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 6 (Principal resumes at 27, Dev A at 33, Dev B at 35, QA at 34). Waves 19-21.
+
+## Ownership map (hard rule, as docs/PHASE6_TICKETS.md)
+| Owner | Owns (may create/edit) | Must not edit |
+|---|---|---|
+| Principal | `src/lib/**` (new `src/lib/rtc/**`, `src/lib/audio/ringtone.ts`), `src/store/**` (new `call.ts`), `src/app/**`, `public/**` (ringtone asset), `android/**`, `capacitor.config.ts`, `scripts/**`, `seed/**`, `homeserver/**`, `package.json`, `vite.config.ts`, `docs/ARCHITECTURE.md`, `docs/MOBILE.md` | - |
+| Dev A | `src/features/navigation/**` | anything else |
+| Dev B | `src/features/call/**` (new; exports `CallButton`, `IncomingCallCard`, `CallScreen`, `InCallBar` from its `index.ts`), `src/features/conversation/**` | anything else |
+| QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:*` script lines in `package.json` | anything else |
+| PM | `docs/PHASE7_*.md`, `docs/STATUS.md` | anything else |
+
+Shared-layer needs go in your report as **Request to <owner>: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 7 deltas" wins); behaviour in docs/PHASE7_ACCEPTANCE.md is not. Rules this phase: `getUserMedia` is called only inside `src/lib/rtc` and only on start / accept / join; never connect to LiveKit without the E2EE key provider; never start a call in a room without `m.room.encryption`; one `activeCall` at a time; the foreground service starts only while the app is visible; test calls go in the alice/bob DM and `#vault`, never `#general`; at most two browser contexts per spec except the three named multi-device tests; the orchestrator runs `npm install` (livekit-client, the Capawesome plugin), nobody else. **Landed before planning** (the code wins): `src/lib/rtc/livekit-token.ts` (pure, Node-loadable) and `scripts/lib/lk-jwt.mjs` (Node port of lk-jwt-service: legacy `/sfu/get`, plus a `/get_token` on the pre-0.8 body shape that Codec never calls; `127.0.0.1:7980`); Codec **stays on matrix-js-sdk 43** with `org.matrix.msc3401.call.member` state-event memberships via the non-deprecated `joinRTCSession`, the 44 bump is deferred (mechanical). Homelab pins: lk-jwt-service **0.9.0**, `livekit-server` **1.13.10** (same as local).
+
+## Shared API (Principal exposes; devs consume only)
+| Module | Export | Shape / rule |
+|---|---|---|
+| `src/lib/rtc/config.ts` | `CALL_RING_MAX_MEMBERS` (5), `CALL_RING_TIMEOUT_MS` (60000), `CALL_KEYS_TIMEOUT_MS` (5000) | Constants, not settings. |
+| `src/lib/rtc/livekit-token.ts` (landed) | `LEGACY_SLOT_ID`, `LegacySfuRequest`, `OpenIdToken`, `SfuResponse`, `VideoGrant`, `LivekitClaims`, `livekitRoomAliasFor(roomId, slotId?)`, `legacyLivekitIdentity(userId, deviceId)`, `hashedLivekitIdentity(...)`, `serverNameOfUserId`, `mintLivekitToken(...)`, `decodeJwtClaims(jwt)` | Pure helpers mirroring lk-jwt-service's legacy `/sfu/get` (the `/get_token` parity path is on the pre-0.8 body shape and unused); shared by the client, `scripts/lib/lk-jwt.mjs` and the probe. Devs never import it. |
+| `src/lib/rtc/session.ts` | `CallSession` (internal to the store) | js-sdk 43 `MatrixRTCSession` via `joinRTCSession(ownMembershipIdentity, fociPreferred, undefined, joinConfig)` (`org.matrix.msc3401.call.member` state-event memberships, `m.call`, `call_id: ""`, identity `userId:deviceId` = `rtcBackendIdentity`; never the deprecated `joinRoomSession`, never `ensureRtcSlotOpen`, no `joinConfig.notificationType`) + LiveKit `Room` with `ExternalE2EEKeyProvider` + bundled `livekit-client/e2ee-worker`; token via `client.getOpenIdToken()` -> `POST <livekit_service_url>/sfu/get` `{ room, openid_token, device_id }`; focus from the unstable `/rtc/transports` route, else well-known `rtc_foci`; delayed leave; audio only. Devs never touch it. |
+| `src/lib/rtc/policy.ts` | `canCall(roomId): { allowed: boolean, reason?: 'unencrypted' \| 'busy' \| 'bridged-dm' \| 'not-joined', hint?: 'codec-only' }`, `ringPolicy(roomId): 'ring' \| 'drop-in'`, `isBridgedRoom(roomId)`, `bridgeGhostOnly(roomId)` (P1, PRIN-33) | Pure over the room store + SDK room state. DMs ring; rooms ring when joined members (minus self and `@signal_*` ghosts) <= 5. |
+| `src/lib/rtc/lines.ts` | `CALL_LINE_TYPE` (`dev.matrixpoc.call`), `CallLine`, `getCallLine(event): CallLine \| null`, `formatCallLine(line, viewerId, nameOf): string`, `callLinePreviewText(line, viewerId)` | Contract in docs/PHASE7_ACCEPTANCE.md "Wire shapes". `formatCallLine` gives the row text ("Call ended, 12 min", "Missed call from bob", "No answer from alice" for the caller). |
+| `src/lib/rtc/errors.ts` | `CallRefusedError(reason)`, `MicrophoneDeniedError` | Thrown by `startCall` / `accept` / `join`; the store maps them to toasts, devs do not catch them. |
+| `src/lib/audio/ringtone.ts` | `ringtone: { canPlay(): boolean, play(): Promise<void>, stop(): void, lastPlayedAt: number \| null, vibrate(on: boolean) }` | Autoplay gate: `canPlay` true after the first pointer/key event on the page; `play` never throws. Asset `public/ringtone.ogg` (short, loopable, generated or CC0). |
+| `src/store/call.ts` | `useCallStore` | `{ activeCall: { roomId, callId, state: 'calling' \| 'connecting' \| 'connected' \| 'reconnecting' \| 'no-answer' \| 'busy' \| 'ended', participants: { userId, deviceId, speaking, muted, poor, keyState: 'ok' \| 'missing' }[], muted, speaker: 'earpiece' \| 'speaker', startedAt, connectedAt, screenOpen } \| null, incoming: { roomId, from, notifyEventId, receivedAt }[], liveByRoom: Record<roomId, { count: number, userIds: string[] }>, startCall(roomId), accept(roomId), decline(roomId), join(roomId), leave(), toggleMute(), setSpeaker(mode), openScreen(), minimiseScreen(), callBack(roomId) }`. Bridged from `MatrixRTCSessionManagerEvents` and the ring event in `bridge.ts`. `callBack` = `startCall`. |
+| `src/store/hooks.ts` | `useActiveCall()`, `useIncomingCall()`, `useLiveCall(roomId)`, `useCanCall(roomId)` | Selectors; re-render on store change only. |
+| `src/lib/matrix/utils.ts` (existing) | `previewText`, `isDisplayableEvent` | `dev.matrixpoc.call` is displayable in the main timeline, never a thread root; `previewText` per AC-R3-7. |
+| `src/app/Shell.tsx` | `call-host` (desktop + phone), `app-shell[data-in-call]` | Mounts Dev B's `IncomingCallCard`, `CallScreen`, `InCallBar` once each; `registerBackHandler` order call > GIF > thread > drawers. |
+| `src/app/devtools.ts` | `window.__matrixPoc.call` | Store + policy + lines + `rtc` (`{ isMicrophoneEnabled(), isE2EEEnabled(), setSpeakerphone(on), room }`) + `ringtone`. |
+| `src/lib/native.ts` (existing, Android) | `startCallService(roomName)`, `stopCallService()`, `setSpeakerphone(on)` | No-ops on web; Capawesome foreground service + a 30-line Kotlin audio-route shim on Android (PRIN-31). |
+| `scripts/rtc.mjs`, `scripts/lib/rtc-stack.mjs`, `scripts/lib/lk-jwt.mjs`, `scripts/hs.mjs` / `hs-pool.mjs` wiring, `homeserver/homeserver.yaml` flags + well-known (all landed) | One call stack per Synapse: pinned `livekit-server` 1.13.10 binary in `homeserver/.rtc` (ports `7880+i` ws, `7920+i` tcp, `7940+i` udp, loopback) + the Node jwt service (`7980+i`; `rtcPortsFor(i)`, `jwtUrlFor(i)`); `npm run rtc:up/down/status/fetch`, `rtc:probe`; `E2E_NO_RTC=1` | AC-R1. `requireRtc(test)` (QA) wraps the probe. |
+| `@/features/call` (Dev B) | `CallButton({ roomId })`, `IncomingCallCard()`, `CallScreen()`, `InCallBar()` | Dev A mounts `CallButton` in `ChannelHeader`; the Shell mounts the other three. |
+
+---
+
+## Principal
+
+| ID | P | Title | Est |
+|---|---|---|---|
+| PRIN-27 | P0 | Local RTC dev stack (binary LiveKit + Node jwt port, pool wiring, Synapse flags, well-known: landed), `rtc:probe`, `e2e/calls-core.spec.ts`, unit tests for `livekit-token.ts`, `E2E_NO_RTC` / missing-binary paths | 5h |
+| PRIN-28 | P0 | `livekit-client` 2.23 pin + E2EE worker bundling (Vite, APK origin); js-sdk stays 43 (record the deferred 44 bump + `/sfu/get` choice in ARCHITECTURE); e2ee + threads suites green | 2h |
+| PRIN-29 | P0 | `src/lib/rtc/**`: `CallSession` (membership, token, focus discovery, LiveKit connect, E2EE key provider + worker, delayed leave, reconnect, mic lifecycle, audio attach), `errors.ts` | 16h |
+| PRIN-30 | P0 | `src/store/call.ts` + bridge events, `policy.ts`, `lines.ts` (send + read `dev.matrixpoc.call`), `previewText` / displayable rules, ringtone helper + asset, multi-device stop, busy, 60 s timeout | 12h |
+| PRIN-31 | P0 | Android: Capawesome foreground service 7.0.1 (type microphone), manifest, `POST_NOTIFICATIONS`, speakerphone shim, `native.ts`, lock-screen check on a real phone, docs/MOBILE.md | 12h |
+| PRIN-32 | P0 | Shell hosts (`call-host`, `data-in-call`, back-handler order), `__matrixPoc.call`, ARCHITECTURE "Phase 7 deltas" | 3h |
+| PRIN-33 | P1 | `isBridgedRoom` / `bridgeGhostOnly` from `m.bridge` state + `@signal_*`; `canCall` reasons `bridged-dm` / hint `codec-only` | 2h |
+
+**PRIN-27 Dev stack** - Landed: `scripts/lib/rtc-stack.mjs` (pinned `livekit-server` fetched into `homeserver/.rtc`; **bump `LIVEKIT_VERSION` to 1.13.10**, the version Hubot installs, Advisor Q7; loopback, `node_ip: 127.0.0.1`, port plan `7880/7920/7940/7980 + i`), `scripts/lib/lk-jwt.mjs` (Node port of lk-jwt-service, used because the real one resolves the homeserver by federation discovery and cannot reach a plain-HTTP localhost Synapse), `scripts/rtc.mjs` chained into `hs:up` / `hs:down`, one stack per pool instance in `hs-pool.mjs` with each instance's well-known rewritten to its own jwt service, Synapse `experimental_features` msc3266/4140/4222/4143/4075, `max_event_delay_duration: 24h`, `rc_delayed_event_mgmt`, `extra_well_known_client_content` `rtc_foci`. Left: `scripts/rtc-probe.mjs` behaviour per AC-R1-3, `e2e/calls-core.spec.ts` (AC-R2 through `__matrixPoc.call`), `src/lib/rtc/livekit-token.test.ts` under `test:unit`, the `E2E_NO_RTC` / missing-binary messages, `e2e/homeserver-config.spec.ts` rows for the flags. Pool snapshot rebuilt by the orchestrator. AC: AC-R1-1..4, AC-R2-1 (unit tests).
+
+**PRIN-28 livekit-client + gate** - `optimizeDeps` / worker bundling for `livekit-client/e2ee-worker` (`new Worker(new URL('livekit-client/e2ee-worker', import.meta.url), { type: 'module' })`, works from the APK's `http://localhost` origin), run `test:e2e:e2ee` + `test:e2e:threads` + `verify:e2ee` before anything else lands; ARCHITECTURE: js-sdk 43 kept, legacy `m.call.member` + `/sfu/get`, what the deferred 44 bump changes (`m.rtc.member`, hashed identities, `/get_token`). AC: AC-R2-1.
+
+**PRIN-29 Core** - One `CallSession` per active call: `client.matrixRTC.getRoomSession(room)`, then **`joinRTCSession(ownMembershipIdentity, fociPreferred, undefined, joinConfig)`** with the non-deprecated manager/session events (Advisor Q6: `joinRoomSession` is deprecated in 43 and removed in 44; `unstableSendStickyEvents` off; no `notificationType` in `joinConfig`, the store sends the ring); `EncryptionKeyChanged(key, index, rtcBackendIdentity)` -> `ExternalE2EEKeyProvider.setKey(key, identity, index)` (identity equals the `/sfu/get` LiveKit identity, no MSC4195 hashing); `keyState` per participant = `ok` on the first key for that identity, `missing` after `CALL_KEYS_TIMEOUT_MS` (keys go to every known device, verified or not; `missing` means device list not downloaded, to-device send failed or receiver crypto not ready), `room.connect(url, jwt)`, `setMicrophoneEnabled(true)` only after membership and keys, remote `AudioTrack.attach()` to hidden `<audio>` elements, `ActiveSpeakersChanged` -> `speaking`, `ConnectionQualityChanged` -> `poor`, `Reconnecting`/`Reconnected`, `leave()` = track stop + `leaveRoomSession()` + disconnect; `CallRefusedError('unencrypted')` checked first, `MicrophoneDeniedError` from `getUserMedia`. AC: AC-R2-2..6.
+
+**PRIN-30 Store + policy + lines** - Shapes per the Shared API. **Codec builds and parses the ring itself** (Advisor Q5/F2): on `MembershipsChanged` with the own membership present, `client.sendEvent(roomId, 'org.matrix.msc4075.rtc.notification', content)` with the content in docs/PHASE7_ACCEPTANCE.md "Wire shapes" (`m.mentions.user_ids` = exactly the members `ringPolicy` rings, never `room: true`; `lifetime: 60000`; `m.relates_to` the own membership event); only the starter sends (not joiners). Receive rules in Codec's own parser (not `parseCallNotificationContent`, which needs an open rtc slot and `@room` power): ignore when expired by `sender_ts + lifetime` (cap 60 s), when from self, when `notification_type` is not `ring`, when `user_ids` lacks me, when my own membership is already in the session; busy auto-decline; incoming cleared on own-user membership (any device), sender membership gone, or timeout; `missed` sent by the caller at `CALL_RING_TIMEOUT_MS`; `ended` by the emptier of a 1:1 / the last leaver (compare the session membership count after own leave). `liveByRoom` from `SessionStarted` / `SessionEnded` / memberships changed. Ringtone + `vibrate` (phone) started with the first `incoming`, stopped when empty. AC: AC-R3-1..8 (R3-1 bridge parts are PRIN-33).
+
+**PRIN-31 Android** - Plugin pinned `^7.0.1`, manifest per AC-R9-3, `startCallService` before `room.connect` on accept/join (visible activity), `stopCallService` on leave, notification "Codec call" with a Hang up action wired to `leave()`; speakerphone via `AudioManager` shim in `MainActivity`; `BLUETOOTH_CONNECT`; real-phone pass of AC-R9-4/5 on JC's APK; docs/MOBILE.md section. AC: AC-R9-3..5.
+
+**PRIN-32 Shell + docs** - Hosts and the dev hook; ARCHITECTURE "Phase 7 deltas": module map, membership mode + the Node jwt port, exact event type names, Codec-built ring, focus order, key transport (`io.element.call.encryption_keys`, no trust check) and the `missing` cases, the `dev.matrixpoc.call` contract, context rule exception, the loopback-only local stack, the LiveKit 1.13.10 / lk-jwt-service 0.9.0 pins. AC: AC-R10-5 (docs half).
+
+**PRIN-33 Bridge detection (P1)** - `m.bridge` state (`protocol.id === 'signal'`, `channel`), ghost prefix from the bridge config (`@signal_`), `bridgeGhostOnly(roomId)` = every other joined member is a ghost; `canCall` reasons / hint. AC: AC-R3-1 (bridge rows), AC-R4-6.
+
+---
+
+## Dev A - Navigation (`src/features/navigation/**`)
+
+| ID | P | Title | Est |
+|---|---|---|---|
+| DEV-A-33 | P0 | Header: mount `CallButton`; `header-join-call` chip (count, join, hidden when in the call); phone fit | 3h |
+| DEV-A-34 | P0 | Sidebar: `room-call-indicator` on channel + DM rows; `data-preview="missed-call"` red preview | 3h |
+| DEV-A-35 | P2 | Chip tooltip with names, `aria-label`s, keyboard focus order | 1h |
+
+**DEV-A-33 Header** - In `ChannelHeader.tsx`, right of `channel-header-lock`: `<CallButton roomId />` (from `@/features/call`; rendered in DMs and channels, desktop and phone, not while a thread is open on phone, AC-T8-1 rule), then `header-join-call` from `useLiveCall(roomId)` when `count > 0` and the viewer is not a participant; click -> `useCallStore.join(roomId)`. `CallButton` hides itself when a call is live (the chip replaces it). AC: AC-R8-1, AC-R8-3, AC-R4-1 (header half).
+
+**DEV-A-34 Sidebar** - `ChannelList` / `DmList` rows read `useLiveCall(roomId)` for `room-call-indicator[data-count]` (lucide `Volume2`, before the unread badge); the row preview uses `previewText` as today and adds `data-preview="missed-call"` + the red tint when the last event is a `missed` call line naming me (`getCallLine`). AC: AC-R8-2, AC-R7-3.
+
+---
+
+## Dev B - Call UI (`src/features/call/**`, new) and conversation
+
+| ID | P | Title | Est |
+|---|---|---|---|
+| DEV-B-35 | P0 | `CallButton`: modes, disabled reasons + titles, bridged hint, mic-denied toast, busy | 4h |
+| DEV-B-36 | P0 | `IncomingCallCard`: card, Accept / Decline, ringtone gate note, title flash, auto-close cases, phone variant + vibration | 5h |
+| DEV-B-37 | P0 | `CallScreen` + `InCallBar`: tiles (speaking / muted / poor / no keys yet), timer, lock, status states, Mute / Speaker / Leave / minimise, desktop panel vs phone full screen | 10h |
+| DEV-B-38 | P0 | Timeline call lines `message-call` (4 kinds, red missed + `call-back`), row hygiene, thread exclusion | 5h |
+| DEV-B-39 | P1 | Phone: Android back (`registerBackHandler`), speaker toggle wiring, keyboard vs bar, 56 px controls, safe areas | 4h |
+
+**DEV-B-35 CallButton** - `useCanCall(roomId)` + `ringPolicy`: render nothing for `bridged-dm`; disabled with `data-disabled-reason` and `title` for `unencrypted` ("Calls need an encrypted room") and `busy` ("You're already in a call"); `header-call-hint` for `hint: 'codec-only'`; click -> `startCall(roomId)`; catch `MicrophoneDeniedError` -> `showToast("Codec can't use your microphone. Allow it in the browser's site settings and try again", 'error')`. AC: AC-R4-1..6.
+
+**DEV-B-36 IncomingCallCard** - Mounted once in `call-host`; shows `incoming[0]` (display name via the room store, room name); Accept -> `accept(roomId)`, Decline -> `decline(roomId)`; `incoming-call-muted` while `!ringtone.canPlay()`; title flash via `document.title` interval, restored on close; phone: full viewport, 56 px buttons above the safe area, `ringtone.vibrate(true)`. AC: AC-R5-1..6.
+
+**DEV-B-37 CallScreen + InCallBar** - `activeCall.screenOpen` decides which renders. Screen: desktop = a panel over the member column (`position: absolute` in column 4 bounds, backdrop click minimises), phone = full screen; tiles from `participants` (avatar via `mxcToHttp`, initials fallback), `data-speaking` outline (`--accent-green`), `data-muted` crossed mic, `data-poor` warning, `data-keys="missing"` + `call-participant-nokeys` "No call keys from X yet" (not a verification hint: keys reach unverified devices too, Advisor Q2); `call-status` per `state`; `call-timer` from `connectedAt`; controls; `no-answer` offers `call-back` + Close, `busy` / `ended` auto-close after 3 s. Bar: above the composer on desktop (inside `Conversation`'s column, outside the scroll area), top of `main` on phone; "In call mm:ss, tap to return"; `in-call-bar-leave`. AC: AC-R6-1..8, AC-R9-1 (layout half).
+
+**DEV-B-38 Call lines** - `MessageRow` routes `dev.matrixpoc.call` to `CallLineRow` (`message-call`): `formatCallLine(line, me, nameOf)`, grey centred text like a day divider, red + `call-back` when `data-missed`; no avatar, grouping, actions, reactions, reply quote; never in `ThreadView`. AC: AC-R7-1..4.
+
+**DEV-B-39 Phone** - `registerBackHandler` for the screen (minimise) and the card (decline); `call-speaker` -> `setSpeaker`; `in-call-bar` stays visible with the keyboard open (`--vvh`); 56 px controls, safe-area padding. AC: AC-R9-1, AC-R9-2 (manual), AC-R5-6.
+
+---
+
+## QA (`e2e/**`, `playwright.config.ts`)
+
+| ID | P | Title | Est |
+|---|---|---|---|
+| QA-34 | P0 | `e2e/fixtures/call.ts`: `requireRtc`, `cleanupCalls`, bob/alice-2 contexts, `ringAlice` (API ring event), `sendCallLine`, `waitForCallState`, mic-denied init script, vibrate stub; `test:e2e:calls` extended to the three desktop specs; take over `calls-core.spec.ts` | 6h |
+| QA-35 | P0 | `e2e/call-dm.spec.ts` (desktop): ring, accept, connected both ways, mute, minimise + bar, leave + lines, decline, 60 s missed + call back, busy, mic denied, multi-device (3 contexts, serial) | 8h |
+| QA-36 | P0 | `e2e/call-room.spec.ts`: ring rule <= 5 vs 7-member drop-in, chip join, sidebar indicator, 3-person leave order, unencrypted refused, bridged ghost rows (P1) | 6h |
+| QA-37 | P0 | `e2e/mobile-call.spec.ts` (phone): card, screen, bar, 56 px, speaker stub, chip fit; smoke step 14 in both smoke specs | 4h |
+| QA-38 | P0 | Regression runs after the js-sdk bump and at the end of Wave 20, docs/BUGS.md "Phase 7" incl. the manual 704.chat checklist table, a regression test per Wave 21 fix | 4h |
+
+**QA-34 Fixtures** - `requireRtc(test)` probes this worker's jwt service (`jwtUrlFor(index)` from `rtc-stack.mjs`, `/healthz`) once per worker and skips with `not-available` (also under `E2E_NO_RTC=1`); `cleanupCalls()` leaves any `m.rtc.member` of alice / bob / alice-2 via `__matrixPoc.call.leave()` and the SDK before/after each spec; `ringAlice(roomId, { userIds = [alice], type = 'ring', senderTs = now })` sends `org.matrix.msc4075.rtc.notification` as bob via the API with the "Wire shapes" content (`m.mentions.user_ids`, `lifetime: 60000`, `m.relates_to` bob's membership event when he has one) for the pure-incoming tests; `cleanupCalls()` clears `org.matrix.msc3401.call.member` state for alice, bob and alice-2; `blockMediaKeys(page)` = `page.route` aborting `PUT **/sendToDevice/m.room.encrypted/*` (AC-R2-6); the 60 s cases use `page.clock` where the store reads `Date.now`, else real time (budget them); mic denied via `addInitScript` overriding `navigator.mediaDevices.getUserMedia` to reject `NotAllowedError`; `navigator.vibrate` stub recording calls. AC: AC-R10-1/2.
+
+**QA-35 / QA-36 / QA-37** - Criteria per AC-R10-1; serial inside each file; the three multi-device / 3-person tests open their third context last and close it in the same test. Timeline assertions read the `dev.matrixpoc.call` events via the API (sender, `kind`, `duration_ms` tolerance 2 s). AC: AC-R10-1, AC-R10-3.
+
+**QA-38 Runs + log** - Gate run right after PRIN-28 (`desktop`, `mobile`, `test:e2e:e2ee`, `test:e2e:threads`; `livekit-client` and the worker are the only new dependency), full runs at the end of Wave 20 and after Wave 21 fixes; docs/BUGS.md "Phase 7" with spec commands, the severity rule (S1: a call that connects without E2EE, a call started in an unencrypted room, a mic held after leave, a ring that never stops; S2: wrong or missing chat lines, multi-device not stopping, chip / indicator stale; S3: cosmetic) and the manual checklist table (M1-M15, columns JC / Charlie / Juanjo). AC: AC-R10-4..6.
+
+## P0 set (the demo script works with exactly these)
+PRIN-27..32 · DEV-A-33, DEV-A-34 · DEV-B-35..38 · QA-34..38. Total **108 h** (Principal 50 h, A 6 h, B 24 h, QA 28 h; PM docs outside the estimate), about 3 weeks wall time with the Principal on the critical path (PRIN-27 day 1-2 with the jwt port and token helpers already in the tree, PRIN-28 day 2, PRIN-29/30 to the end of week 2 with `useCallStore` shapes frozen on day 3 so Dev B can build against a mock state). P1 (PRIN-33, DEV-B-39, AC-R2-5/6, bridge rows in QA-36): 10 h, cut first. P2: 1 h.

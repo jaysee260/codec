@@ -15,6 +15,8 @@ import { useSessionStore } from '@/store/session.ts';
 import { useTimelineStore, paginateBack, refreshThread, isRedactedThreadReply } from '@/store/timeline.ts';
 import { useThreadStore, getThreadSummary, getThreadModel, isThreadReady } from '@/store/threads.ts';
 import { useSecurityStore } from '@/store/security.ts';
+import { useCallStore, canCall, enableCallsInRoom, activeCallStats } from '@/store/call.ts';
+import * as rtc from '@/lib/rtc/index.ts';
 import { getClientOrNull, getCryptoError } from '@/lib/matrix/client.ts';
 import { getHsUrl } from '@/lib/matrix/config.ts';
 import * as actions from '@/lib/matrix/actions.ts';
@@ -70,8 +72,32 @@ export function installDevHooks(): void {
     preview,
     // Alias used by docs/PHASE6_ACCEPTANCE.md: same module plus `clearPreviewCache()`.
     previews: { ...preview, clearPreviewCache: preview.clearLinkPreviewCache },
+    // Phase 7: `__matrixPoc.calls.store` = useCallStore (`getState().startCall(roomId, { ring: true })`, `acceptCall`, ...),
+    // `canCall(roomId)`, `enableCallsInRoom(roomId)`, `stats()` (receiver bytes per remote participant of the active call),
+    // and `rtc` = the whole `@/lib/rtc` barrel (e2e/calls-core.spec.ts drives the call layer through this until the UI lands).
+    calls: callsHook,
+    rtc,
   };
 }
+
+/** `window.__matrixPoc.calls` (Phase 7). */
+const callsHook = {
+  store: useCallStore,
+  canCall,
+  enableCallsInRoom,
+  startCall: (roomId: string, opts?: { ring?: boolean }) => useCallStore.getState().startCall(roomId, opts),
+  joinCall: (roomId: string) => useCallStore.getState().joinCall(roomId),
+  acceptCall: (roomId: string) => useCallStore.getState().acceptCall(roomId),
+  declineCall: (roomId: string) => useCallStore.getState().declineCall(roomId),
+  leaveCall: () => useCallStore.getState().leaveCall(),
+  setMuted: (muted: boolean) => useCallStore.getState().setMuted(muted),
+  /** Snapshot without functions (safe to `JSON.stringify` from Playwright). */
+  state: () => {
+    const { activeCall, incoming, history, liveSessions, lastError } = useCallStore.getState();
+    return { activeCall, incoming, history, liveSessions, lastError };
+  },
+  stats: () => activeCallStats(),
+};
 
 /** `window.__matrixPoc.security` (Phase 5). Room keys travel as the SDK's JSON export (`seed/e2ee-keys.json`). */
 const securityHook = {

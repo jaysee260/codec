@@ -54,13 +54,22 @@ jobs:
           python-version: '3.12'
       - name: Install Synapse
         run: python -m venv homeserver/.venv && homeserver/.venv/bin/pip install 'matrix-synapse[url-preview]'
+      # Phase 7: one LiveKit SFU + one Node lk-jwt per pooled Synapse (scripts/lib/rtc-stack.mjs). The pinned
+      # livekit-server binary is a GitHub release download, cached by version; no Docker anywhere.
+      - name: Cache LiveKit server
+        uses: actions/cache@v4
+        with:
+          path: homeserver/.rtc/livekit-server
+          key: livekit-server-${{ runner.os }}-${{ hashFiles('scripts/lib/rtc-stack.mjs') }}
+      - name: Fetch LiveKit server
+        run: node scripts/rtc.mjs fetch
       - name: Run Playwright
         run: npx playwright test
         env:
           CI: 'true'
-      - name: Synapse logs
+      - name: Synapse / call stack logs
         if: failure()
-        run: tail -n 200 homeserver/data/pool/snapshot-build.log homeserver/data/pool/hs-*/synapse.log || true
+        run: tail -n 200 homeserver/data/pool/snapshot-build.log homeserver/data/pool/hs-*/synapse.log homeserver/data/pool/hs-*/livekit.log homeserver/data/pool/hs-*/lk-jwt.log || true
       - name: Upload report
         if: failure()
         uses: actions/upload-artifact@v4

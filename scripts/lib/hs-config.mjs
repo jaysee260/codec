@@ -70,10 +70,15 @@ export function readBaseConfig() {
  *  - every `/data/...` path -> `<dataRoot>/...` (native: the instance dir; docker: keep `/data` and mount the dir);
  *  - the listener port (+ `bind_addresses: ['127.0.0.1']`, binding `::` fails in some containers);
  *  - `public_baseurl` -> the instance URL;
- *  - `log_config` -> `<dataRoot>/<logConfigName>` (the caller writes that file; see `renderLogConfig`).
+ *  - `log_config` -> `<dataRoot>/<logConfigName>` (the caller writes that file; see `renderLogConfig`);
+ *  - (Phase 7) the well-known `rtc_foci` `livekit_service_url` -> `rtcJwtUrl` (this instance's LiveKit auth service).
  */
-export function renderInstanceConfig({ port, dataRoot, hsUrl = `http://localhost:${port}`, logConfigName = 'log.config', bindAddresses = ['127.0.0.1'] }) {
+export function renderInstanceConfig({ port, dataRoot, hsUrl = `http://localhost:${port}`, logConfigName = 'log.config', bindAddresses = ['127.0.0.1'], rtcJwtUrl }) {
   let yaml = readBaseConfig();
+  if (rtcJwtUrl) {
+    if (!/^\s*livekit_service_url:.*$/m.test(yaml)) throw new Error('renderInstanceConfig: homeserver.yaml lacks the Phase 7 extra_well_known_client_content block (rtc_foci)');
+    yaml = yaml.replace(/^(\s*)livekit_service_url:.*$/m, `$1livekit_service_url: ${rtcJwtUrl}`);
+  }
   const root = dataRoot.replace(/\/+$/, '');
   yaml = yaml.replace(/(["']?)\/data\//g, `$1${root}/`);
   yaml = yaml.replace(/^(\s*)-\s*port:\s*\d+\s*$/m, (_, indent) => `${indent}- port: ${port}\n${indent}  bind_addresses: [${bindAddresses.map((a) => `'${a}'`).join(', ')}]`);

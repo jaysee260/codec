@@ -73,3 +73,22 @@ export {
   type Viewport,
 } from './layout.ts';
 export { onRoomSelected, waitForRoom } from './rooms.ts';
+export {
+  useCallStore,
+  useActiveCall,
+  useIncomingCall,
+  useIncomingCalls,
+  useCallError,
+  useRoomCallSummary,
+  useCallHistory,
+  useCallAvailability,
+  canCall,
+  enableCallsInRoom,
+  bindCalls,
+  unbindCalls,
+  resetCalls,
+  type ActiveCall,
+  type CallState,
+  type LiveSession,
+  type RoomCallSummary,
+} from './call.ts';

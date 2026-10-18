@@ -7,6 +7,163 @@ This document is the contract between the Principal-owned core (`src/lib`, `src/
 feature owners. Where it differs from `docs/TICKETS.md` / `docs/PHASE2_TICKETS.md` / `docs/PHASE3_TICKETS.md` /
 `docs/PHASE4_TICKETS.md` / `docs/PHASE5_TICKETS.md` "Shared API", **this file wins**; the differences are listed first.
 
+## Phase 7 deltas (voice calls)
+
+Encrypted voice calls over MatrixRTC (MSC4143) + LiveKit, Codec-only in this phase. The Matrix side is the js-sdk 43
+`MatrixRTCSession` in its state-event mode; media goes through a LiveKit SFU with per-participant E2EE keys sent
+to-device by the SDK, so the SFU only ever sees scrambled audio. Decisions are in docs/PHASE7_*.md (PM) and the
+Advisor Wave 19 rulings (`/mnt/project-files/.../advisor-questions.md`); this section is the API and the gotchas.
+Ownership: Principal `src/lib/rtc/`, `src/store/call.ts`, `scripts/rtc.mjs`, `scripts/rtc-probe.mjs`,
+`scripts/lib/{rtc-stack,lk-jwt}.mjs`, the Synapse flags + well-known, `e2e/calls-core.spec.ts`; Dev A sidebar / header
+chips; Dev B call button, incoming card, in-call screen, timeline rows.
+
+### What is where (the differences from docs/PHASE7_TICKETS.md "Shared API" first)
+- **No `dev.matrixpoc.call` chat-line event in Wave 1.** The core sends only what the protocol needs: the SDK's
+  membership state, Codec's ring (`org.matrix.msc4075.rtc.notification`) and the decline
+  (`org.matrix.msc4310.rtc.decline`, per the orchestrator's Wave 19 instruction; the ticket text says otherwise, see
+  "Open points"). Timeline rows come from those two events (`describeCallEvent`); "Call ended, 12 min" and missed calls
+  exist today only in the **local** call history (`useCallHistory`). If the PM contract stands, `lines.ts` is a Wave 2
+  addition on top of this, not a change to it.
+- `canCall(roomId)` returns `{ ok: true } | { ok: false, reason: CallErrorCode, message }` (not `{ allowed }`); reasons
+  used: `unencrypted`, `crypto-unavailable`, `media-unsupported`, `not-allowed`, `busy`. No bridge detection yet (P1).
+- Ring policy: `startCall(roomId, { ring })`; the store rings DMs and rooms with <= 5 joined members by default,
+  `ring: false` is a drop-in join (same as `joinCall`). The ring goes to every joined member except self.
+- The dev hook is `window.__matrixPoc.calls` (plus `__matrixPoc.rtc` = the barrel), not `__matrixPoc.call`.
+
+### Store (`src/store/call.ts`, re-exported from `@/store`)
+
+```ts
+useCallStore: {
+  activeCall: ActiveCall | null         // = CallSessionSnapshot, below; null when not in / starting a call
+  incoming: IncomingCall[]              // rings on this device, oldest first (one per room)
+  history: CallHistoryEntry[]           // newest first, max 200, localStorage 'matrix-poc.callHistory' (cleared on logout)
+  liveSessions: Record<roomId, { userIds: string[]; deviceCount: number }>   // every room with a live call (for chips)
+  lastError: { code: CallErrorCode; message: string } | null
+  startCall(roomId, { ring? }), joinCall(roomId), acceptCall(roomId), declineCall(roomId), dismissIncoming(roomId),
+  leaveCall(), toggleMute(), setMuted(bool), setAudioOutput(deviceId | null), resumeAudio(), clearError()
+}
+canCall(roomId): CallAvailability                          // pure over the SDK room; call before showing the button
+enableCallsInRoom(roomId): Promise<boolean>                // admin: grants the call power levels in a public-preset room
+activeCallStats(): Promise<{ identity, bytesReceived, packetsReceived, decrypting }[]>   // per remote participant
+// hooks
+useActiveCall(), useIncomingCall() /* first */, useIncomingCalls(), useCallError(), useCallAvailability(roomId),
+useRoomCallSummary(roomId): { live, userIds, deviceCount, joined, ringing }, useCallHistory(roomId?)
+
+interface CallSessionSnapshot {           // ActiveCall
+  roomId; state: 'connecting' | 'ringing' | 'connected' | 'reconnecting' | 'ended';
+  participants: CallParticipant[];        // self first; { userId, deviceId, identity: 'user:device', isSelf, connected,
+                                          //   speaking, muted, hasKey, keyState: 'ok' | 'pending' | 'missing' }
+  muted; audioOutput: string | null; startedAt; connectedAt: number | null; ringing;
+  endReason: 'hangup' | 'remote-hangup' | 'declined' | 'no-answer' | 'busy' | 'answered-elsewhere' | 'error' | null;
+  error: { code, message } | null; encrypted: true; audioBlocked: boolean   // audioBlocked: call resumeAudio() from a click
+}
+interface IncomingCall { roomId; notifyEventId; from; slotId; expiresAt; receivedAt }
+interface CallHistoryEntry { id; roomId; direction: 'outgoing' | 'incoming'; outcome: 'completed' | 'missed' | 'declined' |
+  'busy' | 'no-answer' | 'failed' | 'cancelled'; peerUserId: string | null; startedAt; endedAt; durationMs }
+type CallErrorCode = 'unencrypted' | 'crypto-unavailable' | 'not-allowed' | 'no-focus' | 'token' | 'mic-denied' |
+  'mic-missing' | 'mic-busy' | 'media-unsupported' | 'connect' | 'busy' | 'membership' | 'unknown'
+```
+
+State machine: `startCall` -> `connecting` (preflight, mic, focus, membership) -> `ringing` (we rang, nobody else yet) or
+`connected` -> `reconnecting` (LiveKit signal lost) -> `ended` with `endReason`. A `startCall` that fails before it is a
+call (refused room, mic, focus, token, SFU) rejects with a `CallError`, sets `lastError`, and leaves `activeCall` null.
+After `ended` the snapshot stays until the next call starts (Dev B: show "Call ended" for 3 s, then clear).
+A ring for another room while in a call is auto-declined with reason `busy` and logged as `missed` (never shown).
+Two devices of one user: the one that accepts wins; the other's `incoming` entry drops (`answeredElsewhere`).
+
+### Pure helpers (`src/lib/rtc/index.ts`, import from `@/lib/rtc`)
+
+```ts
+describeCallEvent(event, { displayName, myUserId? }): { kind: 'started' | 'declined' | 'busy', userId, text, notifyEventId } | null
+isCallTimelineEvent(event) /* ring + decline: render as a grey row */, isCallEvent(event) /* also membership: never a message row */
+formatCallDuration(ms)   // '45 s' | '12 min' | '1 h 05 min'
+CALL_NOTIFICATION_TYPE = 'org.matrix.msc4075.rtc.notification', CALL_DECLINE_TYPE = 'org.matrix.msc4310.rtc.decline',
+CALL_MEMBER_TYPE = 'org.matrix.msc3401.call.member', CALL_POWER_LEVELS, RING_TIMEOUT_MS = 60_000, CALL_KEYS_TIMEOUT_MS = 5_000
+setFocusOverride(url | null)   // localStorage 'matrix-poc.rtcFocusUrl' (or VITE_RTC_FOCUS_URL); QA / homelab pointing
+```
+
+### Wire shapes and the protocol choices (why)
+- **Membership**: `org.matrix.msc3401.call.member` state events (`EventType.GroupCallMemberPrefix`), state key
+  `_${userId}_${deviceId}_m.call` on Synapse's default room version (no owned state keys), content `{ application: 'm.call', call_id: '',
+  device_id, membershipID: 'user:device', foci_preferred: [{ type: 'livekit', livekit_service_url }], expires, ... }`,
+  sent by the SDK via `joinRTCSession({ userId, deviceId, memberId }, [focus], undefined, { manageMediaKeys: true,
+  callIntent: 'audio', delayedLeaveEventDelayMs: 8000, useKeyDelay: 250 })`. Leaving = `leaveRoomSession(5000)`; a
+  tab that dies is cleaned by the **delayed leave** (MSC4140: the SDK re-arms an 8 s delayed empty state event every
+  5 s). `joinRoomSession` is deprecated in 43 and gone in 44: not used. Not used either: sticky events (MSC4354) and
+  `org.matrix.msc4143.rtc.slot` (`ensureRtcSlotOpen`); nothing in Codec needs a slot.
+- **Ring** (Codec-built, `ringing.ts`): `client.sendEvent(roomId, 'org.matrix.msc4075.rtc.notification', { slot_id:
+  'm.call#ROOM', notification_type: 'ring', 'm.call.intent': 'audio', 'm.mentions': { user_ids: [...] }, 'm.relates_to':
+  { rel_type: 'm.reference', event_id: <own membership event> }, sender_ts, lifetime: 60000 })`, sent once the own
+  membership is on the wire. Encrypted like any room event (the relation stays cleartext). The SDK's `sendCallNotify`
+  hardcodes `m.mentions.room: true` (PL 50) and its parser requires an open slot, so Codec parses too: ignore self,
+  malformed, expired (`origin_server_ts + min(lifetime, 60 s)`; `sender_ts` is not trusted), not mentioned (`@room` only
+  when the sender may `@room`), own membership already in the session, caller's membership gone.
+- **Decline**: `org.matrix.msc4310.rtc.decline` `{ 'm.relates_to': { rel_type: 'm.reference', event_id: <ring> },
+  msc4354_sticky_key: <ring>, 'io.codec.decline_reason'?: 'busy' }`, sticky when the server supports it, plain
+  `sendEvent` otherwise (Synapse 1.163: plain). Only the caller's DM ends on it (room calls keep ringing others).
+- **Media keys**: the SDK's `ToDeviceKeyTransport` sends `io.element.call.encryption_keys` as Olm to-device messages to
+  every device of every member, **verified or not** (no trust check on that path); `EncryptionKeyChanged(key, index,
+  membership)` -> `MatrixKeyProvider.setParticipantKey(key, 'user:device', index)` (HKDF-imported, per-participant,
+  `ratchetWindowSize: 0`). A device with no key 5 s after it appeared is `keyState: 'missing'` ("No call keys from X
+  yet"): device list not downloaded, to-device send failed, receiver crypto not ready. Verification is not a call
+  prerequisite; the lock means "E2EE to the SFU".
+- **Token**: `POST <livekit_service_url>/sfu/get { room, openid_token, device_id }` (lk-jwt-service's legacy route,
+  still served by 0.8 / 0.9) -> `{ url, jwt }` with identity `user:device` = the SDK's `rtcBackendIdentity`, so keys map
+  to LiveKit participants without MSC4195 hashing. The 44 bump (`/get_token`, hashed identities, `m.rtc.member`) is
+  mechanical later; nothing in 43 was missing for this phase.
+- **Focus discovery** (`focus.ts`, cached per homeserver): override (`localStorage` / `VITE_RTC_FOCUS_URL`) ->
+  `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports` (authed) -> `<baseUrl>/.well-known/matrix/client`
+  `org.matrix.msc4143.rtc_foci` -> `https://<server name>/.well-known/matrix/client` (skipped for localhost) ->
+  `CallError('no-focus')`. A token failure re-discovers once (`fresh: true`) before giving up.
+- **Power levels**: the public-channel preset has `state_default: 50`, so members could not publish a membership.
+  `createChannel` now sets `CALL_POWER_LEVELS` (member, notification, decline, `io.element.call.encryption_keys` -> 0)
+  in `power_level_content_override`; older rooms are patched lazily by `ensureCallPowerLevels` when the caller is an
+  admin (`enableCallsInRoom` for a button), otherwise `canCall` says `not-allowed`. DMs (`trusted_private_chat`) are fine.
+- **Unencrypted rooms are refused** (`canCall` -> `unencrypted`, `startCall` throws before touching the network).
+
+### Local call stack (`scripts/lib/rtc-stack.mjs`, `scripts/rtc.mjs`, `scripts/lib/lk-jwt.mjs`)
+One LiveKit SFU + one auth service per Synapse, no Docker. `npm run hs:up` now also starts them (`node scripts/rtc.mjs
+up`: LiveKit `ws://localhost:7880`, lk-jwt `http://localhost:7980`, logs + config under `homeserver/.rtc/stack-0/`);
+`scripts/hs-pool.mjs up` starts one per instance (`7880+i / 7920+i tcp / 7940+i udp / 7980+i`, logs in
+`homeserver/data/pool/hs-<i>/livekit.log` + `lk-jwt.log`) and rewrites each instance's well-known to its own jwt URL;
+`E2E_NO_RTC=1` skips them. `livekit-server` **1.13.10** (the homelab pin; lk-jwt-service there is **0.9.0**) is
+downloaded once from GitHub releases into the gitignored `homeserver/.rtc/` (`npm run rtc:fetch`; `LIVEKIT_SERVER_BIN`
+to use another binary; CI caches it by version). Signalling binds 127.0.0.1; ICE candidates advertise the machine's
+interface address (`LIVEKIT_NODE_IP` to override) because **Chromium cannot pair a loopback candidate** without
+`--allow-loopback-in-peer-connection` ("could not establish pc connection" with `node_ip: 127.0.0.1`). The auth
+service is a Node port of lk-jwt-service (`/sfu/get`, `/get_token` on the pre-0.8 body shape, `/healthz`, CORS `*`)
+because the real one resolves the homeserver by federation discovery of the server name and can never reach a
+plain-HTTP `localhost:8008+i`; it verifies the OpenID token exactly the same way (`GET
+/_matrix/federation/v1/openid/userinfo`) and derives the same room name (`sha256([roomId, 'm.call#ROOM'])`, unpadded
+base64) and identity (`src/lib/rtc/livekit-token.ts`, shared with the browser and unit-tested). Synapse:
+`experimental_features` msc3266 / msc4140 / msc4222 / msc4143 / msc4075, `max_event_delay_duration: 24h`,
+`rc_delayed_event_mgmt` raised (one delayed-event restart per 5 s per device), `extra_well_known_client_content`
+with `org.matrix.msc4143.rtc_foci`. Phones on the LAN cannot use the local stack (signalling is loopback): the homelab
+stack is the phone path. `npm run rtc:probe` proves the chain without a browser (well-known -> healthz -> OpenID ->
+`/sfu/get` -> JWT claims + signature -> forged token refused -> SFU up -> a Node crypto client's membership on the wire).
+
+### Tests
+`npm run test:unit` covers `livekit-token`, `focus`, `participants`, `ringing` (wire shape + receive rules + expiry caps),
+`timeline` / `history` / `permissions` / `token`. `npm run test:e2e:calls` (= `e2e/calls-core.spec.ts`, desktop): two
+contexts in `dm-alice-dave`, ring -> incoming -> accept -> both `connected` with keys and **bytes received** from each
+other (E2EE decryptor attached) -> mute visible remotely -> hang-up -> `remote-hangup` + history; decline; refused in
+`dm-alice-bob`; and the "No call keys" case (dave's `PUT /sendToDevice/m.room.encrypted/*` swallowed with
+`page.route` -> alice shows `keyState: 'missing'`). Only the ring / decline / membership are checked through the raw API.
+
+### Gotchas
+- `matrix-js-sdk/lib/matrixrtc/index.js` is the import path for the MatrixRTC types (not re-exported from the main
+  entry in 43). `client.matrixRTC` is created in the constructor and started by `startClient`.
+- `joinRTCSession` wants the own membership identity `{ userId, deviceId, memberId: 'user:device' }`; passing the
+  `rtcBackendIdentity` string form anywhere else breaks the key mapping.
+- The LiveKit E2EE worker is `import E2EEWorker from 'livekit-client/e2ee-worker?worker'` (Vite bundles it, works from
+  the APK's `http://localhost` origin); `isE2EESupported()` is false on browsers without insertable streams, and
+  `canCall` reports `media-unsupported` there rather than falling back to plaintext media.
+- A `MembershipsChanged` for the own membership is the trigger for the ring, never `JoinStateChanged` (the event id
+  of the membership is only known once the state event echoes).
+- `getJoinedMemberCount() <= 2` is the "DM" rule for decline / remote-hangup ending our call; a room call stays open.
+- Unit tests under `src/**` must not import `session.ts` (the `?worker` import is not loadable in Node); constants
+  live in `constants.ts` for that reason.
+
 ## Phase 6 deltas (link previews)
 
 A message with http(s) links shows a card per link (site name, title, description, og:image), like Slack / Element.
@@ -299,9 +456,12 @@ src/
       media.ts                 authenticated media (service worker); (Phase 5) MediaSource, mediaSourceOf, encrypted openMedia / downloadMedia
       actions.ts               every write + a few aggregate readers (members, reactions); sendVoiceMessage (Phase 2); sendGif (Phase 4); (Phase 5) encrypted uploads, encrypted-by-default rooms
       utils.ts                 read helpers over SDK objects (display names, avatars, getDisplayBody, getVoiceMessage, getGifContent, ...); (Phase 5) isRoomEncrypted, getDecryptionState
+    rtc/                       (Phase 7) index.ts barrel; session.ts CallSession (MatrixRTC membership + LiveKit room + E2EE keys); ringing.ts (Codec ring/decline + watcher);
+                               focus.ts, token.ts, key-provider.ts, e2ee-worker.ts, participants.ts, permissions.ts, timeline.ts, history.ts, livekit-token.ts (pure, shared with scripts), types.ts, constants.ts
   store/
     session.ts                 useSessionStore; (Phase 5) loadingStage, binds/unbinds the security store
     security.ts                (Phase 5) useSecurityStore: status, hint, verification flow, recovery, prompts; bindSecurity/unbindSecurity/resetSecurity
+    call.ts                    (Phase 7) useCallStore: activeCall, incoming, history, liveSessions; canCall, enableCallsInRoom, bindCalls/unbindCalls/resetCalls; call hooks
     rooms.ts                   useRoomStore + recomputeRooms + waitForRoom + onRoomSelected (Phase 2); (Phase 5) RoomSummary.encrypted
     layout.ts                  (Phase 2) useLayoutStore, useIsPhone, useViewport, detectIsPhone; stamps <html data-layout>, --vvh; (Phase 4) registerBackHandler, runBackHandlers
     timeline.ts                useTimelineStore + refreshTimeline + setTypingForRoom; (Phase 3) TimelineSource, thread snapshots, paginateBack(source), ensureThreadTimeline
@@ -332,6 +492,10 @@ scripts/send-thread-sample.mjs (Phase 3) post a thread (root + replies, exact wi
 scripts/send-encrypted-sample.mjs (Phase 5) bob posts encrypted texts + an encrypted PNG into #vault with the Node crypto engine, exports keys (npm run e2ee:sample)
 scripts/verify-e2ee.mjs        (Phase 5) attachment round trip, room state, wire shape, decrypt with seed/e2ee-keys.json, ciphertext on the server (npm run verify:e2ee)
 scripts/lib/e2ee-api.mjs       (Phase 5) Node crypto client helpers, loginWithDevice, downloadMedia, mergeRoomKeys, quietLogger
+scripts/rtc.mjs                (Phase 7) fetch/up/down/status of the single dev call stack (LiveKit :7880 + lk-jwt :7980); chained into hs:up / hs:down
+scripts/rtc-probe.mjs          (Phase 7) no-browser proof of the call chain: well-known -> jwt -> /sfu/get -> JWT -> SFU -> membership on the wire (npm run rtc:probe)
+scripts/lib/rtc-stack.mjs      (Phase 7) pinned livekit-server download, config rendering, start/stop/status of one stack per Synapse (used by rtc.mjs and hs-pool.mjs)
+scripts/lib/lk-jwt.mjs         (Phase 7) Node port of lk-jwt-service (/sfu/get, /get_token, /healthz) verifying OpenID tokens against a local Synapse
 scripts/verify-thread-shell.mjs (Phase 3) desktop + Pixel 7 Playwright check of the thread core on :5183 + screenshots (npm run verify:threads)
 scripts/make-gif-fixtures.mjs  (Phase 4) pure-Node GIF89a + PNG encoder rendering the MOCK_FIXTURES catalogue into public/gif-fixtures (npm run gif:fixtures)
 scripts/send-gif-sample.mjs    (Phase 4) bob posts a contract GIF message to #dev via the API using the client's buildGifContent (npm run gif:sample)
@@ -901,6 +1065,15 @@ Phase 3:
 ```
 npm run thread:sample              # alice root + 3 replies (bob/carol) in #dev via the API; validates; writes seed/thread-sample.json
 npm run dev -- --port 5183 && npm run verify:threads   # thread core check (desktop + Pixel 7) + docs/screenshots/phase3-thread-shell*.png
+```
+
+Phase 7:
+
+```
+npm run hs:up                      # now also LiveKit ws://localhost:7880 + lk-jwt http://localhost:7980 (npm run rtc:up / rtc:down / rtc:status alone)
+npm run rtc:fetch                  # download livekit-server 1.13.10 into homeserver/.rtc (done by rtc:up / the pool on demand; CI caches it)
+npm run rtc:probe                  # no-browser check of the whole call chain against HS_URL (default :8008)
+npm run test:e2e:calls             # e2e/calls-core.spec.ts (desktop); E2E_NO_RTC=1 starts pools without call stacks
 ```
 
 Phase 4:

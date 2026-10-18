@@ -6,7 +6,7 @@
  */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createClient, ClientEvent, SyncState } from 'matrix-js-sdk';
-import { api, HS, PASSWORD, login as rawLogin, logout as rawLogout, resolveRoom } from './gif-api.mjs';
+import { api, HS, PASSWORD, logout as rawLogout, resolveRoom } from './gif-api.mjs';
 
 export { api, HS, PASSWORD, resolveRoom };
 
@@ -16,7 +16,7 @@ export const quietLogger = { trace: quiet, debug: quiet, info: quiet, warn: cons
 
 /** Password login + a started, crypto-enabled SDK client. `stop()` logs the device out (no stale devices). */
 export async function startCryptoClient(user, deviceName = 'e2ee-sample') {
-  const raw = await rawLogin(user, deviceName);
+  const raw = await loginWithDevice(user, deviceName); // the gif-api login drops the device id, which crypto needs
   const client = createClient({
     baseUrl: HS,
     userId: raw.userId,
