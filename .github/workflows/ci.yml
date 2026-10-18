@@ -1,7 +1,7 @@
 # Runs on every pull request into master and every push to master.
 #   build  typecheck + production build (npm run build)
-#   e2e    the full Playwright suite (desktop + mobile projects) against a throwaway Synapse in Docker,
-#          started and seeded the same way as locally: npm run hs:up && npm run seed
+#   e2e    the full Playwright suite (desktop + mobile projects), in parallel: Playwright's global setup builds the
+#          seed snapshot and starts one throwaway Synapse (from homeserver/.venv) + one Vite per worker (issue #2)
 name: CI
 
 on:
@@ -47,17 +47,18 @@ jobs:
       # --ignore-scripts skips the postinstall browser download; the next step installs it with its OS deps.
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
-      - name: Start Synapse
-        run: npm run hs:up
-      - name: Seed test data
-        run: npm run seed
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Synapse
+        run: python -m venv homeserver/.venv && homeserver/.venv/bin/pip install 'matrix-synapse[url-preview]'
       - name: Run Playwright
         run: npx playwright test
         env:
           CI: 'true'
       - name: Synapse logs
         if: failure()
-        run: docker compose -f homeserver/docker-compose.yml logs --tail 200 synapse
+        run: tail -n 200 homeserver/data/pool/snapshot-build.log homeserver/data/pool/hs-*/synapse.log || true
       - name: Upload report
         if: failure()
         uses: actions/upload-artifact@v4
