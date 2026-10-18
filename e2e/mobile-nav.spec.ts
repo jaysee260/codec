@@ -23,7 +23,6 @@ import { loginAs } from './fixtures/auth.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { DISPLAY_NAMES, NAMES, resolveRoom, uniqueName } from './fixtures/seed.ts';
 import { itemNames, messageList, openChannel, row } from './fixtures/ui.ts';
-import { banner, waitForStatus } from './fixtures/e2ee.ts';
 import {
   backdrop,
   box,
@@ -76,11 +75,6 @@ async function phoneGeneral(page: Page): Promise<void> {
   await loginAs(page, 'alice', { selection: { spaceId: R.acme, roomId: R.general } });
   await expect(page.getByTestId('channel-header-name')).toContainText(NAMES.general);
   await expect(messageList(page)).toBeVisible();
-  // BUG-19: the 44 px phone security banner mounts ~1 s after the shell (first /sync + /keys/query) and
-  // resizes the column. Let it land before any test measures geometry or scroll positions.
-  const crypto = await waitForStatus(page);
-  if (crypto.hint) await expect(banner(page)).toBeVisible();
-  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 }
 
 /* ================================================================== AC-M1 breakpoint + layout */

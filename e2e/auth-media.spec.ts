@@ -119,10 +119,17 @@ test.describe('login methods', () => {
     });
     test.skip(!res.ok, 'homeserver has login_via_existing_session off (needed to mint a login token)');
     const { login_token } = (await res.json()) as { login_token: string };
-    const fresh = await (await browser.newContext()).newPage();
-    await fresh.goto(`/?loginToken=${encodeURIComponent(login_token)}`);
-    await expect(fresh.getByTestId('app-shell')).toBeVisible({ timeout: 20_000 });
-    expect(fresh.url()).not.toContain('loginToken');
+    // Closed in `finally`: a leaked context keeps a logged-in alice syncing (and running crypto) for the rest of
+    // the run, which slowed every later login past the 20 s shell timeout (BUG-20).
+    const context = await browser.newContext();
+    try {
+      const fresh = await context.newPage();
+      await fresh.goto(`/?loginToken=${encodeURIComponent(login_token)}`);
+      await expect(fresh.getByTestId('app-shell')).toBeVisible({ timeout: 20_000 });
+      expect(fresh.url()).not.toContain('loginToken');
+    } finally {
+      await context.close();
+    }
     void page;
   });
 
