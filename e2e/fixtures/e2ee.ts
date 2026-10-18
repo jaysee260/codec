@@ -560,9 +560,10 @@ export async function sameEmoji(a: Page, b: Page): Promise<string[]> {
  * Opens `recovery-dialog` (banner action, or a direct `openSecurityDialog` via the placeholder), submits `input`.
  *
  * The key field is `recovery-input` in both the `form` and the `prompt` phase (the SDK asking for a secret-storage
- * key mid-flow). `expectPhase` is where a successful submit ends: `done` (default: verified + history restored)
- * or `locked` (verified, but the key backup stays locked: `recovery-locked`, e.g. the backup secret is under a
- * different key and its prompt was cancelled). `expectSuccess: false` only submits.
+ * key, only after E2's "I have a different recovery key"). `expectPhase` is where a successful submit ends: `done`
+ * (default: verified + history restored) or `locked` (E2: verified, but the key backup cannot be opened, e.g. its
+ * secret is under a non-default key: `recovery-locked`; an already-open E2, `locked` or `unavailable`, counts).
+ * `expectSuccess: false` only submits.
  */
 export async function unlockWith(page: Page, input: string, opts: { expectSuccess?: boolean; expectPhase?: 'done' | 'locked' } = {}): Promise<void> {
   const dialog = page.getByTestId('recovery-dialog');
@@ -574,15 +575,15 @@ export async function unlockWith(page: Page, input: string, opts: { expectSucces
   }
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   // `working` = a restore already runs by itself (SAS handed over the backup key); wait for it to settle.
-  await expect(dialog).toHaveAttribute('data-phase', /^(form|prompt|done|locked)$/, { timeout: 60_000 });
+  await expect(dialog).toHaveAttribute('data-phase', /^(form|prompt|done|locked|unavailable)$/, { timeout: 60_000 });
   const phase = await dialog.getAttribute('data-phase');
   if (phase === 'done') {
     annotate('auto-restore', 'recovery-dialog was already done (the backup key arrived with the verification)');
     return;
   }
-  if (phase === 'locked') {
-    // An earlier unlock verified this session but could not open the backup; there is no key field here.
-    expect(opts.expectPhase, 'recovery-dialog opened in `locked` (session verified, backup locked) but the caller expected done').toBe('locked');
+  if (phase === 'locked' || phase === 'unavailable') {
+    // E2: this session is verified but the backup cannot be opened; there is no key field here.
+    expect(opts.expectPhase, `recovery-dialog opened in \`${phase}\` (session verified, backup locked) but the caller expected done`).toBe('locked');
     annotate('backup-locked', 'recovery-dialog was already locked (an earlier unlock verified the session)');
     return;
   }
@@ -595,6 +596,37 @@ export async function unlockWith(page: Page, input: string, opts: { expectSucces
   } else {
     await expect(page.getByTestId('recovery-done')).toBeVisible({ timeout: 60_000 });
   }
+}
+
+/**
+ * Samples recovery-dialog[data-phase] and the store's pending prompt every 100 ms until stopped: a normal unlock
+ * must never show the `prompt` phase nor register a recovery-key prompt ("One ask only").
+ */
+export function watchRecoveryPhases(page: Page): { phases: string[]; prompts: string[]; stop(): void } {
+  const phases: string[] = [];
+  const prompts: string[] = [];
+  const timer = setInterval(() => {
+    void page
+      .evaluate(() => {
+        const el = document.querySelector('[data-testid="recovery-dialog"]');
+        return { phase: el?.getAttribute('data-phase') ?? null, prompt: (window as any).__matrixPoc?.security?.store.getState().prompt?.kind ?? null };
+      })
+      .then(({ phase, prompt }) => {
+        if (phase && phases[phases.length - 1] !== phase) phases.push(phase);
+        if (prompt && prompts[prompts.length - 1] !== prompt) prompts.push(prompt);
+      })
+      .catch(() => undefined);
+  }, 100);
+  return { phases, prompts, stop: () => clearInterval(timer) };
+}
+
+/** Imports the security feature module through Vite (dev only) and opens a dialog, like Dev B's placeholders do. */
+export async function openSecurityDialog(page: Page, kind: 'setup' | 'verify' | 'unlock'): Promise<void> {
+  await page.evaluate(async (k) => {
+    const url = '/src/features/security/index.ts'; // Vite dev serves the module; a variable keeps tsc out of it
+    const m = (await import(/* @vite-ignore */ url)) as { openSecurityDialog(kind: string): void };
+    m.openSecurityDialog(k);
+  }, kind);
 }
 
 /** UI when Dev A's dialogs exist, else the store (annotated). */

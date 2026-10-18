@@ -209,6 +209,34 @@
   font-size: var(--font-size-sm);
 }
 
+/* E2 (older messages can't be unlocked yet): the body, then one block per option, in order. */
+.e2 {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* A secondary action rendered as a link (e.g. "I have a different recovery key"). */
+.linkButton {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.linkButton:hover {
+  text-decoration: underline;
+}
+
 .footerSpacer {
   flex: 1;
 }
