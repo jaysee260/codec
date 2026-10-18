@@ -112,6 +112,8 @@ export default defineConfig({
     timeout: 60_000,
     stdout: 'ignore' as const,
     stderr: 'pipe' as const,
-    env: { VITE_HS_URL: hsUrlFor(i) },
+    // Each Vite gets its own dep cache: N servers re-optimizing into one shared node_modules/.vite race, and a
+    // server whose deps hash changed underneath it 404s the lazily imported rust-crypto chunk (crypto never starts).
+    env: { VITE_HS_URL: hsUrlFor(i), ...(WORKERS > 1 ? { VITE_CACHE_DIR: `node_modules/.vite-w${i}` } : {}) },
   })),
 });
