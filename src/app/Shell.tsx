@@ -33,7 +33,10 @@ import styles from './Shell.module.css';
 /**
  * Phase 5: Dev A's security UI (`@/features/security`: `SecurityBanner` above the channel header on both layouts,
  * `SecurityDialogs` once per page). Resolved through a glob so the shell builds before that module exists: an
- * empty glob renders nothing, and the module is code-split when present.
+ * empty glob renders nothing, and the module is code-split when present. Both hosts are `display: contents`, so
+ * they never take a grid / flex cell themselves; the dialogs host also sits **outside** the desktop grid (a
+ * sibling of it), so whatever Dev A renders there cannot push the member / thread panels to a second row.
+ * `SecurityDialogs` renders overlays (`position: fixed`) or nothing.
  */
 type SecurityModule = { SecurityBanner?: ComponentType; SecurityDialogs?: ComponentType };
 const securityModules = import.meta.glob<SecurityModule>('../features/security/index.ts');
@@ -44,7 +47,7 @@ const SecurityDialogs = loadSecurity ? lazy(async () => ({ default: (await loadS
 
 function SecurityBannerHost() {
   return (
-    <div data-testid="security-banner-host">
+    <div className={styles.securityHost} data-testid="security-banner-host">
       <Suspense fallback={null}>
         <SecurityBanner />
       </Suspense>
@@ -54,7 +57,7 @@ function SecurityBannerHost() {
 
 function SecurityDialogsHost() {
   return (
-    <div data-testid="security-dialogs-host">
+    <div className={styles.securityHost} data-testid="security-dialogs-host">
       <Suspense fallback={null}>
         <SecurityDialogs />
       </Suspense>
@@ -99,11 +102,15 @@ function Navigation() {
 
 function MainColumn({ roomId }: { roomId: string | null }) {
   if (!roomId) {
+    // The banner shows here too: a user with no rooms yet (fresh account) must still be told to set up encryption.
     return (
-      <div className={styles.empty} data-testid="empty-state">
-        <div className={styles.emptyTitle}>No channel selected</div>
-        <div className={styles.emptyText}>Pick a channel on the left, or start a DM.</div>
-      </div>
+      <>
+        <SecurityBannerHost />
+        <div className={styles.empty} data-testid="empty-state">
+          <div className={styles.emptyTitle}>No channel selected</div>
+          <div className={styles.emptyText}>Pick a channel on the left, or start a DM.</div>
+        </div>
+      </>
     );
   }
   return (
@@ -118,23 +125,25 @@ function MainColumn({ roomId }: { roomId: string | null }) {
 function DesktopShell({ roomId }: { roomId: string | null }) {
   const threadRootId = useOpenThreadFor(roomId);
   return (
-    <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'}>
-      <Navigation />
-      <main className={styles.main}>
-        <MainColumn roomId={roomId} />
-      </main>
+    <>
+      <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'}>
+        <Navigation />
+        <main className={styles.main}>
+          <MainColumn roomId={roomId} />
+        </main>
+        {roomId && threadRootId && (
+          <aside className={styles.threadPanel} aria-label="Thread" data-testid="thread-panel-container">
+            <ThreadView key={`${roomId}|${threadRootId}`} roomId={roomId} rootId={threadRootId} />
+          </aside>
+        )}
+        {roomId && !threadRootId && (
+          <aside className={styles.members} aria-label="Members">
+            <MemberPanel roomId={roomId} />
+          </aside>
+        )}
+      </div>
       <SecurityDialogsHost />
-      {roomId && threadRootId && (
-        <aside className={styles.threadPanel} aria-label="Thread" data-testid="thread-panel-container">
-          <ThreadView key={`${roomId}|${threadRootId}`} roomId={roomId} rootId={threadRootId} />
-        </aside>
-      )}
-      {roomId && !threadRootId && (
-        <aside className={styles.members} aria-label="Members">
-          <MemberPanel roomId={roomId} />
-        </aside>
-      )}
-    </div>
+    </>
   );
 }
 

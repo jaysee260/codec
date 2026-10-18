@@ -88,15 +88,54 @@ export function isReactionEvent(event: MatrixEvent): boolean {
  * Should this timeline event get its own row?
  * Keeps: m.room.message (incl. redacted ones, rendered as "Message deleted"), m.sticker, and (Phase 5) events
  * that are still encrypted (`m.room.encrypted`: being decrypted, or undecryptable - rendered as a placeholder;
- * `getType()` becomes the clear type once decrypted, so a decrypted reaction/edit drops out of the rows then).
+ * `getType()` becomes the clear type once decrypted, so a decrypted reaction/edit drops out of the rows then),
+ * except encrypted reactions / edits (`isEncryptedRelation`: wire relation, or redacted after being one).
  * Drops: reactions, edits (aggregated onto their target), state events, everything else.
  */
 export function isDisplayableEvent(event: MatrixEvent): boolean {
   const type = event.getType();
-  if (type === EventType.Sticker || type === EventType.RoomMessageEncrypted) return true;
+  if (type === EventType.Sticker) return true;
+  if (type === EventType.RoomMessageEncrypted) return !isEncryptedRelation(event);
   if (type !== EventType.RoomMessage) return false;
   if (isEditEvent(event)) return false;
   return true;
+}
+
+/**
+ * Ids of encrypted events known to be relations (reactions / edits), remembered for the session. Needed because a
+ * **redacted** encrypted relation loses both its decrypted content and its wire `m.relates_to` (`makeRedacted`
+ * prunes the content; MSC3389 is not in room v11), leaving a bare `m.room.encrypted` that would otherwise
+ * render as "Message deleted". The bridge calls `noteEncryptedRelation` for every timeline / decrypted event.
+ * Residual: a relation redacted before this session loaded cannot be told apart from a deleted message.
+ */
+const encryptedRelationIds = new Set<string>();
+
+function isWireRelation(event: MatrixEvent): boolean {
+  // `isRelation` reads `getWireContent()`, so an undecryptable edit / reaction is still recognised.
+  return event.isRelation(RelationType.Replace) || event.isRelation(RelationType.Annotation) || event.getType() === EventType.Reaction;
+}
+
+/** Remember an encrypted event that is a reaction or an edit (call for every event the timeline sees). */
+export function noteEncryptedRelation(event: MatrixEvent): void {
+  if (!event.isEncrypted() || event.isRedacted()) return;
+  const id = event.getId();
+  if (id && !id.startsWith('~') && isWireRelation(event)) encryptedRelationIds.add(id);
+}
+
+/** Logout: forget the remembered ids. */
+export function resetEncryptedRelations(): void {
+  encryptedRelationIds.clear();
+}
+
+/**
+ * True for an encrypted edit / reaction that must never be a row: still encrypted (decrypting or undecryptable)
+ * with its relation in the clear on the wire, or redacted after this session saw it as a relation. Same rule as
+ * `isHiddenEncryptedRelation` in Dev B's `useRoomEvents` (kept in step; the feature one also runs).
+ */
+export function isEncryptedRelation(event: MatrixEvent): boolean {
+  if (!event.isEncrypted()) return false;
+  if (event.isRedacted()) return encryptedRelationIds.has(event.getId() ?? '');
+  return isWireRelation(event);
 }
 
 // ---------------------------------------------------------------------------

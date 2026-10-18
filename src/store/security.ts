@@ -30,6 +30,7 @@ import { getCryptoError, setSecretStorageKeyPrompt } from '@/lib/matrix/crypto.t
 import {
   getOwnDeviceStatus,
   isCryptoReady,
+  RecoveryKeyError,
   onVerificationRequestReceived,
   requestOwnUserVerification,
   restoreFromBackup,
@@ -68,6 +69,12 @@ export interface RecoveryState {
   progress: { imported: number; total: number } | null;
   lastRestore: { imported: number; total: number } | null;
   error: string | null;
+  /**
+   * Set with `error` when `unlockWithRecoveryKey` failed on the key itself (`RecoveryKeyError.kind`): `none` = the
+   * account has no recovery key, `invalid` = not a recovery key / passphrase shape, `wrong` = does not open the
+   * secret storage. Undefined for any other failure (network, backup) so the UI never matches message text.
+   */
+  errorKind?: 'none' | 'invalid' | 'wrong';
 }
 
 export interface PendingPrompt {
@@ -137,7 +144,10 @@ const idleRecovery: RecoveryState = { busy: null, progress: null, lastRestore: n
 /** What to show the user given a status snapshot. */
 export function securityHint(status: OwnDeviceStatus | null): SecurityHint {
   if (!status) return null;
-  if (!status.hasCrossSigningKeys) return 'setup';
+  // No identity and no recovery key: first-time setup. With a recovery key but no identity (AC-E5-5: a reset
+  // account, or keys created by another client), the key is the way in: `unlockWithRecoveryKey` bootstraps
+  // cross-signing from (or into) secret storage.
+  if (!status.hasCrossSigningKeys) return status.secretStorageReady ? 'unlock' : 'setup';
   if (!status.verified) return 'verify';
   if (status.backup.version && !status.backup.keyCached) return 'unlock';
   return null;
@@ -323,7 +333,8 @@ export const useSecurityStore = create<SecurityState>((set, get) => ({
       return true;
     } catch (e) {
       dropPrompt();
-      set((s) => ({ recovery: { ...idleRecovery, error: describe(e) }, version: s.version + 1 }));
+      const errorKind = e instanceof RecoveryKeyError ? e.kind : undefined;
+      set((s) => ({ recovery: { ...idleRecovery, error: describe(e), ...(errorKind ? { errorKind } : {}) }, version: s.version + 1 }));
       return false;
     }
   },
@@ -389,9 +400,21 @@ export function bindSecurity(client: MatrixClient): void {
   setSecretStorageKeyPrompt(() => ask('recovery-key', 'Enter your recovery key to unlock your encryption keys'));
   const refresh = (): void => void useSecurityStore.getState().refresh();
   const onRequest = (request: VerificationRequest): void => {
-    // One flow at a time: a new incoming request replaces a finished one, never an active one.
+    // One flow at a time: a new incoming request replaces whatever is tracked. An active flow is cancelled first
+    // (AC-E4-7: the latest request wins, the stale one never leaves a dangling dialog); a finished one is dropped.
     const current = useSecurityStore.getState().verification;
-    if (current && current.stage !== 'done' && current.stage !== 'cancelled') return;
+    const active = !!current && current.stage !== 'done' && current.stage !== 'cancelled';
+    // The Rust engine refuses a second concurrent request from the same user: it arrives already cancelled. Keep
+    // the live flow then (tracking the dead one would lose both).
+    if (active && request.phase === VerificationPhase.Cancelled) return;
+    if (active) {
+      const stale = live;
+      live = null;
+      stale?.off();
+      void stale?.request.cancel().catch(() => {
+        /* already gone */
+      });
+    }
     trackRequest(request);
   };
   const onBackupKeyCached = (): void => {

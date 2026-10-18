@@ -45,6 +45,7 @@ import {
   threadKey,
 } from './timeline.ts';
 import { bumpThreadsVersion } from './threads.ts';
+import { noteEncryptedRelation, resetEncryptedRelations } from '@/lib/matrix/utils.ts';
 
 const ROOMS_DEBOUNCE_MS = 50;
 const TIMELINE_DEBOUNCE_MS = 30;
@@ -165,13 +166,14 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
     if (event.getType() === EventType.Direct) scheduleRooms();
   };
   const onTimeline = (
-    _event: MatrixEvent,
+    event: MatrixEvent,
     room: Room | undefined,
     toStartOfTimeline: boolean | undefined,
     _removed: boolean,
     data: IRoomTimelineData,
   ): void => {
     if (!room) return;
+    noteEncryptedRelation(event); // Phase 5: remember encrypted reactions / edits before a redaction strips them
     const set = data.timeline.getTimelineSet();
     // Thread timelines (Phase 3): the Thread re-emits its timeline set's events through the room.
     if (set.thread) {
@@ -229,6 +231,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
   const onDecrypted = (event: MatrixEvent): void => {
     const roomId = event.getRoomId();
     if (!roomId) return;
+    noteEncryptedRelation(event);
     const thread = event.getThread();
     if (thread) scheduleThread(roomId, thread.id);
     else scheduleTimeline(roomId);
@@ -300,4 +303,5 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
 export function unbindClient(): void {
   bound?.dispose();
   bound = null;
+  resetEncryptedRelations();
 }
