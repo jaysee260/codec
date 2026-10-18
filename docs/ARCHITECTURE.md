@@ -988,8 +988,8 @@ Boot: `startClientFromSession(session, { onSyncState?, onCryptoLoading? })` -> `
 `getCryptoError(): string | null`, `wipeCryptoStore(client, session)`, `cryptoCallbacks` (`getSecretStorageKey({ keys }, name)` = a cached key
 by id, then by value (`findCachedSecretStorageKey(keys, cached, checkKey)`, pure, unit-tested), else the registered prompt for the default key id
 if offered, validated with `secretStorageKeyMatches` before caching; `cacheSecretStorageKey`), `setSecretStorageKeyPrompt(fn | null, { defaultKeyId? })`
-(`fn(keyInfo, keyId, { secretName?, differentKey })`), `lastSecretStorageKeyMiss()` (why the callback last answered null: `cancelled` / `wrong-key` /
-`no-key`), `cacheSecretStorageKey`, `hasCachedSecretStorageKey`, `clearSecretStorageKeyCache`, `resolveRecoveryInput(input, keyInfo)` (recovery key or
+(`fn(keyInfo, keyId, { secretName?, differentKey })`), `SecretStorageKeyMissError { reason: 'cancelled' | 'wrong-key' |
+'no-key' }` (the callback throws it instead of answering null; the SDK propagates it; a typed key is cached only when the description has a MAC), `cacheSecretStorageKey`, `hasCachedSecretStorageKey`, `clearSecretStorageKeyCache`, `resolveRecoveryInput(input, keyInfo)` (recovery key or
 passphrase -> raw key, checked against the description). Importable from plain Node (no `@/`, no runtime client.ts import).
 
 ### `src/lib/matrix/security.ts` (CryptoApi wrappers; the store calls these)

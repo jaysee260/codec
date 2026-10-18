@@ -22,7 +22,7 @@ import {
 } from 'matrix-js-sdk/lib/crypto-api/index.js';
 import type { VerificationRequest, Verifier } from 'matrix-js-sdk/lib/crypto-api/verification.js';
 import { getClient, getClientOrNull } from './client.ts';
-import { cacheSecretStorageKey, lastSecretStorageKeyMiss, resolveRecoveryInput } from './crypto.ts';
+import { cacheSecretStorageKey, resolveRecoveryInput, SecretStorageKeyMissError } from './crypto.ts';
 
 /** `client.getCrypto()` or null when nobody is logged in or the engine failed to start (`getCryptoError()`). */
 export function getCryptoApi(): CryptoApi | null {
@@ -321,19 +321,17 @@ export async function unlockWithRecoveryKey(input: string, opts: { uia?: UiaOpti
 }
 
 /**
- * `restoreFromBackup`, classified instead of thrown. A null answer of our `getSecretStorageKey` during the call
- * (`lastSecretStorageKeyMiss().seq` moved) says cancelled / wrong key / nobody to ask; otherwise the SDK's error
- * type / the missing-secret case; everything else is `failed`.
+ * `restoreFromBackup`, classified instead of thrown. Our `getSecretStorageKey` throwing `SecretStorageKeyMissError`
+ * (the SDK passes it through) says cancelled / wrong key / nobody to ask; otherwise the SDK's error type / the
+ * missing-secret case; everything else is `failed`.
  */
 export async function attemptRestoreFromBackup(onProgress?: (p: ImportRoomKeyProgressData) => void): Promise<RestoreAttempt> {
-  const before = lastSecretStorageKeyMiss().seq;
   try {
     return { restore: await restoreFromBackup(onProgress) };
   } catch (e) {
-    const miss = lastSecretStorageKeyMiss();
     const message = e instanceof Error ? e.message : String(e);
     let reason: RestoreFailureReason = 'failed';
-    if (miss.seq !== before && miss.reason) reason = miss.reason;
+    if (e instanceof SecretStorageKeyMissError) reason = e.reason;
     else if (e instanceof DecryptionKeyDoesNotMatchError) reason = 'wrong-key';
     else if (/missing decryption key in secret storage/i.test(message)) reason = 'no-key';
     console.warn('[security] backup restore failed:', reason, e);

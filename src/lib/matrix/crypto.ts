@@ -17,9 +17,10 @@
  * `unlockWithRecoveryKey` (security store) / `cacheSecretStorageKey` (set up by `bootstrapSecretStorage`), matched
  * by key id and then by value (an account may hold several 4S keys, the backup key encrypted under a non-default
  * one), else from an optional prompt the UI registers (`setSecretStorageKeyPrompt`, told which secret and whether
- * a different key was already entered), else `null`: the SDK call then fails ("getSecretStorageKey callback
- * returned falsey") and `lastSecretStorageKeyMiss()` says why (cancelled / wrong key / nobody to ask), which
- * security.ts turns into a `RestoreFailureReason`. Never persisted.
+ * a different key was already entered). A miss **throws** `SecretStorageKeyMissError(reason)` (cancelled / wrong
+ * key / nobody to ask) instead of answering null: the SDK propagates the callback's error unchanged, so
+ * security.ts tells a cancelled prompt from any other failure with `instanceof` (never by message text) and turns
+ * it into a `RestoreFailureReason`. Never persisted.
  *
  * Importable from plain Node (type stripping; the unit test): no `@/` imports, no runtime import of client.ts,
  * nothing touches window / localStorage / indexedDB at import time.
@@ -212,24 +213,19 @@ export function clearSecretStorageKeyCache(): void {
   cachedKeys.clear();
 }
 
-/** Why the last `getSecretStorageKey` answered null: the prompt was cancelled, the typed key did not open the
- * prompted key, or there was nobody to ask (no prompt registered / no key offered). */
+/** Why `getSecretStorageKey` had no key: the prompt was cancelled, the typed key did not open the prompted key,
+ * or there was nobody to ask (no prompt registered / no key offered). */
 export type SecretStorageKeyMiss = 'cancelled' | 'wrong-key' | 'no-key';
 
-let lastMiss: { seq: number; reason: SecretStorageKeyMiss | null } = { seq: 0, reason: null };
-
-/**
- * The last time `getSecretStorageKey` answered null and why. `seq` grows on every miss: snapshot it before an SDK
- * call and compare afterwards to tell "the user cancelled the prompt" from any other failure without matching the
- * SDK's error text ("getSecretStorageKey callback returned falsey").
- */
-export function lastSecretStorageKeyMiss(): { seq: number; reason: SecretStorageKeyMiss | null } {
-  return lastMiss;
-}
-
-function miss(reason: SecretStorageKeyMiss): null {
-  lastMiss = { seq: lastMiss.seq + 1, reason };
-  return null;
+/** Thrown by `cryptoCallbacks.getSecretStorageKey` instead of answering null; the SDK call that asked rejects with it. */
+export class SecretStorageKeyMissError extends Error {
+  // A declared field, not a constructor parameter property: Node's type stripping rejects those (unit test).
+  readonly reason: SecretStorageKeyMiss;
+  constructor(reason: SecretStorageKeyMiss) {
+    super(reason === 'cancelled' ? 'Recovery key entry was cancelled' : reason === 'wrong-key' ? 'That recovery key does not open this secret' : 'No recovery key available for this secret');
+    this.name = 'SecretStorageKeyMissError';
+    this.reason = reason;
+  }
 }
 
 /**
@@ -310,8 +306,10 @@ export async function resolveRecoveryInput(
  * secret it reads or writes; the answer must be one of the offered `keys`. An account can have several secret
  * storage keys (another client re-created 4S, so the backup key sits under an older key id than the cross-signing
  * keys): a cached key is matched by id, then by value; only when nothing cached opens any offered key is the user
- * asked, for the default key if offered, with `name` and `differentKey` so the UI can say why. A typed key that
- * does not open the prompted key answers null (never cached under the wrong id).
+ * asked, for the default key if offered, with `name` and `differentKey` so the UI can say why. Never answers
+ * null: a cancelled prompt, a typed key that does not open the prompted key, or nobody to ask throws
+ * `SecretStorageKeyMissError`. A typed key is cached only when it was checked against the key's MAC (a
+ * description without a MAC cannot be checked: the key is returned for this read but not remembered).
  */
 export const cryptoCallbacks: CryptoCallbacks = {
   async getSecretStorageKey({ keys }, name) {
@@ -321,15 +319,15 @@ export const cryptoCallbacks: CryptoCallbacks = {
       return hit;
     }
     const ids = Object.keys(keys);
-    if (!prompt || !ids.length) return miss('no-key');
+    if (!prompt || !ids.length) throw new SecretStorageKeyMissError('no-key');
     const defaultKeyId = await promptOptions.defaultKeyId?.().catch(() => null);
     const keyId = defaultKeyId && keys[defaultKeyId] ? defaultKeyId : ids[0]!;
     const keyInfo = keys[keyId]!;
     const input = await prompt(keyInfo, keyId, { secretName: name || undefined, differentKey: cachedKeys.size > 0 });
-    if (!input?.trim()) return miss('cancelled');
+    if (!input?.trim()) throw new SecretStorageKeyMissError('cancelled');
     const key = await resolveRecoveryInput(input, keyInfo);
-    if (!key || !(await secretStorageKeyMatches(key, keyInfo, false).catch(() => false))) return miss('wrong-key');
-    cachedKeys.set(keyId, key);
+    if (!key || !(await secretStorageKeyMatches(key, keyInfo, false).catch(() => false))) throw new SecretStorageKeyMissError('wrong-key');
+    if (keyInfo.mac) cachedKeys.set(keyId, key);
     return [keyId, key];
   },
   cacheSecretStorageKey(keyId, _keyInfo, key) {
