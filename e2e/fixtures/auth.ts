@@ -4,6 +4,7 @@
  * (first space alphabetically = Acme HQ, first channel = #general — docs/ARCHITECTURE.md Deltas).
  */
 import { expect, test, type Page } from '@playwright/test';
+import { noteServerUse } from './run-log.ts';
 import { DISPLAY_NAMES, HS_URL, PASSWORD, type UserKey } from './seed.ts';
 
 /** localStorage keys the app owns (src/lib/matrix/config.ts). */
@@ -44,6 +45,7 @@ async function dropStoredSession(page: Page): Promise<void> {
  *   await loginAs(page, 'alice');
  */
 export async function loginAs(page: Page, user: UserKey = 'alice', opts: LoginOptions = {}): Promise<void> {
+  noteServerUse();
   if (opts.selection) {
     // addInitScript runs before app code on every navigation in this context.
     const value = JSON.stringify({

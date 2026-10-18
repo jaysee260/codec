@@ -49,7 +49,7 @@ export default async function globalSetup(): Promise<(() => void) | void> {
   // Fresh-seed verdicts (fixtures/fresh.ts) are persisted per pool instance only after a restore; drop the last run's.
   const tmp = 'e2e/tmp';
   for (const name of existsSync(tmp) ? readdirSync(tmp) : []) {
-    if (/^fresh-w\d+(-.+)?\.json$/.test(name)) rmSync(`${tmp}/${name}`, { force: true });
+    if (/^(fresh-w\d+(-.+)?\.json|ran-w\d+\.jsonl)$/.test(name)) rmSync(`${tmp}/${name}`, { force: true });
   }
   process.env.E2E_POOL_RESTORED = '1';
   return () => pool('down');

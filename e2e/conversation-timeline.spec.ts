@@ -229,19 +229,26 @@ test.describe('DEV-B-3 backwards pagination', () => {
     expect(topId, 'the list must already contain rows').toBeTruthy();
     const anchor = page.getByTestId(topId);
 
-    const sawLoading = page
-      .getByTestId('timeline-loading')
-      .waitFor({ state: 'visible', timeout: 8_000 })
-      .then(() => true)
-      .catch(() => false);
+    // On a freshly restored homeserver the page request takes ~80 ms, so `timeline-loading` is mounted for well under
+    // a polling interval and a `waitFor` can miss it (BUG-29). A MutationObserver installed in the same evaluate as the
+    // scroll records it however briefly it is shown, as a rendered (visible) element.
     // Baseline is taken *after* the scroll, in the same evaluate so no commit can interleave:
     // scrolling to the top is the action under test, not part of the jump being measured.
     const beforeY = await messageList(page).evaluate((el, id) => {
+      const w = window as unknown as { __sawTimelineLoading?: boolean };
+      w.__sawTimelineLoading = false;
+      const check = () => {
+        const loading = document.querySelector<HTMLElement>('[data-testid="timeline-loading"]');
+        if (loading && loading.getClientRects().length > 0 && getComputedStyle(loading).visibility !== 'hidden') {
+          w.__sawTimelineLoading = true;
+        }
+      };
+      new MutationObserver(check).observe(document.body, { subtree: true, childList: true, attributes: true });
       el.scrollTop = 0;
+      check();
       return el.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect().top;
     }, topId);
     const before = { y: beforeY };
-    const loadingSeen = await sawLoading;
 
     await expect
       .poll(
@@ -259,6 +266,7 @@ test.describe('DEV-B-3 backwards pagination', () => {
       'the previously top-most message must stay at the same viewport position',
     ).toBeLessThanOrEqual(5);
 
+    const loadingSeen = await page.evaluate(() => (window as unknown as { __sawTimelineLoading?: boolean }).__sawTimelineLoading);
     expect(loadingSeen, 'timeline-loading must be shown while the page request is in flight').toBe(true);
   });
 

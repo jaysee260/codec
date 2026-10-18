@@ -13,6 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { expect } from '@playwright/test';
+import { noteServerUse } from './run-log.ts';
 import { HS_URL, PASSWORD, SERVER_NAME } from './seed.ts';
 
 const V3 = `${HS_URL}/_matrix/client/v3`;
@@ -71,6 +72,7 @@ export async function freshUser(prefix = 'qae2ee'): Promise<Credentials> {
 
 /** Password login as any user (seeded or fresh): a new device every call. */
 export async function apiLogin(username: string, password = PASSWORD, deviceName = 'matrix-poc e2e (api)'): Promise<Credentials> {
+  noteServerUse();
   const { json } = await call<{ access_token: string; user_id: string; device_id: string }>('POST', '/login', undefined, {
     type: 'm.login.password',
     identifier: { type: 'm.id.user', user: username },

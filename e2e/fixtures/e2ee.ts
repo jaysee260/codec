@@ -24,6 +24,7 @@ import { devices, expect, test, type Browser, type BrowserContext, type Locator,
 import { DISPLAY_NAMES, PASSWORD, type UserKey } from './seed.ts';
 import { e2eeKeysFile, workerOrigin } from './pool.ts';
 import { SESSION_STORAGE_KEY } from './auth.ts';
+import { noteServerUse } from './run-log.ts';
 import { annotate } from './state.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -114,6 +115,7 @@ export async function traceLoadingStages(page: Page): Promise<LoginTrace> {
 
 /** Logs any account in through the real login form and waits for the desktop shell (generic `loginAs`). */
 export async function loginWith(page: Page, user: UserKey | Account): Promise<number> {
+  noteServerUse();
   const acct = accountOf(user);
   if (/^https?:/i.test(page.url())) {
     await page.evaluate((key) => window.localStorage.removeItem(key), SESSION_STORAGE_KEY).catch(() => undefined);

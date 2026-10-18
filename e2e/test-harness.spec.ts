@@ -3,8 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import viteConfig from '../vite.config.ts';
-import { freshVerdictFile, loadOrProbe, newestMainTimelineEvent, type FreshSeedReport } from './fixtures/fresh.ts';
+import { firstWriteAfter, freshVerdictFile, loadOrProbe, newestMainTimelineEvent, type FreshSeedReport } from './fixtures/fresh.ts';
 import type { MatrixEventJson } from './fixtures/matrix-api.ts';
+import { fileActiveAt, filesInLog } from './fixtures/run-log.ts';
 
 /**
  * Regression tests for the e2e harness itself (issue #2, docs/BUGS.md BUG-23..25). No browser, no homeserver.
@@ -96,6 +97,41 @@ test.describe('fresh-seed guard', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test('PERF-3 a fresh-seed skip names the spec file that dirtied the server', () => {
+    const log = [
+      { file: 'auth-media.spec.ts', t: 1_000 },
+      { file: 'conversation-messages.spec.ts', t: 2_000 },
+      { file: 'navigation.spec.ts', t: 5_000 },
+    ];
+    expect(fileActiveAt(log, 500)).toBeUndefined();
+    expect(fileActiveAt(log, 2_500)).toBe('conversation-messages.spec.ts');
+    expect(fileActiveAt(log, 9_000)).toBe('navigation.spec.ts');
+    expect(filesInLog([...log, { file: 'navigation.spec.ts', t: 6_000 }])).toEqual([
+      'auth-media.spec.ts',
+      'conversation-messages.spec.ts',
+      'navigation.spec.ts',
+    ]);
+
+    const at = (id: string, ts: number, sender = '@alice:localhost', body = id): MatrixEventJson => ({
+      ...ev(id, { msgtype: 'm.text', body }),
+      origin_server_ts: ts,
+      sender,
+    });
+    // /messages?dir=b: newest first. Two test posts after the seeded last message; the older one is the first write.
+    const chunk = [
+      at('$second', 3_000),
+      ev('$thread-reply', { msgtype: 'm.text', body: 'x', 'm.relates_to': { rel_type: 'm.thread', event_id: '$r' } }),
+      at('$first', 2_400, '@bob:localhost', '[qa] AC-B2-1 hello'),
+      at('$general.last', 100),
+    ];
+    const reason = firstWriteAfter(chunk, '$general.last', log);
+    expect(reason).toContain('@bob:localhost');
+    expect(reason).toContain('"[qa] AC-B2-1 hello"');
+    expect(reason).toContain('while conversation-messages.spec.ts was using this server');
+    expect(firstWriteAfter([at('$x', 2_400)], '$general.last', log)).toContain('(at least 50 events ago)');
+    expect(firstWriteAfter([at('$x', 10)], '$general.last', [])).toContain('while no logged spec file was using this server');
   });
 });
 

@@ -42,6 +42,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from '@playwright/test';
 import { asUser, type MatrixEventJson } from './matrix-api.ts';
+import { fileActiveAt, filesInLog, readRunLog, type RunLogEntry } from './run-log.ts';
 import { workerIndex } from './pool.ts';
 import { eventId, resolveRoom } from './seed.ts';
 
@@ -110,19 +111,38 @@ export async function loadOrProbe(
   return report;
 }
 
+/**
+ * Names who dirtied #general: the oldest main-timeline event after `lastSeededId` in `chunk` (newest first), its
+ * sender and time, and the spec file that was using this server then (run-log.ts). PERF-3: a fresh-seed skip must
+ * name the file that dirtied the server.
+ */
+export function firstWriteAfter(chunk: MatrixEventJson[], lastSeededId: string, log: RunLogEntry[]): string {
+  const cut = chunk.findIndex((e) => e.event_id === lastSeededId);
+  const newer = (cut === -1 ? chunk : chunk.slice(0, cut)).filter((e) => !isThreadReply(e));
+  const first = newer[newer.length - 1];
+  if (!first) return 'no newer main-timeline event found';
+  const body = typeof first.content?.body === 'string' ? ` "${(first.content.body as string).slice(0, 40)}"` : '';
+  const at = new Date(first.origin_server_ts).toISOString().slice(11, 19);
+  const file = fileActiveAt(log, first.origin_server_ts);
+  return `first written${cut === -1 ? ' (at least 50 events ago)' : ''} at ${at} by ${first.sender}${body} while ${file ?? 'no logged spec file'} was using this server`;
+}
+
 async function probeSeed(): Promise<FreshSeedReport> {
   const reasons: string[] = [];
   const alice = await asUser('alice');
   const general = await resolveRoom('general');
   const random = await resolveRoom('random');
 
+  const log = readRunLog();
+
   // 1. The newest event in #general is still the last seeded message (nothing was posted after it).
-  const newest = newestMainTimelineEvent(await alice.messages(general, 50));
+  const chunk = await alice.messages(general, 50);
+  const newest = newestMainTimelineEvent(chunk);
   const newestId = newest?.event_id;
   const expectedNewest = eventId('general.last');
   if (newestId !== expectedNewest) {
     reasons.push(
-      `#general has events after the seeded last message (newest is ${newestId ?? 'none'}, expected ${expectedNewest})`,
+      `#general has events after the seeded last message (newest is ${newestId ?? 'none'}, expected ${expectedNewest}); ${firstWriteAfter(chunk, expectedNewest, log)}`,
     );
   }
 
@@ -130,7 +150,7 @@ async function probeSeed(): Promise<FreshSeedReport> {
   const unread = await alice.unreadFor(random);
   if (unread.count !== RANDOM_UNREAD_ON_FRESH_SEED) {
     reasons.push(
-      `alice's unread in #random is ${unread.count}, expected ${RANDOM_UNREAD_ON_FRESH_SEED} (a receipt already moved past the seeded messages)`,
+      `alice's unread in #random is ${unread.count}, expected ${RANDOM_UNREAD_ON_FRESH_SEED} (a receipt already moved past the seeded messages; spec files that used this server before: ${filesInLog(log).join(', ') || 'none logged'})`,
     );
   }
 
