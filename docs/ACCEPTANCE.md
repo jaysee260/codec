@@ -112,7 +112,7 @@ Every criterion is testable by Playwright against the seed in `docs/SEED_DATA.md
 |---|---|
 | AC-A6-1 | Given Gaming selected, when I click `channel-add`, then `create-channel-dialog` opens with focus in `create-channel-name`. |
 | AC-A6-2 | When I enter `memes`, topic `Only the dankest`, and submit, then the dialog closes, `channel-list` contains `memes`, and it is selected with topic shown. |
-| AC-A6-3 | Given the new channel, when bob syncs (API: room hierarchy of Gaming), then `memes` is a child of Gaming, public, unencrypted. |
+| AC-A6-3 | Given the new channel, when bob syncs (API: room hierarchy of Gaming), then `memes` is a child of Gaming, public (join rule unchanged) and, since Phase 5, **encrypted by default** (`m.room.encryption` per docs/PHASE5_ACCEPTANCE.md AC-E6-1; "unencrypted" held through Phase 4). |
 | AC-A6-4 | When I submit an empty name, then `create-channel-submit` is disabled. |
 
 ### DEV-A-7 Invite user
