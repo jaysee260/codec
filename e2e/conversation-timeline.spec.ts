@@ -368,3 +368,49 @@ test.describe('DEV-B-7 typing indicator and read receipts', () => {
       .toBe(sentId);
   });
 });
+
+test.describe('BUG-28 the list stays pinned to the bottom when its box shrinks', () => {
+  /** Bottom edge of the newest rendered row relative to the list's bottom edge (<= 0 means fully visible). */
+  async function lastRowOverflow(page: Page): Promise<number> {
+    return messageList(page).evaluate((list) => {
+      const rows = list.querySelectorAll<HTMLElement>('[data-event-id]');
+      const last = rows[rows.length - 1];
+      if (!last) return Number.NaN;
+      return last.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom;
+    });
+  }
+
+  test('a 48 px element mounting above the list, then a shorter viewport, both keep the newest message in view', async ({ page }) => {
+    // #general is open at the bottom (beforeEach); make sure of it and read the list's height.
+    await scrollListToBottom(page);
+    expect(await atBottom(page, 8)).toBe(true);
+    const { client: before } = await scrollMetrics(page);
+    expect(await lastRowOverflow(page)).toBeLessThanOrEqual(0);
+
+    // The banner's situation: a block appears above the channel header and takes 48 px from the list.
+    await page.getByTestId('security-banner-host').evaluate((host) => {
+      const block = document.createElement('div');
+      block.setAttribute('data-testid', 'bug-28-probe');
+      block.style.height = '48px';
+      block.style.flex = '0 0 48px';
+      host.appendChild(block);
+    });
+    await expect.poll(async () => (await scrollMetrics(page)).client, { timeout: 5_000 }).toBeLessThan(before);
+    await expect.poll(() => atBottom(page, 8), { message: 'the list must re-pin after it shrank' }).toBe(true);
+    expect(await lastRowOverflow(page), 'the newest message must still be fully visible').toBeLessThanOrEqual(0);
+
+    // Same with a shorter viewport.
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: viewport.width, height: viewport.height - 100 });
+    await expect.poll(() => atBottom(page, 8), { message: 'the list must re-pin after a viewport resize' }).toBe(true);
+    expect(await lastRowOverflow(page)).toBeLessThanOrEqual(0);
+
+    // A reader who scrolled up is left alone: no re-pin on a size change while reading history.
+    await scrollListToTop(page);
+    await expect(page.getByTestId('scroll-to-bottom')).toBeVisible(); // the list knows it is not at the bottom
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(300);
+    expect(await atBottom(page, 8), 'a reader scrolled up must not be yanked to the bottom').toBe(false);
+    await expect(page.getByTestId('scroll-to-bottom')).toBeVisible();
+  });
+});
