@@ -36,4 +36,4 @@ The full desktop script (11 steps, three browser windows) is in docs/PHASE5_PLAN
 | `npm run test:e2e:e2ee` | `e2ee-core`, `e2ee-media`, `e2ee-security` specs (desktop, two browser contexts) |
 
 ## 6. Known limits
-No QR verification; no sessions list (sign out other sessions from Element); the key store is not encrypted at rest (same trust level as the access token in the browser); encrypted media needs a secure context (localhost, https, the APK), so `dev:lan` from a phone browser cannot show it; a session that logs out loses its keys by design; on-device search, push and URL preview cards remain future phases.
+Reactions in encrypted rooms are sent in the clear (the server sees who reacted with what; matrix-js-sdk and Element both do this); no QR verification; no sessions list (sign out other sessions from Element); the key store is not encrypted at rest (same trust level as the access token in the browser); encrypted media needs a secure context (localhost, https, the APK), so `dev:lan` from a phone browser cannot show it; a session that logs out loses its keys by design; on-device search, push and URL preview cards remain future phases.
