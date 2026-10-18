@@ -32,6 +32,9 @@ import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool
  * both regexes like `mobile-gif`. Both files are `mode: 'parallel'` (independent tests, unique fixture URLs).
  * `npm run test:e2e:link-preview` runs the pair.
  *
+ * Phase 7 (QA-34..37): `calls-core`, `call-dm`, `call-room` run in `desktop` with no entry (`npm run test:e2e:calls`);
+ * `mobile-call.spec.ts` is listed in both regexes like `mobile-gif`. All need the per-worker call stack (`requireRtc`).
+ *
  * Phase 5 (QA-24..28): `e2ee-core-*`, `e2ee-media`, `e2ee-security-*` and smoke step 13 need no entry either (desktop
  * only, not in `mobile`'s regex). They open a second browser context for the other device (separate IndexedDB =
  * separate crypto store), so they are slow (~10 min for the three): `npm run test:e2e:e2ee`.
@@ -93,13 +96,13 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview)\.spec\.ts$/,
+      testIgnore: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview|mobile-call)\.spec\.ts$/,
       outputDir: './e2e/results/desktop',
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile',
-      testMatch: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview)\.spec\.ts$/,
+      testMatch: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview|mobile-call)\.spec\.ts$/,
       outputDir: './e2e/results/mobile',
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },

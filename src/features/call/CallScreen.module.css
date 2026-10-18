@@ -1,0 +1,325 @@
+/*
+ * Call screen (DEV-B-37). Desktop: a full-height panel on the right (over the members / thread column, or in a
+ * column it reserves for itself in a DM). Phone: full screen with a bottom control bar (AC-R9-1).
+ */
+.screen {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-rail);
+  color: var(--text-normal);
+  min-height: 0;
+}
+
+.desktop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--call-panel-w);
+  z-index: 40;
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-elevation);
+  animation: slide-in 0.14s ease-out;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* A DM has no right column: shrink `main` so the panel never covers the conversation (AC-R6-1). */
+:global(:root) {
+  --call-panel-w: 280px;
+}
+:global(:root[data-call-panel='reserve'] [data-testid='app-shell'][data-layout='desktop'] > main) {
+  margin-right: var(--call-panel-w);
+}
+
+.phone {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+}
+
+/* --- header --------------------------------------------------------------- */
+.header {
+  height: var(--header-h);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.phone .header {
+  height: var(--phone-header-h);
+}
+
+.lock {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--success);
+}
+
+.room {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-heading);
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerButton {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+.headerButton:hover {
+  color: var(--text-normal);
+  background: var(--bg-hover);
+}
+.phone .headerButton {
+  width: var(--tap-target);
+  height: var(--tap-target);
+}
+
+/* --- status --------------------------------------------------------------- */
+.statusBlock {
+  flex: 0 0 auto;
+  padding: 24px 16px 8px;
+  text-align: center;
+}
+
+.status {
+  color: var(--text-muted);
+  font-size: var(--font-size-message);
+  font-weight: 600;
+}
+.warn {
+  color: var(--warning);
+}
+
+.timer {
+  margin-top: 4px;
+  color: var(--text-heading);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.audioBlocked {
+  align-self: center;
+  margin: 4px 16px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  min-height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.audioBlocked:hover {
+  background: var(--accent-hover);
+}
+
+/* --- tiles ---------------------------------------------------------------- */
+.tiles {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 20px 16px;
+  padding: 16px;
+}
+
+.tile {
+  width: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.phone .tile {
+  width: 128px;
+}
+
+.avatarWrap {
+  position: relative;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px transparent;
+  transition: box-shadow 0.12s ease-out;
+}
+.tile[data-speaking='true'] .avatarWrap {
+  box-shadow: 0 0 0 3px var(--success);
+}
+
+.avatar {
+  width: 80px;
+  height: 80px;
+  font-size: 28px;
+}
+.phone .avatar {
+  width: 96px;
+  height: 96px;
+  font-size: 32px;
+}
+
+.waiting {
+  opacity: 0.5;
+}
+
+.badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--text-on-accent);
+  border: 3px solid var(--bg-rail);
+}
+.badgePoor {
+  right: auto;
+  left: -2px;
+  background: var(--warning);
+  color: var(--bg-rail);
+}
+
+.tileName {
+  max-width: 100%;
+  color: var(--text-normal);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noKeys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+}
+
+/* --- controls ------------------------------------------------------------- */
+.controls {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+.phone .controls {
+  gap: 20px;
+  padding: 16px 16px calc(16px + var(--safe-bottom));
+}
+
+.control {
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-active);
+  color: var(--text-heading);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  transition: background 0.12s ease-out;
+}
+.control:hover {
+  background: var(--bg-hover);
+}
+.controlOn {
+  background: var(--text-heading);
+  color: var(--bg-rail);
+}
+.controlOn:hover {
+  background: var(--text-normal);
+}
+.leave {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+.leave:hover {
+  background: var(--danger-hover);
+}
+.callBack {
+  background: var(--success);
+  color: var(--text-on-accent);
+}
+.callBack:hover {
+  background: #1f8f4d;
+}
+
+/* Desktop panel is narrow: icons only, the label is the tooltip / aria-label. */
+.desktop .controlLabel {
+  display: none;
+}
+.desktop .callBack .controlLabel,
+.desktop [data-testid='call-close'] .controlLabel {
+  display: inline;
+}
+
+/* Phone: round 56 px buttons with the label underneath. */
+.phone .control {
+  flex-direction: column;
+  gap: 4px;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.phone .control svg {
+  box-sizing: content-box;
+  width: 24px;
+  height: 24px;
+  padding: 16px;
+  border-radius: 50%;
+  background: var(--bg-active);
+  color: var(--text-heading);
+}
+.phone .controlOn svg {
+  background: var(--text-heading);
+  color: var(--bg-rail);
+}
+.phone .leave svg {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+.phone .callBack svg {
+  background: var(--success);
+  color: var(--text-on-accent);
+}

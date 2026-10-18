@@ -9,12 +9,21 @@
  *   tap(style)               haptic impact ('light' default); resolves immediately on the web
  *   onAppStateChange(cb)     foreground/background callback (Capacitor `appStateChange`); returns unsubscribe
  *
+ * Phase 7 (PRIN-31, Android only; every one a no-op elsewhere, never throws):
+ *   startCallService(roomName)   foreground service (type microphone) + "Codec call" notification with Hang up; call it
+ *                                only while the app is visible (Android 12+ refuses background starts), before room.connect
+ *   stopCallService()            stops it (leave / ended)
+ *   setSpeakerphone(on)          AudioManager route: loudspeaker or earpiece; `overrideSpeakerphone(fn)` for QA stubs
+ *   onCallServiceHangup(cb)      the notification's Hang up action; returns unsubscribe
+ * Backed by android/app/src/main/java/com/acme/matrixpoc/{CallServicePlugin,CallForegroundService}.java (a custom
+ * ~100-line Capacitor plugin, no npm dependency).
+ *
  * The Keyboard plugin's `resize: 'native'` (capacitor.config.ts) already shrinks the WebView when the keyboard
  * shows, so `--keyboard-height` is informational (level meters, "scroll to bottom" nudges); nothing in the shell
  * depends on it. Mic permission needs nothing here: Capacitor's BridgeWebChromeClient answers the WebView's
  * AUDIO_CAPTURE request with the runtime RECORD_AUDIO prompt because AndroidManifest.xml declares it.
  */
-import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Keyboard } from '@capacitor/keyboard';
@@ -131,5 +140,87 @@ export function onAppStateChange(callback: (isActive: boolean) => void): () => v
   const handle = CapApp.addListener('appStateChange', (state) => callback(state.isActive));
   return () => {
     void handle.then((h) => h.remove());
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7: call foreground service + audio route (Android)
+// ---------------------------------------------------------------------------
+
+interface CallServicePlugin {
+  start(opts: { roomName: string }): Promise<{ notifications: boolean }>;
+  stop(): Promise<void>;
+  setSpeakerphone(opts: { on: boolean }): Promise<{ on: boolean }>;
+  addListener(event: 'hangup', cb: () => void): Promise<PluginListenerHandle>;
+}
+
+const CallService = registerPlugin<CallServicePlugin>('CallService');
+
+function callServiceAvailable(): boolean {
+  return isNativeApp() && platform() === 'android' && Capacitor.isPluginAvailable('CallService');
+}
+
+let serviceRunning = false;
+
+/** Start the foreground call service. Resolves `{ notifications }` (false when POST_NOTIFICATIONS was denied: the
+ * service still runs, the UI may warn "Calls may drop when the screen locks"). No-op on web / iOS -> `null`. */
+export async function startCallService(roomName: string): Promise<{ notifications: boolean } | null> {
+  if (!callServiceAvailable()) return null;
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return null; // never from the background
+  try {
+    const res = await CallService.start({ roomName });
+    serviceRunning = true;
+    return res;
+  } catch (e) {
+    console.warn('[native] call service start failed', e);
+    return null;
+  }
+}
+
+export async function stopCallService(): Promise<void> {
+  if (!callServiceAvailable() || !serviceRunning) return;
+  serviceRunning = false;
+  try {
+    await CallService.stop();
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isCallServiceRunning(): boolean {
+  return serviceRunning;
+}
+
+async function nativeSpeakerphone(on: boolean): Promise<void> {
+  if (!callServiceAvailable()) return;
+  try {
+    await CallService.setSpeakerphone({ on });
+  } catch (e) {
+    console.warn('[native] speakerphone failed', e);
+  }
+}
+
+let speakerphoneImpl: (on: boolean) => Promise<void> | void = nativeSpeakerphone;
+
+/** Loudspeaker (`true`) or earpiece (`false`). No-op on the web (there is no earpiece; `setSinkId` is the desktop path). */
+export async function setSpeakerphone(on: boolean): Promise<void> {
+  await speakerphoneImpl(on);
+}
+
+/** QA / devtools: replace the route switch (`__matrixPoc.call.rtc.setSpeakerphone = fn`); `null` restores the native one. */
+export function overrideSpeakerphone(fn: ((on: boolean) => Promise<void> | void) | null): void {
+  speakerphoneImpl = fn ?? nativeSpeakerphone;
+}
+
+export function currentSpeakerphoneImpl(): (on: boolean) => Promise<void> | void {
+  return speakerphoneImpl;
+}
+
+/** The notification's "Hang up" action. Returns an unsubscribe; no-op off Android. */
+export function onCallServiceHangup(callback: () => void): () => void {
+  if (!callServiceAvailable()) return () => undefined;
+  const handle = CallService.addListener('hangup', callback);
+  return () => {
+    void handle.then((h) => h.remove()).catch(() => undefined);
   };
 }

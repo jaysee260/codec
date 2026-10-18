@@ -1,0 +1,188 @@
+/*
+ * Incoming call card (DEV-B-36). Desktop: a dialog-style card over a dimmed page (Dialog.module.css look).
+ * Phone: the card fills the viewport, the buttons sit at the bottom above the safe area (AC-R5-6).
+ */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: var(--bg-overlay);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: fade 0.12s ease-out;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-modal);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-elevation);
+  padding: 32px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  animation: pop 0.14s ease-out;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  min-width: 0;
+}
+
+.ringPulse {
+  border-radius: 50%;
+  margin-bottom: 8px;
+  animation: ring-pulse 1.6s ease-out infinite;
+}
+
+@keyframes ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(35, 165, 89, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 18px rgba(35, 165, 89, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(35, 165, 89, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ringPulse {
+    animation: none;
+  }
+}
+
+.avatar {
+  width: 96px;
+  height: 96px;
+  font-size: 32px;
+}
+
+.name {
+  max-width: 100%;
+  color: var(--text-heading);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: var(--font-size-message);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room {
+  color: var(--text-normal);
+}
+
+.muted {
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-accent-soft);
+  color: var(--text-normal);
+  font-size: var(--font-size-xs);
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.action {
+  flex: 1;
+  min-height: var(--tap-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius-pill);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-message);
+  font-weight: 600;
+  transition: background 0.12s ease-out;
+}
+
+.accept {
+  background: var(--success);
+}
+.accept:hover {
+  background: #1f8f4d;
+}
+
+.decline {
+  background: var(--danger);
+}
+.decline:hover {
+  background: var(--danger-hover);
+}
+
+/* --- phone: full screen ----------------------------------------------------- */
+.phone {
+  padding: 0;
+  place-items: stretch;
+  background: var(--bg-rail);
+}
+
+.phone .card {
+  max-width: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  justify-content: space-between;
+  padding: calc(64px + var(--safe-top)) calc(24px + var(--safe-right)) calc(32px + var(--safe-bottom)) calc(24px + var(--safe-left));
+  animation: none;
+}
+
+.phone .avatar {
+  width: 128px;
+  height: 128px;
+  font-size: 44px;
+}
+
+.phone .name {
+  font-size: 28px;
+}
+
+.phone .actions {
+  gap: 24px;
+}
+
+.phone .action {
+  min-height: 56px;
+  font-size: 16px;
+}

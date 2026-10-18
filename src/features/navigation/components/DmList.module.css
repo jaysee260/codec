@@ -183,3 +183,16 @@
   color: var(--text-muted);
   opacity: 0.8;
 }
+
+/* DEV-A-34: name + red "Missed call" stacked inside the 42 px row (only while the last row is a missed call). */
+.nameStack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.nameLine {
+  line-height: 1.2;
+}

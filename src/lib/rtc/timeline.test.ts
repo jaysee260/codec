@@ -16,18 +16,55 @@ function ev(type: string, content: Record<string, unknown>, sender = '@alice:loc
 describe('timeline rows', () => {
   test('notification -> "started", decline -> "declined" / "busy", state events hidden', () => {
     const n = ev('org.matrix.msc4075.rtc.notification', { slot_id: 'm.call#ROOM' }, '@alice:localhost', '$n');
-    assert.deepEqual(describeCallEvent(n, { displayName: 'Alice', myUserId: '@bob:localhost' }), { kind: 'started', userId: '@alice:localhost', text: 'Alice started a call', notifyEventId: '$n' });
+    assert.deepEqual(describeCallEvent(n, { displayName: 'Alice', myUserId: '@bob:localhost' }), {
+      kind: 'started',
+      userId: '@alice:localhost',
+      text: 'Alice started a call',
+      notifyEventId: '$n',
+      callId: '$n',
+      missedByMe: false,
+      previewText: 'Voice call',
+    });
     assert.equal(describeCallEvent(n, { displayName: 'Alice', myUserId: '@alice:localhost' })!.text, 'You started a call');
     const d = ev('org.matrix.msc4310.rtc.decline', { 'm.relates_to': { rel_type: 'm.reference', event_id: '$n' } }, '@bob:localhost');
-    assert.deepEqual(describeCallEvent(d, { displayName: 'Bob' }), { kind: 'declined', userId: '@bob:localhost', text: 'Bob declined', notifyEventId: '$n' });
+    const dRow = describeCallEvent(d, { displayName: 'Bob' })!;
+    assert.equal(dRow.kind, 'declined');
+    assert.equal(dRow.text, 'Bob declined');
+    assert.equal(dRow.notifyEventId, '$n');
+    assert.equal(dRow.previewText, 'Call declined');
     const b = ev('org.matrix.msc4310.rtc.decline', { 'm.relates_to': { rel_type: 'm.reference', event_id: '$n' }, 'io.codec.decline_reason': 'busy' }, '@bob:localhost');
     assert.equal(describeCallEvent(b, { displayName: 'Bob' })!.kind, 'busy');
+    assert.equal(describeCallEvent(b, { displayName: 'Bob' })!.text, 'Bob declined (busy)');
     const member = ev('org.matrix.msc3401.call.member', {});
     assert.equal(describeCallEvent(member, { displayName: 'x' }), null);
     assert.equal(isCallEvent(member), true);
     assert.equal(isCallTimelineEvent(member), false);
     assert.equal(isCallTimelineEvent(n), true);
     assert.equal(isCallEvent(ev('m.room.message', {})), false);
+  });
+
+  test('dev.matrixpoc.call rows: ended / missed (viewer rung vs caller), malformed -> null', () => {
+    const names = (u: string): string => u.replace(/^@/, '').replace(/:.*$/, '');
+    const ended = ev('dev.matrixpoc.call', { kind: 'ended', call_id: '$n', duration_ms: 312_000 }, '@bob:localhost', '$e1');
+    const eRow = describeCallEvent(ended, { displayName: 'Bob', myUserId: '@alice:localhost', nameOf: names })!;
+    assert.equal(eRow.kind, 'ended');
+    assert.equal(eRow.text, 'Call ended, 5 min');
+    assert.equal(eRow.durationMs, 312_000);
+    assert.equal(eRow.callId, '$n');
+    assert.equal(eRow.previewText, 'Call ended');
+    assert.equal(isCallTimelineEvent(ended), true);
+    assert.equal(isCallEvent(ended), true);
+    const missed = ev('dev.matrixpoc.call', { kind: 'missed', call_id: '$n', participants: ['@alice:localhost'] }, '@bob:localhost', '$m1');
+    const forAlice = describeCallEvent(missed, { displayName: 'Bob', myUserId: '@alice:localhost', nameOf: names })!;
+    assert.equal(forAlice.text, 'Missed call from Bob');
+    assert.equal(forAlice.missedByMe, true);
+    assert.equal(forAlice.previewText, 'Missed call');
+    const forBob = describeCallEvent(missed, { displayName: 'Bob', myUserId: '@bob:localhost', nameOf: names })!;
+    assert.equal(forBob.text, 'No answer from alice');
+    assert.equal(forBob.missedByMe, false);
+    assert.equal(forBob.previewText, 'No answer');
+    assert.equal(describeCallEvent(ev('dev.matrixpoc.call', { kind: 'x', call_id: '$n' }), { displayName: 'x' }), null);
+    assert.equal(describeCallEvent(ev('dev.matrixpoc.call', { kind: 'ended', call_id: '$n', duration_ms: -1 }), { displayName: 'x' }), null);
   });
 
   test('formatCallDuration', () => {

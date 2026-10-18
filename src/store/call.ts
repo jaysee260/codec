@@ -14,13 +14,23 @@
  *   useCallAvailability(roomId)     CallAvailability               whether the Call button is enabled, and why not
  *   useCallHistory(roomId?)         CallHistoryEntry[]             timeline rows ("Call ended", "Missed call" + Call back)
  * Actions: startCall(roomId, { ring }), joinCall(roomId), acceptCall(roomId), declineCall(roomId), dismissIncoming(roomId),
- *          leaveCall(), toggleMute(), setMuted(b), setAudioOutput(id), resumeAudio(), clearError().
+ *          leaveCall(), toggleMute(), setMuted(b), setSpeaker('earpiece' | 'speaker'), setAudioOutput(id), resumeAudio(), clearError().
+ *
+ * Wave 2: `startCall` rings or drops in per `ringPolicy` (DMs and rooms with <= 5 other Codec members ring, bridge ghosts
+ * never count), `canCall` knows bridged rooms (`bridged-dm` / hint `codec-only`), the store sends the Codec chat lines
+ * (`dev.matrixpoc.call`: `missed` when our ring times out, `ended` when we are the last one out), plays the ringtone
+ * (+ vibration on phones) while `incoming` is non-empty, and runs the Android foreground service for the call's lifetime.
  */
 import { create } from 'zustand';
 import { useCallback, useSyncExternalStore } from 'react';
 import { RoomStateEvent, type MatrixClient, type MatrixEvent, type Room } from 'matrix-js-sdk';
 import { MatrixRTCSessionEvent, MatrixRTCSessionManagerEvents, type MatrixRTCSession } from 'matrix-js-sdk/lib/matrixrtc/index.js';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
+import { ringtone } from '@/lib/audio/ringtone.ts';
+import { isNativeApp, onCallServiceHangup, setSpeakerphone, startCallService, stopCallService } from '@/lib/native.ts';
+import { buildCallLineContent, CALL_LINE_TYPE, setCallTimelineResolver } from '@/lib/rtc/lines.ts';
+import { bridgeGhostOnly, hasBridgeGhost, ringPolicy as ringPolicyOf, ringTargets, type RingPolicy } from '@/lib/rtc/policy.ts';
+import { useRoomStore } from './rooms.ts';
 import { appendHistory, HISTORY_STORAGE_KEY, makeHistoryEntry, missedOutcome, outcomeOf, parseStoredHistory } from '@/lib/rtc/history.ts';
 import { canSendCallState, ensureCallPowerLevels } from '@/lib/rtc/permissions.ts';
 import { sendDecline, watchIncomingCalls, type RingStopReason, type RingWatcher } from '@/lib/rtc/ringing.ts';
@@ -55,6 +65,8 @@ export interface CallState {
   liveSessions: Record<string, LiveSession>;
   /** The last failure (start, accept, mute): the UI shows it and calls `clearError()`. */
   lastError: { code: CallErrorCode; message: string } | null;
+  /** Phone audio route (Android shim; informational on the web). Reset to `earpiece` for every call. */
+  speaker: 'earpiece' | 'speaker';
   /** Ring the room (DM Call button, WhatsApp-style room ring) or join a running call quietly (`joinCall`). */
   startCall(roomId: string, opts?: { ring?: boolean }): Promise<void>;
   joinCall(roomId: string): Promise<void>;
@@ -65,6 +77,8 @@ export interface CallState {
   leaveCall(): Promise<void>;
   toggleMute(): Promise<void>;
   setMuted(muted: boolean): Promise<void>;
+  /** Loudspeaker / earpiece (`call-speaker`); calls the native shim, no-op on the web. */
+  setSpeaker(mode: 'earpiece' | 'speaker'): Promise<void>;
   setAudioOutput(deviceId: string | null): Promise<void>;
   resumeAudio(): Promise<void>;
   clearError(): void;
@@ -107,12 +121,23 @@ function dmPeer(roomId: string): string | null {
   return room.getJoinedMembers().map((m) => m.userId).find((u) => u !== me) ?? null;
 }
 
+/** 'ring' for DMs and small rooms, 'drop-in' above `CALL_RING_MAX_MEMBERS` other Codec members (AC-R3-2). */
+export function ringPolicy(roomId: string): RingPolicy {
+  const client = getClientOrNull();
+  const room = client?.getRoom(roomId);
+  if (!client || !room) return 'ring';
+  return ringPolicyOf(room, client.getUserId() ?? '', { isDm: !!useRoomStore.getState().roomsById[roomId]?.isDm });
+}
+
 /** Why a call cannot be started in `roomId` right now (pure over the SDK room; no network). */
 export function canCall(roomId: string): CallAvailability {
   const client = getClientOrNull();
   const room = client?.getRoom(roomId);
   if (!client || !room) return { ok: false, reason: 'unknown', message: 'Unknown room' };
+  if (room.getMyMembership() !== 'join') return { ok: false, reason: 'not-allowed', message: 'Join the room to call' };
   if (!room.hasEncryptionStateEvent()) return { ok: false, reason: 'unencrypted', message: 'Calls need an encrypted room' };
+  const me = client.getUserId() ?? '';
+  if (bridgeGhostOnly(room, me)) return { ok: false, reason: 'bridged-dm', message: 'Calls do not reach Signal contacts' };
   if (!client.getCrypto()) return { ok: false, reason: 'crypto-unavailable', message: 'Encryption is not available in this session' };
   if (!mediaEncryptionSupported()) return { ok: false, reason: 'media-unsupported', message: 'This browser cannot encrypt call audio' };
   const userId = client.getUserId() ?? '';
@@ -120,7 +145,28 @@ export function canCall(roomId: string): CallAvailability {
   if (!canSendCallState(room, userId) && !admin) return { ok: false, reason: 'not-allowed', message: "You can't start calls in this room (ask an admin)" };
   const active = useCallStore.getState().activeCall;
   if (active && active.state !== 'ended' && active.roomId !== roomId) return { ok: false, reason: 'busy', message: 'You are already in a call' };
-  return { ok: true };
+  return hasBridgeGhost(room, me) ? { ok: true, hint: 'codec-only' } : { ok: true };
+}
+
+/** Best effort: the `dev.matrixpoc.call` line (encrypted like a message); a failure is logged, never shown. */
+function sendCallLine(roomId: string, content: Record<string, unknown>): void {
+  const client = getClientOrNull();
+  if (!client) return;
+  client.sendEvent(roomId, CALL_LINE_TYPE as never, content as never).catch((e: unknown) => console.warn('[call] could not send call line', e));
+}
+
+/** The lines this device owes when its call ends: `missed` (our ring timed out), `ended` (we were the last one out). */
+function sendEndLines(snapshot: CallSessionSnapshot): void {
+  if (!snapshot.callId) return;
+  if (snapshot.endReason === 'no-answer' && snapshot.rang.length > 0) {
+    sendCallLine(snapshot.roomId, buildCallLineContent({ kind: 'missed', callId: snapshot.callId, participants: snapshot.rang }));
+  } else if (snapshot.lastToLeave && snapshot.connectedAt !== null && (snapshot.endReason === 'hangup' || snapshot.endReason === 'remote-hangup' || snapshot.endReason === 'error')) {
+    sendCallLine(snapshot.roomId, buildCallLineContent({ kind: 'ended', callId: snapshot.callId, durationMs: Date.now() - snapshot.connectedAt }));
+  }
+}
+
+function roomNameOf(roomId: string): string {
+  return useRoomStore.getState().roomsById[roomId]?.name ?? getClientOrNull()?.getRoom(roomId)?.name ?? '';
 }
 
 export const useCallStore = create<CallState>((set, get) => {
@@ -141,7 +187,7 @@ export const useCallStore = create<CallState>((set, get) => {
     set({ history });
   }
 
-  async function begin(roomId: string, opts: { ring: boolean; dir: 'outgoing' | 'incoming'; from?: string }): Promise<void> {
+  async function begin(roomId: string, opts: { ring: boolean; dir: 'outgoing' | 'incoming'; from?: string; callId?: string }): Promise<void> {
     const client = getClientOrNull();
     const room = client?.getRoom(roomId);
     if (!client || !room) throw new CallError('unknown', 'Unknown room');
@@ -153,23 +199,31 @@ export const useCallStore = create<CallState>((set, get) => {
     direction = opts.dir;
     incomingFrom = opts.from ?? null;
     let peers: string[] = [];
+    const me = client.getUserId() ?? '';
     const next = new CallSession({
       client,
       room,
       ring: opts.ring,
+      ringTargets: ringTargets(room, me),
+      callId: opts.callId,
       onChange: (snapshot) => {
         if (session !== next) return;
         if (snapshot.state !== 'ended') peers = next.peerUserIds().length ? next.peerUserIds() : peers;
         set({ activeCall: snapshot });
         if (snapshot.state === 'ended') {
           session = null;
+          void stopCallService();
+          sendEndLines(snapshot);
           recordHistory(snapshot, peers);
           if (snapshot.error) set({ lastError: snapshot.error });
         }
       },
     });
     session = next;
-    set({ activeCall: next.snapshot(), lastError: null });
+    set({ activeCall: next.snapshot(), lastError: null, speaker: 'earpiece' });
+    // Android: the foreground service (mic type) must be running before the mic is held and the screen may lock;
+    // only started while the app is visible (`startCallService` checks), i.e. from the Accept / Join / Call tap.
+    await startCallService(roomNameOf(roomId));
     try {
       await next.start();
     } catch (e) {
@@ -177,6 +231,7 @@ export const useCallStore = create<CallState>((set, get) => {
       // an ended call: `lastError` carries it, `activeCall` goes back to null (history was recorded by onChange if
       // the session had gone far enough to ring anyone).
       if (session === next) session = null;
+      void stopCallService();
       set({ activeCall: null, lastError: toError(e) });
       throw e;
     }
@@ -188,9 +243,10 @@ export const useCallStore = create<CallState>((set, get) => {
     history: loadHistory(),
     liveSessions: {},
     lastError: null,
+    speaker: 'earpiece',
 
     async startCall(roomId, opts = {}) {
-      await begin(roomId, { ring: opts.ring ?? true, dir: 'outgoing' });
+      await begin(roomId, { ring: opts.ring ?? ringPolicy(roomId) === 'ring', dir: 'outgoing' });
     },
     async joinCall(roomId) {
       await begin(roomId, { ring: false, dir: 'outgoing' });
@@ -198,7 +254,7 @@ export const useCallStore = create<CallState>((set, get) => {
     async acceptCall(roomId) {
       const call = get().incoming.find((c) => c.roomId === roomId);
       ringWatcher?.stop(roomId, 'accepted');
-      await begin(roomId, { ring: false, dir: 'incoming', from: call?.from });
+      await begin(roomId, { ring: false, dir: 'incoming', from: call?.from, callId: call?.notifyEventId });
     },
     async declineCall(roomId) {
       const call = get().incoming.find((c) => c.roomId === roomId);
@@ -219,6 +275,14 @@ export const useCallStore = create<CallState>((set, get) => {
     async setMuted(muted) {
       try {
         await session?.setMuted(muted);
+      } catch (e) {
+        set({ lastError: toError(e) });
+      }
+    },
+    async setSpeaker(mode) {
+      set({ speaker: mode });
+      try {
+        await setSpeakerphone(mode === 'speaker');
       } catch (e) {
         set({ lastError: toError(e) });
       }
@@ -246,6 +310,16 @@ export const useCallStore = create<CallState>((set, get) => {
 let ringWatcher: RingWatcher | null = null;
 let bound: { client: MatrixClient; dispose: () => void } | null = null;
 
+/** Ringtone (+ vibration on phones) follows `incoming`: starts with the first ring, stops when none is left. */
+function syncRingtone(count: number): void {
+  if (count > 0) {
+    void ringtone.play();
+    if (isNativeApp() || (typeof navigator !== 'undefined' && 'vibrate' in navigator && /Android|iPhone/i.test(navigator.userAgent))) ringtone.vibrate(true);
+  } else {
+    ringtone.stop();
+  }
+}
+
 function summarise(roomId: string, rtc: MatrixRTCSession): LiveSession | null {
   const memberships = rtc.memberships.filter((m) => !m.isExpired());
   if (memberships.length === 0) return null;
@@ -266,6 +340,11 @@ function updateLiveSession(roomId: string, rtc: MatrixRTCSession): void {
 
 export function bindCalls(client: MatrixClient): void {
   unbindCalls();
+  setCallTimelineResolver((roomId) => client.getRoom(roomId)?.getLiveTimeline().getEvents());
+  const unsubRingtone = useCallStore.subscribe((s, prev) => {
+    if (s.incoming.length !== prev.incoming.length) syncRingtone(s.incoming.length);
+  });
+  const unsubHangup = onCallServiceHangup(() => void useCallStore.getState().leaveCall());
   const tracked = new Map<string, { rtc: MatrixRTCSession; onChange: () => void }>();
   const track = (room: Room): void => {
     if (tracked.has(room.roomId)) return;
@@ -334,6 +413,10 @@ export function bindCalls(client: MatrixClient): void {
       client.off(RoomStateEvent.Events, onRoomState);
       for (const { rtc, onChange } of tracked.values()) rtc.off(MatrixRTCSessionEvent.MembershipsChanged, onChange);
       tracked.clear();
+      unsubRingtone();
+      unsubHangup();
+      ringtone.stop();
+      setCallTimelineResolver(null);
     },
   };
 }
@@ -355,7 +438,9 @@ export function resetCalls(): void {
   } catch {
     /* ignore */
   }
-  useCallStore.setState({ activeCall: null, incoming: [], history: [], liveSessions: {}, lastError: null });
+  ringtone.stop();
+  void stopCallService();
+  useCallStore.setState({ activeCall: null, incoming: [], history: [], liveSessions: {}, lastError: null, speaker: 'earpiece' });
 }
 
 /** Receiver stats of the active call (tests / devtools): bytes per remote participant prove encrypted media flows. */
@@ -379,6 +464,7 @@ export const useActiveCall = (): ActiveCall | null => useCallStore((s) => s.acti
 export const useIncomingCalls = (): IncomingCall[] => useCallStore((s) => s.incoming);
 export const useIncomingCall = (): IncomingCall | null => useCallStore((s) => s.incoming[0] ?? null);
 export const useCallError = (): CallState['lastError'] => useCallStore((s) => s.lastError);
+export const useCallSpeaker = (): CallState['speaker'] => useCallStore((s) => s.speaker);
 
 export function useRoomCallSummary(roomId: string | null | undefined): RoomCallSummary {
   const live = useCallStore((s) => (roomId ? s.liveSessions[roomId] : undefined));

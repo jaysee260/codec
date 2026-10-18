@@ -59,7 +59,8 @@ const E2EE = [
 const VOICE = ['e2e/voice.spec.ts', 'e2e/voice-compat.spec.ts', 'e2e/ogg-remux.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts'];
 const THREADS = ['e2e/threads.spec.ts', 'e2e/mobile-threads.spec.ts', 'e2e/e2ee-core-timeline.spec.ts'];
 const LINK_PREVIEW = ['e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts'];
-const CALLS = ['e2e/calls-core.spec.ts'];
+// QA-35..37 add call-room.spec.ts / mobile-call.spec.ts here as they land (the unit test refuses names that do not exist yet).
+const CALLS = ['e2e/calls-core.spec.ts', 'e2e/call-dm.spec.ts', 'e2e/call-room.spec.ts', 'e2e/mobile-call.spec.ts'];
 const GIF = ['e2e/gif.spec.ts', 'e2e/mobile-gif.spec.ts'];
 const CONVERSATION = [
   'e2e/conversation-compose.spec.ts',

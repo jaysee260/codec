@@ -18,17 +18,47 @@ Ownership: Principal `src/lib/rtc/`, `src/store/call.ts`, `scripts/rtc.mjs`, `sc
 chips; Dev B call button, incoming card, in-call screen, timeline rows.
 
 ### What is where (the differences from docs/PHASE7_TICKETS.md "Shared API" first)
-- **No `dev.matrixpoc.call` chat-line event in Wave 1.** The core sends only what the protocol needs: the SDK's
-  membership state, Codec's ring (`org.matrix.msc4075.rtc.notification`) and the decline
-  (`org.matrix.msc4310.rtc.decline`, per the orchestrator's Wave 19 instruction; the ticket text says otherwise, see
-  "Open points"). Timeline rows come from those two events (`describeCallEvent`); "Call ended, 12 min" and missed calls
-  exist today only in the **local** call history (`useCallHistory`). If the PM contract stands, `lines.ts` is a Wave 2
-  addition on top of this, not a change to it.
-- `canCall(roomId)` returns `{ ok: true } | { ok: false, reason: CallErrorCode, message }` (not `{ allowed }`); reasons
-  used: `unencrypted`, `crypto-unavailable`, `media-unsupported`, `not-allowed`, `busy`. No bridge detection yet (P1).
-- Ring policy: `startCall(roomId, { ring })`; the store rings DMs and rooms with <= 5 joined members by default,
-  `ring: false` is a drop-in join (same as `joinCall`). The ring goes to every joined member except self.
-- The dev hook is `window.__matrixPoc.calls` (plus `__matrixPoc.rtc` = the barrel), not `__matrixPoc.call`.
+- **Chat lines (Wave 2, orchestrator ruling).** Four rows, two protocol events plus one Codec event, rendered the same on
+  every device by `describeCallEvent` (the local history `useCallHistory` is a cache only):
+  - `started` = the Codec-built ring `org.matrix.msc4075.rtc.notification`; for a drop-in call that rang nobody, the
+    `org.matrix.msc3401.call.member` state event that opened the session (`isCallOpeningMembership`: nobody else held a
+    live membership, no ring references it).
+  - `declined` = MSC4310 `org.matrix.msc4310.rtc.decline` (`io.codec.decline_reason: "busy"` for the auto-decline).
+  - `ended` / `missed` = **`dev.matrixpoc.call`** `{ kind: 'ended' | 'missed', call_id, duration_ms?, participants? }`,
+    encrypted like a message. `missed` is sent by the caller when its 60 s ring ends with nobody joined and nobody
+    declined (`participants` = who was rung); `ended` by the last participant to leave, best effort (nobody else holds a
+    live membership after our leave; `duration_ms` = our connected time). `call_id` = the ring event id, else the
+    opening membership event id. `getCallLine` also accepts `kind: 'started' | 'declined'` and `missed: [...]` as an
+    alias of `participants` (the PM contract), Codec never sends those.
+  - `previewText` (room list) = "Missed call" for a `missed` line naming me, else "No answer" / "Call ended" /
+    "Call declined" / "Voice call"; `isDisplayableEvent` keeps the four row events in the main timeline (never a
+    thread root / reply).
+- `canCall(roomId)` returns `{ ok: true, hint?: 'codec-only' } | { ok: false, reason: CallErrorCode, message }` (not
+  `{ allowed }`); reasons: `unencrypted`, `bridged-dm` (PRIN-33), `crypto-unavailable`, `media-unsupported`,
+  `not-allowed`, `busy`. Bridge detection (`policy.ts`): `m.bridge` / `uk.half-shot.bridge` state gives the ghost
+  prefix `@<protocol.id>_` (plus `@signal_` always) and the `bridgebot`; a room whose other joined members are all
+  ghosts / bots is `bridged-dm`; a room with a ghost and a Codec member is allowed with `hint: 'codec-only'`.
+- Ring policy: `ringPolicy(roomId)` = `'ring'` for DMs and rooms with <= `CALL_RING_MAX_MEMBERS` (5) other joined
+  Codec members, `'drop-in'` above (ghosts neither counted nor rung); `startCall(roomId, { ring? })` defaults to it.
+- The dev hook is `window.__matrixPoc.call` (the acceptance name; `__matrixPoc.calls` stays as the Wave 1 alias and
+  `__matrixPoc.rtc` is the barrel): the store itself (`getState()`, `subscribe`) plus `canCall`, `ringPolicy`,
+  `getCallLine`, `describeCallEvent`, `CALL_RING_MAX_MEMBERS`, `startCall / accept / decline / join / leave /
+  toggleMute / setSpeaker`, `state()`, `rtc` (`isMicrophoneEnabled()`, `isE2EEEnabled()`, **assignable**
+  `setSpeakerphone` for QA stubs, `room`), `ringtone` (`canPlay()`, `lastPlayedAt`), `native`.
+- Shell (PRIN-32): `call-host` (`display: contents`, outside the desktop grid, both layouts) mounts Dev B's `CallHost`
+  from `@/features/call` once (= error toast + `CallScreen` + `IncomingCallCard`; `InCallBar` is placed by
+  `Conversation`); `app-shell[data-in-call="true"]` while `activeCall` exists and is not `ended`. Android back: call
+  components register with `registerBackHandler` while open (newest first, so card / screen beat the GIF sheet) ->
+  thread -> drawers.
+- Ringtone (`src/lib/audio/ringtone.ts`): WebAudio-synthesised ring (no asset), autoplay-gated (`canPlay()` after
+  the first pointer / key event), `play()` never throws, `lastPlayedAt`, `vibrate(on)`; the store starts it with
+  the first `incoming` and stops it when the list empties.
+- Android (PRIN-31): a custom Capacitor plugin `CallService` (Java, `android/app/src/main/java/com/acme/matrixpoc/
+  {CallServicePlugin,CallForegroundService}.java`, no npm dependency) behind `src/lib/native.ts`
+  `startCallService(roomName)` / `stopCallService()` / `setSpeakerphone(on)` / `onCallServiceHangup(cb)` (no-ops off
+  Android). The store starts the service in `begin()` before the session starts (so before the mic is held and
+  `room.connect`), only while the document is visible, and stops it when the snapshot ends or the start fails;
+  the notification's Hang up = `leaveCall()`. See docs/MOBILE.md "7. Voice calls".
 
 ### Store (`src/store/call.ts`, re-exported from `@/store`)
 
@@ -39,14 +69,16 @@ useCallStore: {
   history: CallHistoryEntry[]           // newest first, max 200, localStorage 'matrix-poc.callHistory' (cleared on logout)
   liveSessions: Record<roomId, { userIds: string[]; deviceCount: number }>   // every room with a live call (for chips)
   lastError: { code: CallErrorCode; message: string } | null
+  speaker: 'earpiece' | 'speaker'       // phone audio route (Wave 2); reset per call
   startCall(roomId, { ring? }), joinCall(roomId), acceptCall(roomId), declineCall(roomId), dismissIncoming(roomId),
-  leaveCall(), toggleMute(), setMuted(bool), setAudioOutput(deviceId | null), resumeAudio(), clearError()
+  leaveCall(), toggleMute(), setMuted(bool), setSpeaker(mode), setAudioOutput(deviceId | null), resumeAudio(), clearError()
 }
 canCall(roomId): CallAvailability                          // pure over the SDK room; call before showing the button
+ringPolicy(roomId): 'ring' | 'drop-in'                     // Wave 2: what startCall does by default
 enableCallsInRoom(roomId): Promise<boolean>                // admin: grants the call power levels in a public-preset room
 activeCallStats(): Promise<{ identity, bytesReceived, packetsReceived, decrypting }[]>   // per remote participant
 // hooks
-useActiveCall(), useIncomingCall() /* first */, useIncomingCalls(), useCallError(), useCallAvailability(roomId),
+useActiveCall(), useIncomingCall() /* first */, useIncomingCalls(), useCallError(), useCallSpeaker(), useCallAvailability(roomId),
 useRoomCallSummary(roomId): { live, userIds, deviceCount, joined, ringing }, useCallHistory(roomId?)
 
 interface CallSessionSnapshot {           // ActiveCall
@@ -56,11 +88,12 @@ interface CallSessionSnapshot {           // ActiveCall
   muted; audioOutput: string | null; startedAt; connectedAt: number | null; ringing;
   endReason: 'hangup' | 'remote-hangup' | 'declined' | 'no-answer' | 'busy' | 'answered-elsewhere' | 'error' | null;
   error: { code, message } | null; encrypted: true; audioBlocked: boolean   // audioBlocked: call resumeAudio() from a click
+  callId: string | null; lastToLeave: boolean; rang: string[]              // Wave 2: what the store's end lines are built from
 }
 interface IncomingCall { roomId; notifyEventId; from; slotId; expiresAt; receivedAt }
 interface CallHistoryEntry { id; roomId; direction: 'outgoing' | 'incoming'; outcome: 'completed' | 'missed' | 'declined' |
   'busy' | 'no-answer' | 'failed' | 'cancelled'; peerUserId: string | null; startedAt; endedAt; durationMs }
-type CallErrorCode = 'unencrypted' | 'crypto-unavailable' | 'not-allowed' | 'no-focus' | 'token' | 'mic-denied' |
+type CallErrorCode = 'unencrypted' | 'bridged-dm' | 'crypto-unavailable' | 'not-allowed' | 'no-focus' | 'token' | 'mic-denied' |
   'mic-missing' | 'mic-busy' | 'media-unsupported' | 'connect' | 'busy' | 'membership' | 'unknown'
 ```
 
@@ -74,9 +107,15 @@ Two devices of one user: the one that accepts wins; the other's `incoming` entry
 ### Pure helpers (`src/lib/rtc/index.ts`, import from `@/lib/rtc`)
 
 ```ts
-describeCallEvent(event, { displayName, myUserId? }): { kind: 'started' | 'declined' | 'busy', userId, text, notifyEventId } | null
-isCallTimelineEvent(event) /* ring + decline: render as a grey row */, isCallEvent(event) /* also membership: never a message row */
-formatCallDuration(ms)   // '45 s' | '12 min' | '1 h 05 min'
+describeCallEvent(event, { displayName, myUserId?, nameOf? }): { kind: 'started' | 'declined' | 'busy' | 'ended' | 'missed', userId, text,
+  notifyEventId, callId, durationMs?, participants?, missedByMe, previewText } | null   // null = not a row (malformed line, other membership state)
+  // text: "X started a call", "X declined" / "X declined (busy)", "Call ended, 12 min" ("< 1 min"), "Missed call from X" (missedByMe) / "No answer from Y and Z"
+isCallTimelineEvent(event) /* ring, decline, dev.matrixpoc.call, opening membership: a grey row */, isCallEvent(event) /* any call type: never a message row */
+// lines.ts (Wave 2): CALL_LINE_TYPE, getCallLine(event): CallLine | null, formatCallLine(line, viewerId, nameOf), callLinePreviewText(line, viewerId),
+//   formatCallLineDuration(ms), isMissedForViewer(line, viewerId), buildCallLineContent(...), isCallOpeningMembership(event, timeline)
+// policy.ts (Wave 2): CALL_RING_MAX_MEMBERS, ringPolicyFor(room, me, { isDm }), ringTargets, isBridgedRoom, isBridgeGhost, bridgeGhostPrefixes,
+//   bridgeGhostOnly, hasBridgeGhost, splitMembers   (pure over a Room-like object; the store wraps them as ringPolicy(roomId) / canCall)
+formatCallDuration(ms)   // '45 s' | '12 min' | '1 h 05 min' (history entries; the chat line uses formatCallLineDuration)
 CALL_NOTIFICATION_TYPE = 'org.matrix.msc4075.rtc.notification', CALL_DECLINE_TYPE = 'org.matrix.msc4310.rtc.decline',
 CALL_MEMBER_TYPE = 'org.matrix.msc3401.call.member', CALL_POWER_LEVELS, RING_TIMEOUT_MS = 60_000, CALL_KEYS_TIMEOUT_MS = 5_000
 setFocusOverride(url | null)   // localStorage 'matrix-poc.rtcFocusUrl' (or VITE_RTC_FOCUS_URL); QA / homelab pointing
@@ -101,6 +140,10 @@ setFocusOverride(url | null)   // localStorage 'matrix-poc.rtcFocusUrl' (or VITE
 - **Decline**: `org.matrix.msc4310.rtc.decline` `{ 'm.relates_to': { rel_type: 'm.reference', event_id: <ring> },
   msc4354_sticky_key: <ring>, 'io.codec.decline_reason'?: 'busy' }`, sticky when the server supports it, plain
   `sendEvent` otherwise (Synapse 1.163: plain). Only the caller's DM ends on it (room calls keep ringing others).
+- **Lines**: `dev.matrixpoc.call` as above ("What is where"); sent from the store's `onChange` when the snapshot
+  reaches `ended` (`sendEndLines`): `missed` on `endReason: 'no-answer'` with `rang` non-empty, `ended` when
+  `lastToLeave` (computed in the session's teardown from the memberships left after ours) and the call had
+  `connectedAt`. A failed send is logged, never shown. QA reads them via the API (`kind`, `duration_ms` +/- 2 s).
 - **Media keys**: the SDK's `ToDeviceKeyTransport` sends `io.element.call.encryption_keys` as Olm to-device messages to
   every device of every member, **verified or not** (no trust check on that path); `EncryptionKeyChanged(key, index,
   membership)` -> `MatrixKeyProvider.setParticipantKey(key, 'user:device', index)` (HKDF-imported, per-participant,
@@ -144,7 +187,8 @@ stack is the phone path. `npm run rtc:probe` proves the chain without a browser 
 
 ### Tests
 `npm run test:unit` covers `livekit-token`, `focus`, `participants`, `ringing` (wire shape + receive rules + expiry caps),
-`timeline` / `history` / `permissions` / `token`. `npm run test:e2e:calls` (= `e2e/calls-core.spec.ts`, desktop): two
+`timeline` / `history` / `permissions` / `token`, and (Wave 2) `lines` (the `dev.matrixpoc.call` parser, row texts per
+viewer, preview text, the opening-membership rule) and `policy` (ring rule, ghost prefixes, bridged DM vs group). `npm run test:e2e:calls` (= `e2e/calls-core.spec.ts`, desktop): two
 contexts in `dm-alice-dave`, ring -> incoming -> accept -> both `connected` with keys and **bytes received** from each
 other (E2EE decryptor attached) -> mute visible remotely -> hang-up -> `remote-hangup` + history; decline; refused in
 `dm-alice-bob`; and the "No call keys" case (dave's `PUT /sendToDevice/m.room.encrypted/*` swallowed with

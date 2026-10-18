@@ -25,3 +25,31 @@ export { sendDecline, watchIncomingCalls, evaluateRing, parseRingContent, ringEx
 export { CALL_KEYS_TIMEOUT_MS, DELAYED_LEAVE_MS } from './constants.ts';
 export { mediaEncryptionSupported } from './e2ee-worker.ts';
 export { outcomeOf, makeHistoryEntry, appendHistory } from './history.ts';
+// Wave 2: the Codec chat-line event, the ring / bridge policy helpers.
+export {
+  CALL_LINE_TYPE,
+  getCallLine,
+  formatCallLine,
+  formatCallLineDuration,
+  callLinePreviewText,
+  isMissedForViewer,
+  buildCallLineContent,
+  isCallOpeningMembership,
+  setCallTimelineResolver,
+  type CallLine,
+  type CallLineKind,
+} from './lines.ts';
+export {
+  CALL_RING_MAX_MEMBERS,
+  BRIDGE_STATE_TYPES,
+  DEFAULT_GHOST_PREFIXES,
+  ringPolicy as ringPolicyFor,
+  ringTargets,
+  isBridgedRoom,
+  isBridgeGhost,
+  bridgeGhostPrefixes,
+  bridgeGhostOnly,
+  hasBridgeGhost,
+  splitMembers,
+  type RingPolicy,
+} from './policy.ts';

@@ -19,11 +19,19 @@
  * layer covering the conversation **below the channel header** (Dev A turns the header into back + "Thread");
  * the covered conversation stays mounted (scroll kept) and is `inert` + `aria-hidden`; drawers still work on top.
  * `app-shell[data-thread-open]` mirrors the state. Android back closes the thread first, then drawers.
+ *
+ * Calls (Phase 7, PRIN-32): `call-host` mounts Dev B's call UI once per page on both layouts (`CallHost` from
+ * `@/features/call` = error toast + `CallScreen` + `IncomingCallCard`; `InCallBar` is mounted by `Conversation`); the
+ * host is `display: contents` and sits outside the desktop grid, so the components position themselves
+ * (`position: fixed` panel / full-screen card; the screen reserves room in a DM via `html[data-call-panel]`). `app-shell[data-in-call]` is "true" while `activeCall` exists (any state but
+ * `ended`). Android back order: call components register with `registerBackHandler` while open (newest first, so the
+ * card / screen beat the GIF sheet), then the thread, then the drawers (App.tsx).
  */
 import { lazy, Suspense, useEffect, useRef, type ComponentType, type TouchEvent } from 'react';
 import { useRoomStore } from '@/store/rooms.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useThreadStore } from '@/store/threads.ts';
+import { useCallStore } from '@/store/call.ts';
 import { SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel } from '@/features/navigation';
 import { Conversation, ThreadView } from '@/features/conversation';
 import { UserFooter } from './UserFooter.tsx';
@@ -63,6 +71,45 @@ function SecurityDialogsHost() {
       </Suspense>
     </div>
   );
+}
+
+/**
+ * Phase 7: Dev B's call UI (`@/features/call`), resolved through a glob like the security module so the shell builds
+ * before it exists. `CallHost` (all three in one) wins; otherwise the three components are mounted individually.
+ */
+type CallModule = { CallHost?: ComponentType; IncomingCallCard?: ComponentType; CallScreen?: ComponentType; InCallBar?: ComponentType };
+const callModules = import.meta.glob<CallModule>('../features/call/index.ts');
+const loadCall = Object.values(callModules)[0];
+const CallUi = loadCall
+  ? lazy(async () => {
+      const m = await loadCall();
+      if (m.CallHost) return { default: m.CallHost };
+      // `InCallBar` is placed by `Conversation` itself (above the composer / under the phone header), never here.
+      const Card = m.IncomingCallCard ?? Nothing;
+      const Screen = m.CallScreen ?? Nothing;
+      const Both: ComponentType = () => (
+        <>
+          <Card />
+          <Screen />
+        </>
+      );
+      return { default: Both };
+    })
+  : Nothing;
+
+function CallHostMount() {
+  return (
+    <div className={styles.securityHost} data-testid="call-host">
+      <Suspense fallback={null}>
+        <CallUi />
+      </Suspense>
+    </div>
+  );
+}
+
+/** "true" while a call is active on this device (`activeCall` in any state but `ended`). */
+function useInCall(): boolean {
+  return useCallStore((s) => !!s.activeCall && s.activeCall.state !== 'ended');
 }
 
 /** Touches starting within this many px of a screen edge may open a drawer. */
@@ -124,9 +171,10 @@ function MainColumn({ roomId }: { roomId: string | null }) {
 
 function DesktopShell({ roomId }: { roomId: string | null }) {
   const threadRootId = useOpenThreadFor(roomId);
+  const inCall = useInCall();
   return (
     <>
-      <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'}>
+      <div className={styles.shell} data-testid="app-shell" data-layout="desktop" data-thread-open={threadRootId ? 'true' : 'false'} data-in-call={inCall ? 'true' : 'false'}>
         <Navigation />
         <main className={styles.main}>
           <MainColumn roomId={roomId} />
@@ -143,6 +191,7 @@ function DesktopShell({ roomId }: { roomId: string | null }) {
         )}
       </div>
       <SecurityDialogsHost />
+      <CallHostMount />
     </>
   );
 }
@@ -158,6 +207,7 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
   const membersOpen = useLayoutStore((s) => s.membersOpen);
   const isDm = useRoomStore((s) => (roomId ? !!s.roomsById[roomId]?.isDm : false));
   const threadRootId = useOpenThreadFor(roomId);
+  const inCall = useInCall();
   const anyOpen = navOpen || membersOpen;
   const touch = useRef<TouchStart | null>(null);
   const conversationRef = useRef<HTMLDivElement | null>(null);
@@ -211,6 +261,7 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
       data-testid="app-shell"
       data-layout="phone"
       data-thread-open={threadRootId ? 'true' : 'false'}
+      data-in-call={inCall ? 'true' : 'false'}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -251,6 +302,7 @@ function PhoneShell({ roomId }: { roomId: string | null }) {
         {roomId && <MemberPanel roomId={roomId} />}
       </Drawer>
       <SecurityDialogsHost />
+      <CallHostMount />
     </div>
   );
 }

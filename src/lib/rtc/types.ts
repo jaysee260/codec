@@ -15,6 +15,7 @@ export type CallErrorCode =
   | 'media-unsupported' // no WebRTC / no insertable streams (E2EE) in this browser
   | 'connect' // LiveKit connect failed (network, bad token)
   | 'busy' // another call is active and a second one was requested
+  | 'bridged-dm' // the only other member is a bridge ghost (Signal): nobody could answer (PRIN-33)
   | 'membership' // the MatrixRTC membership manager gave up (delayed events, state events)
   | 'unknown';
 
@@ -98,5 +99,5 @@ export interface CallHistoryEntry {
   durationMs: number;
 }
 
-/** What `canCall(roomId)` answers. */
-export type CallAvailability = { ok: true } | { ok: false; reason: CallErrorCode; message: string };
+/** What `canCall(roomId)` answers. `hint: 'codec-only'` = a bridged group: the call reaches Codec members only. */
+export type CallAvailability = { ok: true; hint?: 'codec-only' } | { ok: false; reason: CallErrorCode; message: string };

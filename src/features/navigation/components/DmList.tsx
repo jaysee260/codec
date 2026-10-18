@@ -6,6 +6,8 @@
  *
  * testids: dm-list, dm-item-{roomId} (+data-encrypted, Phase 5), dm-unread-{roomId}, dm-new
  * DEV-A-27: encrypted rooms carry a small muted lock after the name.
+ * DEV-A-34 (Phase 7): `room-call-indicator[data-count]` before the unread badge while a call is live in the room;
+ * `data-preview="missed-call"` + a red "Missed call" line under the name while the last row is a missed call for me.
  */
 import { useState } from 'react';
 import { Lock, Search } from 'lucide-react';
@@ -15,6 +17,8 @@ import { hapticTap } from '@/lib/native.ts';
 import { withToast } from '@/store/toast.ts';
 import { colorFor, initialsOf } from '@/lib/format.ts';
 import { badgeText, useUnread } from '../hooks/useUnread.ts';
+import { useLiveCallCount, useMissedCallPreview } from '../hooks/useRoomCall.ts';
+import { MissedCallPreview, RoomCallIndicator } from './RoomCallIndicator.tsx';
 import { NewDmDialog } from './NewDmDialog.tsx';
 import { SidebarSection } from './SidebarSection.tsx';
 import styles from './DmList.module.css';
@@ -77,12 +81,15 @@ function DmItem({ room, testIdPrefix = 'dm-item' }: { room: RoomSummary; testIdP
   const selected = room.roomId === selectedRoomId;
   const bold = unread > 0 && !selected;
   const seed = room.dmUserId ?? room.roomId;
+  const callCount = useLiveCallCount(room.roomId);
+  const missed = useMissedCallPreview(room.roomId);
 
   return (
     <button
       type="button"
       className={`${styles.item} ${selected ? styles.itemSelected : ''} ${bold ? styles.itemUnread : ''}`}
       data-testid={`${testIdPrefix}-${room.roomId}`}
+      data-preview={missed ? 'missed-call' : undefined}
       data-name={room.name}
       data-selected={selected ? 'true' : 'false'}
       data-encrypted={room.encrypted ? 'true' : 'false'}
@@ -96,8 +103,16 @@ function DmItem({ room, testIdPrefix = 'dm-item' }: { room: RoomSummary; testIdP
       <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(seed) }}>
         {room.avatarUrl ? <img src={room.avatarUrl} alt="" /> : initialsOf(room.name)}
       </span>
-      <span className={`${styles.name} u-truncate`}>{room.name}</span>
+      {missed ? (
+        <span className={styles.nameStack}>
+          <span className={`${styles.nameLine} u-truncate`}>{room.name}</span>
+          <MissedCallPreview block />
+        </span>
+      ) : (
+        <span className={`${styles.name} u-truncate`}>{room.name}</span>
+      )}
       {room.encrypted && <Lock className={styles.lock} size={12} aria-hidden="true" />}
+      {callCount > 0 && <RoomCallIndicator count={callCount} />}
       {unread > 0 && (
         <span className={styles.badge} data-testid={`dm-unread-${room.roomId}`} data-count={unread}>
           {badgeText(unread)}

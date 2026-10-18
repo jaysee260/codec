@@ -1,0 +1,35 @@
+/* Same look as the header's Threads / Members buttons (ChannelHeader.module.css). */
+.button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: color 0.12s ease-out;
+}
+.button:hover {
+  color: var(--text-normal);
+  background: var(--bg-hover);
+}
+.button[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.button[aria-disabled='true']:hover {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.hint {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+:root[data-layout='phone'] .button {
+  width: var(--tap-target);
+  height: var(--tap-target);
+}

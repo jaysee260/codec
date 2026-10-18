@@ -1,0 +1,66 @@
+/* Call lines (DEV-B-38): grey, centred, quiet, like the day divider's label. */
+.row {
+  margin: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-height: 24px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.text {
+  font-weight: 600;
+}
+
+.time {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  opacity: 0.8;
+}
+
+.missed {
+  color: var(--danger);
+}
+.missed .time {
+  color: var(--text-muted);
+}
+
+.callBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--success);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.callBack:hover {
+  background: #1f8f4d;
+}
+:root[data-layout='phone'] .callBack {
+  min-height: var(--tap-target);
+}
+
+.flash {
+  animation: call-flash 2.6s ease-out;
+}
+@keyframes call-flash {
+  0%,
+  55% {
+    background: var(--bg-accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}

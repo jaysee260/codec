@@ -5,11 +5,16 @@
  *
  * testids: channel-list, channel-item-{roomId} (+data-encrypted, Phase 5), channel-unread-{roomId}, channel-add
  * DEV-A-27: encrypted rooms carry a small muted lock after the name (no text, so innerText stays `#name`).
+ * DEV-A-34 (Phase 7): `room-call-indicator[data-count]` (speaker + count) before the unread badge while a call is live
+ * in the channel; `data-preview="missed-call"` + a red "Missed call" after the name while the last row is a missed
+ * call for me (only then: innerText stays `#name` otherwise).
  */
 import { Lock } from 'lucide-react';
 import { useRoomStore, type RoomSummary } from '@/store/rooms.ts';
 import { hapticTap } from '@/lib/native.ts';
 import { badgeText, useUnread } from '../hooks/useUnread.ts';
+import { useLiveCallCount, useMissedCallPreview } from '../hooks/useRoomCall.ts';
+import { MissedCallPreview, RoomCallIndicator } from './RoomCallIndicator.tsx';
 import { SidebarSection } from './SidebarSection.tsx';
 import styles from './ChannelList.module.css';
 
@@ -40,12 +45,15 @@ function ChannelItem({ channel }: { channel: RoomSummary }) {
   const unread = useUnread(channel.roomId);
   const selected = channel.roomId === selectedRoomId;
   const bold = unread > 0 && !selected;
+  const callCount = useLiveCallCount(channel.roomId);
+  const missed = useMissedCallPreview(channel.roomId);
 
   return (
     <button
       type="button"
       className={`${styles.item} ${selected ? styles.itemSelected : ''} ${bold ? styles.itemUnread : ''}`}
       data-testid={`channel-item-${channel.roomId}`}
+      data-preview={missed ? 'missed-call' : undefined}
       data-name={channel.name}
       data-selected={selected ? 'true' : 'false'}
       data-encrypted={channel.encrypted ? 'true' : 'false'}
@@ -66,6 +74,8 @@ function ChannelItem({ channel }: { channel: RoomSummary }) {
         {channel.name}
       </span>
       {channel.encrypted && <Lock className={styles.lock} size={12} aria-hidden="true" />}
+      {missed && <MissedCallPreview />}
+      {callCount > 0 && <RoomCallIndicator count={callCount} />}
       {unread > 0 && (
         <span className={styles.badge} data-testid={`channel-unread-${channel.roomId}`} data-count={unread}>
           {badgeText(unread)}

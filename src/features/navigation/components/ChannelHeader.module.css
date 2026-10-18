@@ -240,3 +240,69 @@
     background: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * DEV-A-33 "Join voice (n)" chip. The button is the hit area, the pill inside is what you see, so on phone the
+ * button can be a 44 px tap target (AC-R8-3) while the pill stays 32 px. It never shrinks below its text width on
+ * desktop; on phone it may (text truncates) after the room name has given up its space.
+ * ------------------------------------------------------------------------- */
+.joinCall {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  max-width: 50%;
+}
+.joinCall:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.joinPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 0;
+  padding: 0 12px 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--success);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: filter 0.12s ease-out;
+}
+.joinCall:hover .joinPill {
+  filter: brightness(1.08);
+}
+.joinCall:focus-visible {
+  outline: none;
+}
+.joinCall:focus-visible .joinPill {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+}
+
+:root[data-layout='phone'] .joinCall {
+  position: relative;
+  z-index: 25; /* same band as the other header controls, see `.menu` above */
+  height: var(--tap-target);
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+}
+:root[data-layout='phone'] .joinPill {
+  height: 32px;
+  padding: 0 10px 0 8px;
+}
+:root[data-layout='phone'] .joinCall:active .joinPill {
+  filter: brightness(0.92);
+}
+
+@media (hover: none) {
+  .joinCall:hover .joinPill {
+    filter: none;
+  }
+}

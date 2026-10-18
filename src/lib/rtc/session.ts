@@ -61,6 +61,12 @@ export interface CallSessionSnapshot {
   encrypted: true;
   /** The browser blocked audio playback until a user gesture; call `resumeAudio()` from a click. */
   audioBlocked: boolean;
+  /** The call's id for `dev.matrixpoc.call` lines: the ring event we sent / answered, else our membership event. */
+  callId: string | null;
+  /** Set once `ended`: we were the last participant of a call that had connected others (the store sends `ended`). */
+  lastToLeave: boolean;
+  /** Who we rang (for the `missed` line); empty when we did not ring. */
+  rang: string[];
 }
 
 export interface CallSessionOptions {
@@ -70,6 +76,8 @@ export interface CallSessionOptions {
   ring: boolean;
   /** Who the ring mentions; default: every joined member of the room but us. */
   ringTargets?: string[];
+  /** The ring event id when we are answering one (its `call_id`); otherwise derived from what we send. */
+  callId?: string;
   onChange: (snapshot: CallSessionSnapshot) => void;
   ringTimeoutMs?: number;
   /** Test hook: skip the getUserMedia preflight (the e2e run uses a fake device, so the default is fine). */
@@ -116,6 +124,10 @@ export class CallSession {
   private notifyEventId: string | null = null;
   private ringSent = false;
   private sawOthers = false;
+  private givenCallId: string | null;
+  private ownMembershipEventId: string | null = null;
+  private lastToLeave = false;
+  private rang: string[] = [];
 
   private rtcSession: MatrixRTCSession | null = null;
   private lkRoom: LivekitRoom | null = null;
@@ -138,6 +150,7 @@ export class CallSession {
     this.ringTargets = opts.ringTargets ?? null;
     this.ringTimeoutMs = opts.ringTimeoutMs ?? RING_TIMEOUT_MS;
     this.skipMicPreflight = opts.skipMicPreflight ?? false;
+    this.givenCallId = opts.callId ?? null;
     const userId = opts.client.getUserId();
     const deviceId = opts.client.getDeviceId();
     if (!userId || !deviceId) throw new CallError('unknown', 'No user / device id for this session');
@@ -163,6 +176,9 @@ export class CallSession {
       error: this.error,
       encrypted: true,
       audioBlocked: this.audioBlocked,
+      callId: this.givenCallId ?? this.notifyEventId ?? this.ownMembershipEventId,
+      lastToLeave: this.lastToLeave,
+      rang: this.rang,
     };
   }
 
@@ -432,11 +448,13 @@ export class CallSession {
     this.ringSent = true;
     const targets = this.ringUserIds();
     if (targets.length === 0) return;
+    this.rang = targets;
     const content = buildRingContent({ membershipEventId, userIds: targets, lifetimeMs: this.ringTimeoutMs, now: Date.now() });
     this.client
       .sendEvent(this.roomId, CALL_NOTIFICATION_TYPE as never, content as never)
       .then((res) => {
         this.notifyEventId = res.event_id;
+        this.publishChange();
       })
       .catch((e: unknown) => {
         this.error = { code: 'not-allowed', message: `Could not ring: ${(e as Error)?.message ?? e}` };
@@ -450,6 +468,7 @@ export class CallSession {
     const memberships = session.memberships.filter((m) => !m.isExpired());
     const others = memberships.filter((m) => !(m.userId === this.userId && m.deviceId === this.deviceId));
     const own = memberships.find((m) => m.userId === this.userId && m.deviceId === this.deviceId);
+    if (own && !this.ownMembershipEventId) this.ownMembershipEventId = own.eventId;
     if (this.ringing && own && !this.ringSent) this.sendRing(own.eventId);
     void answeredElsewhere; // a device of ours joining a room call we rang is fine: both stay
     if (others.length > 0) {
@@ -590,6 +609,9 @@ export class CallSession {
     }
     const session = this.rtcSession;
     this.rtcSession = null;
+    // "ended" is sent by the last one out: nobody else holds a live membership once we leave, and the call had connected.
+    const othersLeft = (session?.memberships ?? []).filter((m) => !m.isExpired() && !(m.userId === this.userId && m.deviceId === this.deviceId)).length;
+    this.lastToLeave = othersLeft === 0 && this.sawOthers && this.connectedAt !== null;
     if (session?.isJoined()) {
       try {
         await session.leaveRoomSession(LEAVE_TIMEOUT_MS);

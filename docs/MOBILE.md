@@ -183,3 +183,37 @@ request timeout so `/sync?timeout=30000` long-polls pass through, `Host` rewritt
 else untouched (Synapse already answers CORS). It does not terminate TLS, cache, or rewrite URLs; Synapse's
 `public_baseurl` stays `http://localhost:8008/` (only affects `.well-known`, which is off). Env:
 `LAN_PROXY_PORT` (8009), `LAN_PROXY_HOST`, `HS_TARGET` (`127.0.0.1:8008`), `APP_PORT` (5173, printed only).
+
+## 7. Voice calls on Android (Phase 7, PRIN-31)
+
+A call must survive the screen locking and the app going to the background, which Android only allows for a
+**foreground service** holding the microphone. Codec ships its own small Capacitor plugin instead of an npm one
+(`android/app/src/main/java/com/acme/matrixpoc/CallServicePlugin.java` + `CallForegroundService.java`, Java so
+no Kotlin Gradle plugin is needed; registered in `MainActivity.onCreate` before `super.onCreate`).
+
+| Piece | What it does |
+|---|---|
+| `CallForegroundService` | `startForeground(..., FOREGROUND_SERVICE_TYPE_MICROPHONE)` with a low-importance "Codec call" notification (channel `codec_call`, ongoing, category call) carrying a **Hang up** action, plus a partial wake lock (4 h cap). `ACTION_STOP` / `stopService` ends it and removes the notification. |
+| `CallServicePlugin` (`CallService` in JS) | `start({ roomName })`: on Android 13+ requests `POST_NOTIFICATIONS` first (a denial still starts the service, the notification is just not shown: AC-R9-5), then `startForegroundService`. `stop()`. `setSpeakerphone({ on })`: `AudioManager.MODE_IN_COMMUNICATION` + `setCommunicationDevice` (API 31+, built-in speaker vs earpiece) or `setSpeakerphoneOn` below. The Hang up action reopens `MainActivity` with `ACTION_HANGUP`, which forwards it as the plugin's `hangup` event. |
+| `src/lib/native.ts` | `startCallService(roomName)` (no-op unless Android **and** `document.visibilityState === 'visible'`: Android 12+ refuses background starts), `stopCallService()`, `setSpeakerphone(on)`, `onCallServiceHangup(cb)`; all no-ops on web / iOS. |
+| `src/store/call.ts` | `begin()` (Call / Accept / Join taps) starts the service before the session takes the mic and connects; the `ended` snapshot and a failed start stop it; `hangup` -> `leaveCall()`; `setSpeaker('speaker' | 'earpiece')` -> the shim. |
+
+Manifest (`AndroidManifest.xml`, AC-R9-3): `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MICROPHONE`, `WAKE_LOCK`,
+`POST_NOTIFICATIONS`, `BLUETOOTH_CONNECT` and `<service android:name=".CallForegroundService"
+android:foregroundServiceType="microphone" android:exported="false" />`. `RECORD_AUDIO` / `MODIFY_AUDIO_SETTINGS`
+were already there for voice notes.
+
+### Lock-screen test (AC-R9-4, manual, real phone)
+1. Build and install the APK (section 3), log in, open the alice/bob DM; have the other side on a laptop.
+2. Receive a call and tap Accept (or tap the phone icon yourself): the "Codec call" notification appears at once
+   (Android 13+: the notification permission prompt first; deny it once to check the call still runs).
+3. Lock the screen for 2 minutes, then switch to another app for 2 minutes: audio keeps flowing both ways, the
+   timer on the laptop keeps counting.
+4. Pull the shade and tap **Hang up**: the app comes to the front, the call ends on both sides and the notification
+   is gone within 2 s; "Call ended, 4 min" shows in the DM.
+5. `adb shell dumpsys activity services com.acme.matrixpoc` shows no `CallForegroundService` after the call.
+6. Speaker: the `call-speaker` button toggles between earpiece and loudspeaker without a glitch; a Bluetooth headset
+   connected before the call is used automatically (`BLUETOOTH_CONNECT`).
+
+`npm run test:android-build` checks the manifest permissions and service once the SDK is installed (section 2); on a
+machine without `~/android-sdk` / `ANDROID_HOME` it skips with a reason.

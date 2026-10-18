@@ -27,6 +27,12 @@
 
         </activity>
 
+        <!-- Phase 7 (PRIN-31): keeps the mic + WebView alive while a call runs with the screen locked. -->
+        <service
+            android:name=".CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -45,4 +51,11 @@
          request (getUserMedia) only after the runtime RECORD_AUDIO prompt, and only if both are declared here. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Voice calls (Phase 7, AC-R9-3): foreground service of type microphone while a call is active, its
+         persistent notification (Android 13+ runtime prompt), a partial wake lock, and Bluetooth headset routing. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 </manifest>

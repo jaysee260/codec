@@ -409,9 +409,15 @@ Plan: docs/PHASE7_PLAN.md · Criteria/testids + manual 704.chat checklist: docs/
 ## Wave 20 - Dev A (navigation)
 | Ticket | P | Status | Owner | Notes |
 |---|---|---|---|---|
-| DEV-A-33 Header: mount `CallButton`, `header-join-call` chip, phone fit | P0 | todo | Dev A | |
-| DEV-A-34 Sidebar `room-call-indicator`, missed-call red preview | P0 | todo | Dev A | |
-| DEV-A-35 Chip tooltip, aria, keyboard | P2 | todo | Dev A | Not scheduled before the demo |
+| DEV-A-33 Header: mount `CallButton`, `header-join-call` chip, phone fit | P0 | done (pending Dev B's module) | Dev A | `ChannelHeader.tsx` imports `CallButton` from `@/features/call` (typecheck fails until DEV-B-35 lands it); chip from `useRoomCallSummary`, `data-count` = users, click `joinCall`, 44 px tap target on phone |
+| DEV-A-34 Sidebar `room-call-indicator`, missed-call red preview | P0 | done | Dev A | `RoomCallIndicator.tsx`, `hooks/useRoomCall.ts`, `callPreview.ts` (+ unit test); rows only get preview text while missed (no general previews in rows) |
+| DEV-A-35 Chip tooltip, aria, keyboard | P2 | done | Dev A | Chip `title` "In voice: names", indicator `aria-label` "n in voice", chip focus ring; DOM order = tab order (call button, chip, threads, members) |
+
+### Requests to Principal (Phase 7)
+| From | Request | Fallback in place |
+|---|---|---|
+| Dev A | (resolved) `getCallLine` / `isMissedForViewer` landed in `src/lib/rtc/lines.ts`; `callPreview.ts` imports them directly (relative, so the unit test loads) | - |
+| Dev A | `isDisplayableEvent` / `isMainTimelineEvent` accept the three call line types, so "last row" agrees with the timeline | `callPreview.ts` treats ring / decline / `dev.matrixpoc.call` as rows itself |
 
 ## Wave 20 - Dev B (`src/features/call/**` + conversation)
 | Ticket | P | Status | Owner | Notes |
@@ -447,3 +453,4 @@ Plan: docs/PHASE7_PLAN.md · Criteria/testids + manual 704.chat checklist: docs/
 | 21 | PM | Shared API per docs/PHASE7_TICKETS.md (`src/lib/rtc/**`, `useCallStore` + hooks, `getCallLine` / `previewText`, ringtone, `native.ts` call service, Shell `call-host`, `__matrixPoc.call`) | todo |
 | 22 | PM | Local call stack wired into `hs.mjs` / `hs-pool.mjs`, Synapse flags, well-known `rtc_foci`, `rtc:*` script lines; pool snapshot rebuild by the orchestrator | done in the working tree (probe behaviour and `E2E_NO_RTC` messages per AC-R1-3/4 still to check) |
 | 23 | PM | Store shapes (`activeCall`, `incoming`, `liveByRoom`) frozen by Wave 19 day 3, with a mock state setter on `__matrixPoc.call` so Dev B can build the screens before the core connects | todo |
+| 24 | QA | Ring timeout override for the e2e 60 s cases: `__matrixPoc.call.setRingTimeoutMs(ms)` (or `__matrixPoc.calls.…`) that the store passes to new `CallSession`s (`ringTimeoutMs`: ring `lifetime`, no-answer timer, `missed` send) and to `watchIncomingCalls` (incoming expiry cap); dev builds only, reset on reload. `e2e/fixtures/call.ts` `ringTimeoutOverride()` already calls it when present | todo (fallback: the missed-call test in `call-dm.spec.ts` runs the real 60 s, annotated `real-time`) |
