@@ -3,6 +3,10 @@
   top: -14px;
   right: 16px;
   display: flex;
+  /* Six buttons (Seen by appended) fit any message column, the thread panel's included; if a column were ever
+     narrower than the toolbar it wraps instead of overflowing the row (Advisor consult 2, AC-R4-1). */
+  flex-wrap: wrap;
+  max-width: calc(100% - 32px);
   align-items: center;
   background: var(--bg-modal);
   border: 1px solid var(--border-strong);

@@ -21,6 +21,7 @@ import {
   MatrixEvent,
   MsgType,
   Preset,
+  ReceiptType,
   RelationType,
   Visibility,
   type Room,
@@ -28,6 +29,7 @@ import {
   type Thread,
 } from 'matrix-js-sdk';
 import type { RoomMessageEventContent } from 'matrix-js-sdk/lib/@types/events.js';
+import { getSendReadReceipts } from './receipts.ts';
 import { getClient, getClientOrNull } from './client.ts';
 import { serverNameOf } from './config.ts';
 import { encryptAttachment, type EncryptedFile } from './attachments.ts';
@@ -488,9 +490,13 @@ export interface ReceiptOptions {
 }
 
 /**
- * Send an `m.read` receipt for an event (usually the last one in the timeline). Clears unread counts.
+ * Send a read receipt for an event (usually the last one in the timeline). Clears unread counts.
  * Phase 3: the receipt carries `thread_id` ('main' or the thread root), so a receipt on a thread reply clears
  * that thread's unread count and a receipt on the main timeline no longer touches threads.
+ * Read receipts: the type follows the "Send read receipts" setting (`getSendReadReceipts`): `m.read` when ON,
+ * `m.read.private` when OFF. Both clear my unread counts (Synapse and the SDK's `clearNotificationsOnReceipt`
+ * treat them alike, and the SDK adds the local-echo receipt for either type); only `m.read` is shown to others.
+ * The thread id is derived from the event by the SDK for both types. Every receipt send goes through here.
  */
 export async function sendReadReceipt(roomId: string, event: MatrixEvent | string, opts: ReceiptOptions = {}): Promise<void> {
   const client = getClient();
@@ -501,7 +507,7 @@ export async function sendReadReceipt(roomId: string, event: MatrixEvent | strin
     if (ev && opts.threadId && opts.threadId !== 'main' && !getThreadRelation(ev)) ev.setThreadId(opts.threadId);
   }
   if (!ev || !ev.getId() || ev.getId()!.startsWith('~')) return; // skip local echoes
-  await client.sendReadReceipt(ev);
+  await client.sendReadReceipt(ev, getSendReadReceipts(client) ? ReceiptType.Read : ReceiptType.ReadPrivate);
 }
 
 /** Newest event with a server id and sent status, scanning backwards. */

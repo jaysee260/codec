@@ -4,6 +4,7 @@ import { useSecurityStore } from '@/store/security.ts';
 import { mxcToHttp } from '@/lib/matrix/mxc.ts';
 import { colorFor, initialsOf } from '@/lib/format.ts';
 import { localpartOf } from '@/lib/matrix/config.ts';
+import { ReadReceiptsToggle } from '@/features/receipts';
 import styles from './UserFooter.module.css';
 
 /**
@@ -11,6 +12,8 @@ import styles from './UserFooter.module.css';
  * Phase 5: `data-verified` mirrors `useSecurityStore.status.verified` (`unknown` until the first status snapshot and
  * while the account has no cross-signing identity, AC-E4-1);
  * a verified session shows "Verified" with a shield under the name instead of the user id.
+ * Read receipts (DEV-A-R4): the "Send read receipts" switch (`settings-send-read-receipts`) sits right above the
+ * pill, in the desktop sidebar and the phone nav drawer alike.
  */
 export function UserFooter() {
   const userId = useSessionStore((s) => s.userId) ?? '';
@@ -25,30 +28,33 @@ export function UserFooter() {
   const reconnecting = syncState === 'ERROR' || syncState === 'RECONNECTING';
 
   return (
-    <div className={styles.footer}>
-      <div className={styles.user} data-testid="current-user" data-verified={verified === null ? 'unknown' : String(verified)} title={userId}>
-        <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(userId) }}>
-          {avatar ? <img src={avatar} alt="" /> : initialsOf(displayName)}
-          <span className={`${styles.status} ${reconnecting ? styles.statusOff : ''}`} aria-hidden="true" />
-        </span>
-        <span className={styles.names}>
-          <span className={`${styles.name} u-truncate`}>{displayName}</span>
-          <span className={`${styles.sub} u-truncate`}>
-            {reconnecting ? (
-              'Reconnecting...'
-            ) : verified ? (
-              <span className={styles.verified} data-testid="current-user-verified">
-                <ShieldCheck size={12} aria-hidden="true" /> Verified
-              </span>
-            ) : (
-              userId
-            )}
+    <>
+      <ReadReceiptsToggle />
+      <div className={styles.footer}>
+        <div className={styles.user} data-testid="current-user" data-verified={verified === null ? 'unknown' : String(verified)} title={userId}>
+          <span className={`u-avatar ${styles.avatar}`} style={{ background: colorFor(userId) }}>
+            {avatar ? <img src={avatar} alt="" /> : initialsOf(displayName)}
+            <span className={`${styles.status} ${reconnecting ? styles.statusOff : ''}`} aria-hidden="true" />
           </span>
-        </span>
+          <span className={styles.names}>
+            <span className={`${styles.name} u-truncate`}>{displayName}</span>
+            <span className={`${styles.sub} u-truncate`}>
+              {reconnecting ? (
+                'Reconnecting...'
+              ) : verified ? (
+                <span className={styles.verified} data-testid="current-user-verified">
+                  <ShieldCheck size={12} aria-hidden="true" /> Verified
+                </span>
+              ) : (
+                userId
+              )}
+            </span>
+          </span>
+        </div>
+        <button className={styles.logout} data-testid="logout-button" title="Log out" onClick={() => void logout()}>
+          <LogOut size={18} />
+        </button>
       </div>
-      <button className={styles.logout} data-testid="logout-button" title="Log out" onClick={() => void logout()}>
-        <LogOut size={18} />
-      </button>
-    </div>
+    </>
   );
 }

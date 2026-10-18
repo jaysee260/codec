@@ -61,6 +61,7 @@ const VOICE = ['e2e/voice.spec.ts', 'e2e/voice-compat.spec.ts', 'e2e/ogg-remux.s
 const THREADS = ['e2e/threads.spec.ts', 'e2e/mobile-threads.spec.ts', 'e2e/e2ee-core-timeline.spec.ts'];
 const LINK_PREVIEW = ['e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts'];
 const GIF = ['e2e/gif.spec.ts', 'e2e/mobile-gif.spec.ts'];
+const RECEIPTS = ['e2e/receipts.spec.ts', 'e2e/mobile-receipts.spec.ts'];
 const CONVERSATION = [
   'e2e/conversation-compose.spec.ts',
   'e2e/conversation-messages.spec.ts',
@@ -79,6 +80,10 @@ export const AREAS = [
   { name: 'voice', match: /^src\/lib\/audio\/|^src\/features\/conversation\/(components\/Voice|hooks\/useVoiceRecorder)/, specs: VOICE },
   { name: 'link-preview', match: /^src\/(features\/link-preview|lib\/preview)\/|^src\/features\/conversation\/components\/LinkPreviews/, specs: LINK_PREVIEW },
   { name: 'gif', match: /^src\/(features|lib)\/gif\/|^src\/features\/conversation\/components\/Gif/, specs: GIF },
+  // Read receipts: the feature folder and its store slice run the receipt specs; the SDK-bound core also sends
+  // every receipt (unread badges), so it runs CORE as well instead of walking up through actions.ts.
+  { name: 'receipts', match: /^src\/(features\/receipts\/|store\/receipts\.ts$)/, specs: RECEIPTS },
+  { name: 'receipts-core', match: /^src\/lib\/matrix\/receipts(-core)?\.ts$/, specs: [...RECEIPTS, 'e2e/shell.spec.ts', 'e2e/e2ee-core-boot.spec.ts'] },
   { name: 'threads', match: /^src\/features\/(conversation\/components\/Thread|navigation\/components\/ThreadList)/, specs: THREADS },
   { name: 'conversation', match: /^src\/features\/conversation\//, specs: CONVERSATION },
   { name: 'navigation', match: /^src\/features\/navigation\//, specs: ['e2e/navigation.spec.ts', 'e2e/mobile-nav.spec.ts', 'e2e/e2ee-core-boot.spec.ts'] },

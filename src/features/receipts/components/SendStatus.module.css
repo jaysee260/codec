@@ -1,0 +1,52 @@
+/* Send status icon (DEV-A-R1): 16 px box, same vertical rhythm as message-timestamp. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
+  box-sizing: border-box;
+}
+
+.check {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--text-muted);
+  color: var(--bg-chat);
+}
+
+.sending .ring {
+  animation: receipt-pulse 1.2s ease-in-out infinite;
+}
+@keyframes receipt-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.failed {
+  color: var(--danger);
+  gap: 4px;
+  min-width: 0;
+  height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sending .ring {
+    animation: none;
+  }
+}

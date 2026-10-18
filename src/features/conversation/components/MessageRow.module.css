@@ -23,6 +23,22 @@
 .failed .content {
   color: var(--danger);
 }
+/*
+ * Read receipts strip (DEV-B-R1 / R3): under the row's content, right-aligned (trailing edge, as Element).
+ * Fixed height whatever it holds - the 16 px status icon, Dev A's 22 px avatar strip, or both - so the
+ * "sent" check being replaced by avatars never changes the row height (AC-R9-1 / AC-R9-3). Phone hit areas
+ * grow via the avatars' own negative margins, never via this box.
+ */
+.receipts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 22px;
+  margin-top: 2px;
+  overflow: visible;
+}
+
 .failedTag {
   color: var(--danger);
   font-size: var(--font-size-xs);

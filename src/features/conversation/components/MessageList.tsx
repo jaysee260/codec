@@ -34,7 +34,14 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, Hash } from 'lucide-react';
-import { sourceKey, useIsPhone, useOpenThreadRootId, useRoomSummary, type TimelineSource } from '@/store/hooks.ts';
+import {
+  sourceKey,
+  useIsPhone,
+  useOpenThreadRootId,
+  useReadPointsResult,
+  useRoomSummary,
+  type TimelineSource,
+} from '@/store/hooks.ts';
 import { isThreadReady } from '@/store/threads.ts';
 import { initialsOf } from '@/lib/format.ts';
 import { useRoomEvents } from '../hooks/useRoomEvents.ts';
@@ -47,6 +54,12 @@ import { MessageRow } from './MessageRow.tsx';
 import styles from './MessageList.module.css';
 
 const NEAR_BOTTOM_PX = 40;
+/**
+ * A message row and nothing else. Read receipts put `data-event-id` on the avatar strip inside a row too
+ * (`receipt-avatars`), so a bare `[data-event-id]` could resolve the scroll pins to the strip's box instead of
+ * the row's; `data-group-start` is only ever on rows.
+ */
+const ROW = '[data-group-start][data-event-id]';
 const FLASH_MS = 2600;
 
 /** Scroll position pinned across a backwards pagination. */
@@ -66,6 +79,14 @@ interface ScrollAnchor {
  */
 const ANCHOR_WINDOW_MS = 600;
 
+/** Same rows carry receipts, each with the identical readers array (core keeps unchanged arrays' identity). */
+function sameRowReaders(a: Map<string, unknown>, b: Map<string, unknown>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const [id, readers] of a) if (b.get(id) !== readers) return false;
+  return true;
+}
+
 export interface MessageListProps {
   source: TimelineSource;
   /** Id prefix for this list's own testids (`'thread-'` inside the panel). */
@@ -78,7 +99,11 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   const key = sourceKey(source);
   const tid: Tid = useMemo(() => makeTid(testIdPrefix), [testIdPrefix]);
 
-  const { items, hasMore, isPaginating, paginateBack, version } = useRoomEvents(source);
+  const { items, events, hasMore, isPaginating, paginateBack, version } = useRoomEvents(source);
+  // Read receipts: one map per list (main timeline or thread replies), built from the exact rows rendered
+  // below so a receipt on a hidden event (reaction, edit) lands on the row the reader can see. The thread
+  // root inside the panel is not one of these rows and shows no receipts (its avatars live in the channel).
+  const { readPoints, latestOwnSentId } = useReadPointsResult(source, events);
   const summary = useRoomSummary(roomId);
   const jump = useConversationUi((s) => s.jump);
   const clearJump = useConversationUi((s) => s.clearJump);
@@ -101,6 +126,14 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   /** The row at the top of the viewport and where it sat, refreshed on every scroll (scrolled-up case). */
   const reading = useRef<{ eventId: string; viewportTop: number } | null>(null);
+  /**
+   * Distance from the bottom at the last scroll (0 = truly at the bottom). "Stuck" means within
+   * NEAR_BOTTOM_PX, not exactly at the bottom: a reader parked 2-39 px above it is stuck too, and late growth
+   * must keep *that* gap rather than snap to the real bottom (which moved what they read by the gap, AC-L7-4).
+   */
+  const bottomGap = useRef(0);
+  /** Key of the newest rendered item at the last commit, to tell "a new event arrived" from other commits. */
+  const lastItemKey = useRef<string | null>(null);
 
   const [armed, setArmed] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -129,6 +162,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     anchor.current = null;
     reading.current = null;
     stick.current = true;
+    bottomGap.current = 0;
     setAtBottom(true);
     setArmed(false);
     setFlashId(null);
@@ -154,7 +188,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     const el = containerRef.current;
     const pin = anchor.current;
     if (!el || !pin) return;
-    const row = el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`);
+    const row = el.querySelector<HTMLElement>(`${ROW}[data-event-id="${pin.eventId}"]`);
     if (!row) {
       anchor.current = null; // the pinned row is gone (timeline reset); nothing to hold on to
       return;
@@ -195,7 +229,21 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
       applyAnchor();
       return;
     }
-    if (stick.current) el.scrollTop = el.scrollHeight;
+    // Newest row's key: a change means a new event arrived at the end (keys are stable across the ~txn swap).
+    const last = items.length ? items[items.length - 1]!.key : null;
+    const grewAtEnd = last !== lastItemKey.current;
+    lastItemKey.current = last;
+    if (stick.current) {
+      if (grewAtEnd || bottomGap.current <= 2) {
+        // New events while stuck: follow them to the real bottom (the Phase 1 rule).
+        el.scrollTop = el.scrollHeight;
+        bottomGap.current = 0;
+      } else {
+        // Any other commit (an edit, a typing bump, a reaction): keep the reader's small gap to the bottom.
+        el.scrollTop = el.scrollHeight - el.clientHeight - bottomGap.current;
+      }
+      correctedTo.current = el.scrollTop;
+    }
   }, [items, isPaginating, version, applyAnchor]);
 
   /*
@@ -227,11 +275,11 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     let row: HTMLElement | null = null;
     if (typeof document.elementFromPoint === 'function') {
       const hit = document.elementFromPoint(box.left + 24, box.top + 1);
-      const candidate = hit instanceof HTMLElement ? hit.closest<HTMLElement>('[data-event-id]') : null;
+      const candidate = hit instanceof HTMLElement ? hit.closest<HTMLElement>(ROW) : null;
       if (candidate && el.contains(candidate)) row = candidate;
     }
     if (!row) {
-      for (const r of Array.from(el.querySelectorAll<HTMLElement>('[data-event-id]'))) {
+      for (const r of Array.from(el.querySelectorAll<HTMLElement>(ROW))) {
         if (r.getBoundingClientRect().bottom > box.top) {
           row = r;
           break;
@@ -256,35 +304,63 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
    *    (a new message, a card under the very row being read) measures a zero delta and changes nothing.
    * Our own `scrollTop` writes fire `onScroll`, which re-captures `reading` at the corrected spot.
    */
-  useEffect(() => {
+  const holdViewport = useCallback((): void => {
     const el = containerRef.current;
+    if (!el) return;
+    if (anchor.current) {
+      applyAnchor();
+      return;
+    }
+    if (stick.current) {
+      // Late growth while stuck (a card or image resolving, a receipt strip appearing): keep the reader's gap to
+      // the bottom. Gap ~0 is the plain "pinned to the bottom" case (AC-L7-3 / AC-R9-1) and snaps as before; a
+      // small gap means the reader is parked just above the bottom, and snapping would move every row on screen
+      // by that gap even though the growth happened above them (AC-L7-4: 21-22 px).
+      const gap = bottomGap.current;
+      el.scrollTop = gap <= 2 ? el.scrollHeight : el.scrollHeight - el.clientHeight - gap;
+      correctedTo.current = el.scrollTop;
+      return;
+    }
+    const pin = reading.current;
+    if (!pin) return;
+    const row = el.querySelector<HTMLElement>(`${ROW}[data-event-id="${pin.eventId}"]`);
+    if (!row) {
+      reading.current = null;
+      return;
+    }
+    const delta = row.getBoundingClientRect().top - pin.viewportTop;
+    if (Math.abs(delta) > 0.5) {
+      el.scrollTop += delta;
+      correctedTo.current = el.scrollTop;
+    }
+  }, [applyAnchor]);
+
+  useEffect(() => {
     const content = contentRef.current;
-    if (!el || !content || typeof ResizeObserver !== 'function') return;
-    const observer = new ResizeObserver(() => {
-      if (anchor.current) {
-        applyAnchor();
-        return;
-      }
-      if (stick.current) {
-        el.scrollTop = el.scrollHeight;
-        return;
-      }
-      const pin = reading.current;
-      if (!pin) return;
-      const row = el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`);
-      if (!row) {
-        reading.current = null;
-        return;
-      }
-      const delta = row.getBoundingClientRect().top - pin.viewportTop;
-      if (Math.abs(delta) > 0.5) {
-        el.scrollTop += delta;
-        correctedTo.current = el.scrollTop;
-      }
-    });
+    if (!content || typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(holdViewport);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [applyAnchor]);
+  }, [holdViewport]);
+
+  /*
+   * Read receipts (DEV-B-R3, AC-R9-*). A receipt strip (fixed 22 px, see MessageRow) appears, moves or
+   * disappears with no timeline commit, and a *move* (one row loses its strip, another gains it) leaves the
+   * content height unchanged, so the observer above never fires - yet every row between the two shifts by the
+   * strip height. Re-run the same hold before paint whenever the receipt map or the sent-check row changes:
+   * stuck -> stay at the bottom; scrolled up -> the row being read stays where it was; a pagination pin owns
+   * its own correction.
+   */
+  // Core rebuilds the Map on every receipt / timeline bump, but a row's `Reader[]` keeps its identity while
+  // unchanged, so "nothing visible moved" is cheap to detect: skip those rebuilds and never touch scrollTop
+  // for them (Advisor: a no-op rebuild must not fight a reader mid-scroll).
+  const lastReceiptLayout = useRef<{ points: Map<string, unknown>; sentId: string | null } | null>(null);
+  useLayoutEffect(() => {
+    const prev = lastReceiptLayout.current;
+    lastReceiptLayout.current = { points: readPoints, sentId: latestOwnSentId };
+    if (prev && prev.sentId === latestOwnSentId && sameRowReaders(prev.points, readPoints)) return;
+    holdViewport();
+  }, [readPoints, latestOwnSentId, holdViewport]);
 
   const onScroll = (): void => {
     const el = containerRef.current;
@@ -293,7 +369,9 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     // A scroll we did not cause while a pin is live means the reader took over: drop the pin rather
     // than fight them for the rest of the correction window.
     if (anchor.current && Math.abs(el.scrollTop - correctedTo.current) > 2) anchor.current = null;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    bottomGap.current = Math.max(0, gap);
+    const near = gap < NEAR_BOTTOM_PX;
     stick.current = near;
     setAtBottom(near);
   };
@@ -301,7 +379,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   const load = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const first = el.querySelector<HTMLElement>('[data-event-id]');
+    const first = el.querySelector<HTMLElement>(ROW);
     /*
      * Pin only when there is a row to pin *and* the list is genuinely scrolled away from the bottom
      * (BUG-6). A thread's first pages land in a list still shorter than the viewport, so the top
@@ -321,7 +399,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
       const live = anchor.current;
       // A second page right after a short one: keep holding the row we already promised to hold, and
       // just extend the window. Re-pinning to the new top row is what let the first row slip (AC-B3-2).
-      if (live && el.querySelector(`[data-event-id="${live.eventId}"]`)) {
+      if (live && el.querySelector(`${ROW}[data-event-id="${live.eventId}"]`)) {
         live.until = performance.now() + ANCHOR_WINDOW_MS;
       } else if (first?.dataset.eventId) {
         anchor.current = {
@@ -359,7 +437,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     clearJump();
     const run = async (): Promise<void> => {
       for (let attempt = 0; attempt < 8 && jumpRunRef.current === myNonce; attempt++) {
-        const target = containerRef.current?.querySelector<HTMLElement>(`[data-event-id="${jumpEventId}"]`);
+        const target = containerRef.current?.querySelector<HTMLElement>(`${ROW}[data-event-id="${jumpEventId}"]`);
         if (target) {
           stick.current = false;
           target.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -428,6 +506,8 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
                 event={item.event}
                 groupStart={item.groupStart}
                 flash={flashId === item.event.getId()}
+                readers={readPoints.get(item.event.getId() ?? '')}
+                isLatestOwnSent={latestOwnSentId !== null && item.event.getId() === latestOwnSentId}
               />
             ),
           )}

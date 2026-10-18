@@ -131,6 +131,21 @@ export type TimelineItem =
   | { kind: 'day'; key: string; ts: number }
   | { kind: 'message'; key: string; ts: number; event: MatrixEvent; groupStart: boolean };
 
+/**
+ * React key of a message row (read receipts, Advisor risk 3). My own sends start as a local echo with id
+ * `~!room:txn`; at `SENT` the SDK swaps the id to the real `$id` **on the same `MatrixEvent` object**
+ * (`replaceLocalEventId`, then `handleRemoteEcho` keeps the object too) and the object keeps its `txnId`.
+ * Keying on the id would remount the row at the swap (its voice player, image decrypt, picker state reset
+ * and the row's box is torn down and rebuilt under a pinned list), so a row that started as a local echo
+ * keeps its transaction id as its key for the rest of the session. Events from sync have no `txnId` (the
+ * SDK only sets it on local echoes), so every other row is keyed by its event id exactly as before.
+ * The `data-event-id` / `message-{id}` testids still follow the live id.
+ */
+export function rowKey(event: MatrixEvent): string | undefined {
+  const txnId = event.getTxnId();
+  return txnId ? `txn-${txnId}` : event.getId();
+}
+
 export function buildTimelineItems(events: MatrixEvent[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   let prev: MatrixEvent | null = null;
@@ -146,7 +161,7 @@ export function buildTimelineItems(events: MatrixEvent[]): TimelineItem[] {
       ts - prev.getTs() > GROUP_WINDOW_MS ||
       !!getReplyTargetId(event) ||
       !!getReplyTargetId(prev);
-    items.push({ kind: 'message', key: event.getId() ?? `row-${items.length}`, ts, event, groupStart });
+    items.push({ kind: 'message', key: rowKey(event) ?? `row-${items.length}`, ts, event, groupStart });
     prev = event;
   }
   return items;
