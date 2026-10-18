@@ -16,9 +16,11 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# A newer push to the same branch (master included) cancels the older run: the newest commit already contains
+# everything before it, so only its run matters.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
