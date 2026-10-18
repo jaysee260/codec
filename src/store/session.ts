@@ -24,6 +24,7 @@ import {
   type StoredSession,
 } from '@/lib/matrix/client.ts';
 import { getHsUrl } from '@/lib/matrix/config.ts';
+import { clearLinkPreviewCache } from '@/lib/preview/fetch.ts';
 import { bindClient, unbindClient } from './bridge.ts';
 import { resetRooms } from './rooms.ts';
 import { bindSecurity, resetSecurity, unbindSecurity } from './security.ts';
@@ -124,6 +125,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     resetTimelines();
     resetThreads();
     resetSecurity();
+    clearLinkPreviewCache(); // Phase 6: the next user in this browser must not inherit cached previews
     set({ status: nextStatus, userId: null, displayName: null, avatarUrl: null, error: message, syncState: null, loadingStage: null });
   }
 
@@ -212,6 +214,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       resetTimelines();
       resetThreads();
       resetSecurity();
+      clearLinkPreviewCache(); // Phase 6: same on explicit logout
       set({ status: 'logged-out', userId: null, displayName: null, avatarUrl: null, error: null, syncState: null, loadingStage: null });
     },
   };

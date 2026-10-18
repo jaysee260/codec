@@ -2,7 +2,7 @@
  * Dev-only window hooks (`import.meta.env.DEV`; tree-shaken out of production builds).
  *
  *   window.__matrixPoc = { layout, rooms, session, timeline, threads, getClient, getVoiceMessage, getHsUrl,
- *                          actions, utils, openThread, closeThread, getThreadSummary, getThreadModel, gif, ... }
+ *                          actions, utils, openThread, closeThread, getThreadSummary, getThreadModel, gif, preview, ... }
  *
  * Used by scripts/verify-phone-shell.mjs and scripts/verify-thread-shell.mjs (open the nav drawer / a thread for
  * a screenshot, round-trip events through the real parsers) and handy in the browser console. `actions` and
@@ -25,6 +25,7 @@ import * as cryptoLifecycle from '@/lib/matrix/crypto.ts';
 import { getDisplayBody, getVoiceMessage } from '@/lib/matrix/utils.ts';
 import { analyzeAudio, pickRecordingMimeType } from '@/lib/audio/index.ts';
 import * as gif from '@/lib/gif/index.ts';
+import * as preview from '@/lib/preview/index.ts';
 import { isNativeApp, platform } from '@/lib/native.ts';
 
 export function installDevHooks(): void {
@@ -65,6 +66,10 @@ export function installDevHooks(): void {
     attachments,
     cryptoLifecycle,
     getCryptoError,
+    // Phase 6: the whole preview module (`__matrixPoc.preview.getLinkPreview(url)`, `getPreviewUrls(ev)`, `clearLinkPreviewCache()`, ...)
+    preview,
+    // Alias used by docs/PHASE6_ACCEPTANCE.md: same module plus `clearPreviewCache()`.
+    previews: { ...preview, clearPreviewCache: preview.clearLinkPreviewCache },
   };
 }
 

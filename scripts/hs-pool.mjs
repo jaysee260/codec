@@ -27,7 +27,7 @@
  *
  * Environment: E2E_WORKERS, HS_POOL_BACKEND=native|docker (default: native when its venv works, else docker when
  *              `docker info` works), SYNAPSE_PYTHON (native), SYNAPSE_IMAGE (docker),
- *              HS_POOL_BUILD_PORT (default 8030; the template's port while seeding), HS_POOL_BASE_PORT (default 8008).
+ *              HS_POOL_BUILD_PORT (default 8040; the template's port while seeding), HS_POOL_BASE_PORT (default 8008).
  * Backends live in scripts/lib/hs-<name>.mjs and share the contract documented in hs-native.mjs.
  */
 import { spawnSync } from 'node:child_process';
@@ -51,7 +51,7 @@ const RUN_DIR = Number(process.env.HS_POOL_BASE_PORT ?? DEFAULT_HS_PORT) === DEF
 const STATE_FILE = path.join(RUN_DIR, 'state.json');
 const SEED_DIR = path.join(ROOT, 'seed');
 const BASE_PORT = Number(process.env.HS_POOL_BASE_PORT ?? DEFAULT_HS_PORT);
-const BUILD_PORT = Number(process.env.HS_POOL_BUILD_PORT ?? 8030);
+const BUILD_PORT = Number(process.env.HS_POOL_BUILD_PORT ?? 8040);
 /** Bump when the snapshot layout or the build steps change, so old caches are rebuilt. */
 const POOL_FORMAT = 1;
 

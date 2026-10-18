@@ -321,7 +321,9 @@ test.describe('AC-E6 encrypted by default', () => {
     await typeAndSend(page, text);
     await settledEventId(rowByText(page, 'https://example.com/e2ee-'), 20_000);
     await page.waitForTimeout(2_000);
-    expect(previews, 'preview_url requests').toEqual([]);
+    // Phase 6: the landing room (#general, plain) previews its seeded link (`https://status.example.com`) automatically,
+    // which is correct; the criterion is about the link sent in #vault.
+    expect(previews.filter((u) => u.includes(encodeURIComponent('https://example.com/e2ee-'))), 'preview_url requests for the #vault link').toEqual([]);
   });
 
   test('AC-E6-5 a GIF in #vault is click-to-load (P1)', async ({ page }) => {
