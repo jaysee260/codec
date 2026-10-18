@@ -337,3 +337,54 @@ Plan: docs/PHASE5_PLAN.md · Criteria/testids: docs/PHASE5_ACCEPTANCE.md · Tick
 | 16 | PM | `#vault` in `seed.ts` + `rooms.vault` in `seed-output.json`; `e2ee:sample`, `verify:e2ee`, `test:e2e:e2ee` script lines | todo |
 | 17 | PM | After the 704.chat spike: the SSO UIA prompt shape on `useSecurityStore.prompt` (so DEV-A-26's `setup-sso-hint` has a contract) | todo |
 
+
+---
+
+# Phase 6 - Link preview cards
+
+Plan: docs/PHASE6_PLAN.md · Criteria/testids: docs/PHASE6_ACCEPTANCE.md · Tickets: docs/PHASE6_TICKETS.md. Planned 2026-10-18 by PM from the orchestrator's settled brief (no Advisor consult needed). Scope: cards (site, title, description, image) for up to 3 links per message in plain rooms, **click-to-load in encrypted rooms** (no `preview_url` request before the click), hide per viewer, quiet errors, in-memory cache, cards in threads, YouTube / Spotify embeds as P1 (cut first). P0 = the desktop demo script (alice in `#dev` and `#vault` against the local Synapse with the test whitelist). Waves: 16 plan + core, 17 features + tests, 18 fix wave + regression.
+
+## Wave 16 - PM + Principal
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| PM docs (plan, acceptance, tickets, this section) | P0 | done | PM | Aligned to the shipped `src/lib/preview/` names and fixtures; QA's measured-dimensions correction applied |
+| PRIN-24 `src/lib/preview` core (extraction, normalisation, `getLinkPreview` LRU 200 / 1 h / 5 min + dedupe, `shouldAutoPreview` / `getPreviewUrls`, hidden store, hooks, `__matrixPoc.preview`) | P0 | done | Principal | Cache cleared on logout / token rejection (request #20); BUG-30 fixed (the SDK's own per-minute `urlPreviewCache` kept answering after `clearLinkPreviewCache()`) |
+| PRIN-25 Test whitelist `127.0.0.1/32` + `::1/128`, `public/preview-fixtures/*` + `preview:fixtures`, ARCHITECTURE "Phase 6 deltas (link previews)" | P0 | done | Principal | Pool build port moved 8030 -> 8040; snapshot rebuilt for the runs |
+| PRIN-26 `parseEmbed` edge cases | P1 | done | Principal | Folded into the core |
+
+## Wave 17 - Dev A (`src/features/link-preview/**`)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-A-30 `LinkPreviewCard` (states, large / thumbnail / text, reserved box, hide, phone full width via `useIsPhone()`) | P0 | done | Dev A | `onEmpty(url)` prop added so the host can drop empty cards |
+| DEV-A-31 `EmbedPlayer` (play -> sandboxed iframe, nocookie) | P1 | done | Dev A | No third-party request before the click |
+| DEV-A-32 Keyboard + reduced motion | P2 | partial | Dev A | Escape on the hide button not done; carried over |
+
+## Wave 17 - Dev B (conversation)
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| DEV-B-32 `link-previews` host under `message-body`, main list + thread panel, edits, redactions | P0 | done | Dev B | Host drops URLs that report `onEmpty`, so `data-count` matches the visible cards |
+| DEV-B-33 Encrypted click-to-load switch (`shouldAutoPreview`) | P0 | done | Dev B | Zero `preview_url` calls before a click |
+| DEV-B-34 Scroll stability with growing cards | P0 | done | Dev B | Scroll observer re-pins while stuck to the bottom |
+
+## Wave 17 - QA
+| Ticket | P | Status | Owner | Notes |
+|---|---|---|---|---|
+| QA-30 `e2e/fixtures/link-preview.ts`, guards, `test:e2e:link-preview` | P0 | done | QA | |
+| QA-31 `e2e/link-preview.spec.ts` (desktop) | P0 | done | QA | BUG-30 regression included |
+| QA-32 `e2e/mobile-link-preview.spec.ts` (phone) | P0 | done | QA | |
+| QA-33 Regression runs, docs/BUGS.md "Phase 6", regression test per fix | P0 | done | QA | |
+
+## Phase 6 dry run (Wave 18)
+| Item | Result |
+|---|---|
+| Full run 3, both projects (`desktop` + `mobile`, incl. the two link-preview specs) | **326 passed, 0 failed, 10 skipped** |
+| Desktop + phone demo scripts (docs/PHASE6_PLAN.md) | Covered by the specs; no manual blockers reported |
+| Homelab Synapse check by JC (previews enabled, `lxml` present, blacklist kept) | user-only; prompt from the orchestrator |
+| Open follow-up | AC-E6-3 (Phase 5) fails when run **alone** on a fresh server: ordering dependency in the e2ee boot spec, green in the full run; to be made self-contained. DEV-A-32 Escape-on-hide not done. BUG-4 (S3, environment) carried over |
+
+## Requests to Principal (Phase 6)
+| # | From | Request | Status |
+|---|---|---|---|
+| 18 | PM | Shared API per docs/PHASE6_TICKETS.md (`@/lib/preview`), cache numbers + module map in ARCHITECTURE | done |
+| 19 | PM | `url_preview_ip_range_whitelist` in the test configs + `public/preview-fixtures/*`; pool snapshot rebuild | done |
+| 20 | PM | `clearLinkPreviewCache()` on logout / token rejection | done |

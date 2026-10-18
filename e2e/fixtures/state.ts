@@ -22,7 +22,7 @@
  */
 import { expect, test } from '@playwright/test';
 import { asUser, type ApiUser } from './matrix-api.ts';
-import { userId, type UserKey } from './seed.ts';
+import { HS_URL, userId, type UserKey } from './seed.ts';
 
 /** Adds a test annotation (shows up in the HTML report and in `--reporter=list` output). */
 export function annotate(type: string, description: string): void {
@@ -116,4 +116,20 @@ export async function revokePendingInvite(
 export async function childRoomIds(api: ApiUser, spaceId: string): Promise<string[]> {
   const { rooms } = await api.hierarchy(spaceId);
   return rooms.filter((r) => r.room_id !== spaceId).map((r) => r.room_id);
+}
+
+/**
+ * Marks `roomId` read for `user` up to its newest event: unthreaded `m.read` (covers every thread) plus
+ * `m.fully_read`, through `/read_markers`. Used to make "the only unread is X" preconditions self-sufficient when
+ * other specs on the same worker (bob posting into #dev / #vault) left unread behind (Phase 6, AC-A5-2).
+ */
+export async function markRoomRead(roomId: string, user: UserKey = 'alice'): Promise<void> {
+  const api = await asUser(user);
+  const [newest] = await api.messages(roomId, 1);
+  if (!newest?.event_id) return;
+  await fetch(`${HS_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/read_markers`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${api.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ 'm.fully_read': newest.event_id, 'm.read': newest.event_id }),
+  });
 }

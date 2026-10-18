@@ -24,6 +24,7 @@ npm run test:e2e:desktop                                    # Phase 1 suite only
 npm run test:e2e:mobile                                     # Phase 2 phone suites only
 npm run test:e2e:threads                                    # Phase 3 thread specs (both projects)
 npm run test:e2e:gif                                        # Phase 4 GIF specs (both projects)
+npm run test:e2e:link-preview                               # Phase 6 link preview specs (both projects)
 npm run test:android-build                                  # APK build + manifest checks
 npx playwright test e2e/conversation-timeline.spec.ts -g "AC-B3-2" --project=desktop
 npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile
@@ -343,7 +344,7 @@ npx playwright test -c playwright.local.config.ts e2e/voice-compat.spec.ts --pro
 
 | BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
 |---|---|---|---|---|---|---|---|---|---|---|
-| BUG-30 | decision 1 (lossless remux), AC-F1 | S3 | web-mobile-emulated (Node) | no | Principal | `remuxWebmOpusToOgg(chromium-3s.webm sliced to 60 % of its bytes)` — a recording cut in the middle of a SimpleBlock. | The truncated trailing block is dropped (the remuxer's own header says so): 34 audio packets, the 34 complete SimpleBlocks. | 35 packets: the partial block was emitted as a full Opus packet (a corrupt last frame). `readElement()` clamped `dataEnd` to the buffer, so the `el.end > cluster.dataEnd` truncation check in the packet loop could never fire. | `e2e/ogg-remux.spec.ts` "remux of a WebM cut mid-cluster …" | **Fixed** (Principal, `src/lib/audio/ogg.ts`: elements record `truncated`, the packet loop breaks on it). Re-verified: the regression test passes. |
+| BUG-32 | decision 1 (lossless remux), AC-F1 | S3 | web-mobile-emulated (Node) | no | Principal | `remuxWebmOpusToOgg(chromium-3s.webm sliced to 60 % of its bytes)` — a recording cut in the middle of a SimpleBlock. | The truncated trailing block is dropped (the remuxer's own header says so): 34 audio packets, the 34 complete SimpleBlocks. | 35 packets: the partial block was emitted as a full Opus packet (a corrupt last frame). `readElement()` clamped `dataEnd` to the buffer, so the `el.end > cluster.dataEnd` truncation check in the packet loop could never fire. | `e2e/ogg-remux.spec.ts` "remux of a WebM cut mid-cluster …" | **Fixed** (Principal, `src/lib/audio/ogg.ts`: elements record `truncated`, the packet loop breaks on it). Re-verified: the regression test passes. |
 | BUG-31 | AC-A5-2 | S3 | web-desktop | no | QA | Full suite in CI (3 pool workers): an E2EE spec adds encrypted #vault to Acme on the same server before `navigation.spec.ts` runs; repro locally with `E2E_WORKERS=1` running `e2ee-core-boot`, `e2ee-core-timeline`, `navigation` on desktop. | After reading #random the Acme dot goes away only when no other Acme channel is unread. | The test summed only #general/#dev via the receipt-derived `unreadFor`, which cannot see bob's `m.room.encrypted` messages, so it expected the dot gone while #vault was still unread. Test bug, not an app bug; order-dependent on master too. | `e2e/navigation.spec.ts` AC-A5-2 | **Fixed**: the precondition now reads the channel list's own `channel-unread-*` badges (what the dot sums); asserts the dot stays when any remain. Re-verified with the repro order. |
 | — | AC-V1-2 | — | web-mobile-emulated | no | — | Baseline run before the change: AC-V1-2 (live level meter) failed once. | — | Passed in every run of this pass (full voice run, and the suite alone). Not reproducible; environment flake of the fake mic in this container's Chromium, not a voice-format regression. | — | Not a bug. |
 | — | phone demo step 1 | — | web-mobile-emulated | no | — | `mobile-smoke.spec.ts` run as the first spec right after the dev server cold-started (same run as the voice specs). | Lands in #general. | Header read "random" once (the pre-seeded `nav.selection` race the voice.spec `openRoom` helper already works around); the 12 later serial steps did not run. The suite alone right after: 13/13 green. | — | Not a voice-format defect; flake on a cold dev server. |
@@ -406,6 +407,54 @@ test after it. Either way nothing leaves the machine. No run in this pass record
 | AC-G8-3 (a GIF row far out of view unmounts its `<img>` into a sized `message-gif-placeholder`, remounts with no layout shift) | **Not covered by a dedicated test this pass** — a DEV-B-25 P1 half, not in the QA-19 brief. It is not unverified, though: `GifMessage` implements it (an IntersectionObserver with a 200 px margin and the four `data-state` values), `expectGifPlaying` in every pick assertion depends on a row *leaving* `offscreen` when scrolled in, and desktop demo step 12 row 4 asserts the placeholder whenever the row genuinely leaves the margin. What is missing is the layout-shift measurement (`message-list.scrollHeight` unchanged +/- 2 px) under a forced 20-message scroll. | QA, if it is promoted to P0 |
 | AC-G8-4 (reduced motion shows `stillUrl` plus `message-gif-play`; clicking play animates) | **Not covered by a dedicated test this pass** — the other DEV-B-25 P1 half, not in the QA-19 brief. The ingredients are all verified elsewhere: AC-G1-3 asserts every `<id>.png` still frame is served, and the contract test asserts `stillUrl` reaches the wire. What is missing is a `page.emulateMedia({ reducedMotion: 'reduce' })` test of the `paused` -> `playing` transition. | QA, if it is promoted to P0 |
 | Element interop (the GIF body shows as a link and the server unfurls it) | Needs a second client by hand. The wire half is asserted: `msgtype` is `m.text` and the url is the last whitespace-separated token of `body`, which is what makes Element linkify and unfurl it. | stakeholder, manual |
+
+## Phase 6 (link preview cards)
+
+QA-30..33 against `e2e/link-preview.spec.ts` (desktop) and `e2e/mobile-link-preview.spec.ts` (phone), helpers in
+`e2e/fixtures/link-preview.ts`. Dirty seed allowed: #dev (plain) and #vault (encrypted) only, every test sends its own
+messages with a unique `?t=` fixture URL (the client LRU, the SDK's promise cache and Synapse's url cache are all keyed by
+URL). The core happy path is a **real** round trip: the test Synapse whitelists loopback for url previews and fetches
+`public/preview-fixtures/` from the page's own Vite. Errors, slowness, non-mxc images, "no dimensions" and the
+YouTube / Spotify embeds are `page.route` stubs of `/preview_url`.
+
+```
+npm run test:e2e:link-preview                                   # both specs, both projects
+npx playwright test e2e/link-preview.spec.ts --project=desktop -g "AC-L3-1"
+npx playwright test e2e/mobile-link-preview.spec.ts --project=mobile -g "AC-L4-5"
+```
+
+**Result (full run 3, both projects, 3 workers): 326 passed, 0 failed, 10 skipped** (the usual fresh-seed / manual skips;
+none in the Phase 6 specs). `link-preview.spec.ts` 33/33 and `mobile-link-preview.spec.ts` 3/3. One product defect found
+(BUG-30, S3, fixed); no S1 or S2.
+
+**Severity rule (Phase 6).** `S1` on sight: a `/preview_url` request from an encrypted room without a click, any request
+to a YouTube / Spotify host before the play click, or a raw non-homeserver image URL rendered in a card. `S2`: the list
+jumps or loses the bottom when a card or its image arrives. `S3`: cosmetic, or a cache/retry defect with no visible
+wrong state.
+
+| ID | Sev | Criterion | Repro | Owner | Status |
+|---|---|---|---|---|---|
+| BUG-30 | S3 | AC-L6-5 (and the 5-min negative TTL of AC-L6-3) | Cards pass `ts` = the event's `origin_server_ts` to `getLinkPreview`, so matrix-js-sdk's own `client.urlPreviewCache` (key = minute bucket of `ts` + URL, never expired, rejected promises included) answers every later call for that message from memory. After `__matrixPoc.preview.clearLinkPreviewCache()` + a room switch (or after the miss TTL), **no** new `/preview_url` request is made, so a transient 500 / 429 / timeout is never retried for the rest of the session. `npx playwright test e2e/link-preview.spec.ts -g "AC-L6-3" --project=desktop`: "after clearLinkPreviewCache + remount the URL is fetched again", expected 2 requests, got 1. Fix: `src/lib/preview/fetch.ts` drops the SDK entry after each request settles (our LRU is the cache of record) or calls the endpoint itself. Regression: AC-L6-3 + AC-L6-5 (asserts both the hit and the cleared miss are refetched). | Principal | **Fixed** (uncommitted, `src/lib/preview/fetch.ts` drops the SDK's `urlPreviewCache` entry once a request settles); AC-L6-3 + AC-L6-5 green in run 3 |
+
+Test-side notes (no product defect): the default landing room #general holds a seeded link (`general.link`,
+`https://status.example.com`), which is previewed automatically and legitimately on login; the encrypted-room
+"zero requests since the page loaded" tests therefore open straight into #vault (`loginAs(..., { selection })`). The media
+service worker fetches `/_matrix/client/v1/media` itself and Playwright routes do not see service-worker requests, so
+AC-L4-3 (hold the thumbnail, measure the reserved box) runs with `serviceWorkers: 'block'`, where the app falls back to
+`/_matrix/media/v3` on the test server. Synapse measures `og:image` itself, so `long.html` / `nodims.html` come back
+1200x630 (`large`); the "no dimensions -> thumbnail" card is a stub.
+
+Two Phase 5 / Phase 1 tests changed with Phase 6 (full-suite run 1, both test-side):
+- **AC-E6-4** (`e2ee-core-boot.spec.ts`) asserted "no `/preview_url` request at all" from login on. Since Phase 6 the
+  landing room #general (plain) previews its links automatically and correctly (the seeded `general.link` plus the
+  `https://example.com/link-*` that AC-B4 posts), so it went red on a legitimate request. It now asserts no request for
+  the link it sends in #vault; the strict "zero since page load" form lives in AC-L3-1 (which opens straight into #vault).
+- **AC-A5-2** (`navigation.spec.ts`, "reading #random clears the Acme dot") failed in full runs 1 and 2 (same slot, #205):
+  the screenshot shows **#vault** with 1 unread, left by an earlier spec on that worker (the E2EE specs' bob-B posts in
+  #vault). Adding two spec files reshuffled which files share a worker, which exposed the order dependency; it is not a
+  product defect. The test now makes its premise self-sufficient (marks #general / #dev / #vault read for alice via
+  `/read_markers` before bob posts, `markRoomRead` in `fixtures/state.ts`), and `link-preview.spec.ts` marks #dev read
+  for alice after every test.
 
 ## Not bugs — criteria that cannot be judged on a dirty homeserver
 

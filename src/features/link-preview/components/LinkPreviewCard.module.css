@@ -1,0 +1,332 @@
+/*
+ * Link preview card (DEV-A-30/31). Discord-style embed: left accent bar, dark panel, at most 480 px wide on
+ * desktop and full width on phones. Theme tokens only (src/app/theme.css).
+ */
+.card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(480px, 100%);
+  margin-top: 4px;
+  padding: 8px 12px 12px 12px;
+  background: var(--bg-sidebar);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-normal);
+  font-size: var(--font-size-sm);
+  line-height: 1.125rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* `ready` cards claim the full 480 px so the large image has room; compact states hug their content. */
+.card[data-state='ready'] {
+  width: 480px;
+}
+
+.card[data-phone='true'] {
+  width: 100%;
+  max-width: 100%;
+}
+
+.content {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  /* room for the absolutely placed hide button */
+  padding-right: 20px;
+}
+.card[data-phone='true'] .header {
+  padding-right: 32px;
+}
+
+.text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.site {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  color: var(--text-link);
+  font-size: var(--font-size-message);
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-decoration: none;
+}
+.title:hover,
+.title:focus-visible {
+  text-decoration: underline;
+}
+
+.description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  color: var(--text-normal);
+  font-size: var(--font-size-sm);
+  line-height: 1.125rem;
+  white-space: pre-line;
+}
+
+/* Image boxes are sized before the image loads (no row jump; AC-L4-3). */
+.largeBox {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-rail);
+}
+.card[data-phone='true'] .largeBox {
+  max-width: 100% !important;
+}
+
+.thumbBox {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-rail);
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hide {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.hide:hover,
+.hide:focus-visible {
+  opacity: 1;
+  color: var(--text-heading);
+  background: var(--bg-hover);
+}
+/* ready cards: the x sits in the top-right corner so the large image can use the full width. */
+.card[data-state='ready'] > .hide {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+.card[data-phone='true'] .hide {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  opacity: 1;
+}
+.card[data-phone='true'][data-state='ready'] > .hide {
+  top: 0;
+  right: 0;
+}
+
+/* click-to-load / unavailable: a slim row under the message. */
+.compact {
+  align-items: center;
+  padding: 2px 2px 2px 8px;
+  gap: 8px;
+}
+.card[data-phone='true'].compact {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.load {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-link);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.load:hover,
+.load:focus-visible {
+  background: var(--bg-hover);
+}
+.card[data-phone='true'] .load {
+  min-height: var(--tap-target);
+  align-items: center;
+}
+.loadLabel {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.loadHost {
+  min-width: 0;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unavailable {
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* loading: one line, never taller than a text line (AC-L6-2). */
+.placeholder {
+  width: 240px;
+  height: 22px;
+  padding: 0 0 0 8px;
+  align-items: center;
+}
+.skeleton {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--bg-hover) 0%, var(--bg-active) 50%, var(--bg-hover) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* Embeds (DEV-A-31) */
+.posterWrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.playOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+.playOverlay:hover,
+.playOverlay:focus-visible {
+  background: rgba(0, 0, 0, 0.4);
+}
+.playDisc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-overlay);
+}
+.thumbBox .playDisc {
+  width: 36px;
+  height: 36px;
+}
+.playInline {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.playInline:hover {
+  background: var(--accent-hover);
+}
+.card[data-phone='true'] .playInline {
+  min-height: var(--tap-target);
+}
+.embedBoxVideo {
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-rail);
+}
+.card[data-phone='true'] .embedBoxVideo {
+  max-width: 100%;
+}
+.embedBoxAudio {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--bg-rail);
+}
+.embedFrame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.compact > .hide {
+  margin-left: auto;
+}

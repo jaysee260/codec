@@ -26,6 +26,8 @@
  * `message-group-start` marker, so counting group starts inside the panel counts replies only
  * (AC-T6-3). Author, body and timestamp are rendered exactly as in a normal group start.
  *
+ * Phase 6: `LinkPreviews` renders the link cards under the body, before the reactions (DEV-B-32).
+ *
  * Rows are deliberately NOT memoised: the SDK mutates events in place for edits, redactions and
  * reaction aggregation, so the whole list re-renders on the store's `version` bump.
  */
@@ -42,6 +44,7 @@ import { useLongPress } from '../hooks/useLongPress.ts';
 import { MessageActions } from './MessageActions.tsx';
 import { MessageActionSheet } from './MessageActionSheet.tsx';
 import { MessageBody } from './MessageBody.tsx';
+import { LinkPreviews } from './LinkPreviews.tsx';
 import { ReactionPicker } from './ReactionPicker.tsx';
 import { ReactionRow } from './ReactionRow.tsx';
 import { ReplyQuote } from './ReplyQuote.tsx';
@@ -160,6 +163,8 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
           </div>
         )}
         <MessageBody roomId={roomId} body={body} />
+        {/* Phase 6: link preview cards (main timeline, thread replies and the thread root; never quotes). */}
+        <LinkPreviews roomId={roomId} event={event} body={body} />
         <ReactionRow roomId={roomId} eventId={eventId} reactions={reactions} onAdd={setPickerAnchor} />
         {threadSummary && <ThreadSummary roomId={roomId} summary={threadSummary} />}
       </div>

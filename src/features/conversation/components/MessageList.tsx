@@ -12,7 +12,12 @@
  *   while the first correction is still settling and any captured base is stale by then. Measuring the
  *   row live also removes the need to reason about its own `margin-top`, which flips with
  *   `message-group-start` when an older message from the same sender arrives above it;
- * - a reply-quote jump scrolls to the target, paginating back until it is loaded, then flashes it.
+ * - a reply-quote jump scrolls to the target, paginating back until it is loaded, then flashes it;
+ * - Phase 6 (DEV-B-34): rows that grow *after* their commit (link preview cards arriving, their images
+ *   loading, any late-mounting child) fire no scroll event and no React commit here. A ResizeObserver on
+ *   the list's content box catches them: stuck to the bottom -> re-pin; a pagination pin live -> let it
+ *   correct; scrolled up -> hold the row at the top of the viewport where the reader last saw it
+ *   (`reading`, captured on every scroll), so growth above the viewport never moves what they read.
  *
  * Phase 3: the same component renders a channel (`source = { roomId }`) and the replies inside a
  * thread panel (`{ roomId, threadRootId }`). Three differences, all driven by the source:
@@ -92,6 +97,10 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   const rafRef = useRef(0);
   /** The scrollTop we last set ourselves, so `onScroll` can tell our own nudges from the reader's. */
   const correctedTo = useRef(0);
+  /** The list's content box (every row), observed for late growth (Phase 6 link cards). */
+  const contentRef = useRef<HTMLDivElement>(null);
+  /** The row at the top of the viewport and where it sat, refreshed on every scroll (scrolled-up case). */
+  const reading = useRef<{ eventId: string; viewportTop: number } | null>(null);
 
   const [armed, setArmed] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -118,6 +127,7 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
   // Source change: bottom, reset every scroll flag, re-arm the pagination sentinel after first paint.
   useLayoutEffect(() => {
     anchor.current = null;
+    reading.current = null;
     stick.current = true;
     setAtBottom(true);
     setArmed(false);
@@ -205,9 +215,81 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
     return () => observer.disconnect();
   }, []);
 
+  /**
+   * Remember which row is at the top of the viewport and where. Cheap path: hit-test just inside the list's
+   * top-left (the gutter column, clear of the centred pagination spinner); fallback: the first row whose bottom
+   * is below the list's top edge.
+   */
+  const captureReading = useCallback((): void => {
+    const el = containerRef.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    let row: HTMLElement | null = null;
+    if (typeof document.elementFromPoint === 'function') {
+      const hit = document.elementFromPoint(box.left + 24, box.top + 1);
+      const candidate = hit instanceof HTMLElement ? hit.closest<HTMLElement>('[data-event-id]') : null;
+      if (candidate && el.contains(candidate)) row = candidate;
+    }
+    if (!row) {
+      for (const r of Array.from(el.querySelectorAll<HTMLElement>('[data-event-id]'))) {
+        if (r.getBoundingClientRect().bottom > box.top) {
+          row = r;
+          break;
+        }
+      }
+    }
+    reading.current = row?.dataset.eventId
+      ? {
+          eventId: row.dataset.eventId,
+          viewportTop: row.getBoundingClientRect().top,
+        }
+      : null;
+  }, []);
+
+  /*
+   * Late growth inside the list (Phase 6, DEV-B-34). A link card resolving from its one-line placeholder, or its
+   * image box, changes the content height after the commit that mounted it, so neither the layout effect above
+   * nor the BUG-28 observer (which watches the list's own box) sees it. Same three cases as a commit:
+   *  - a pagination pin is live: it owns the position (`applyAnchor`);
+   *  - stuck to the bottom: stay there (AC-L7-3);
+   *  - scrolled up: put the row the reader had at the top back where it was (AC-L7-4). Growth below that row
+   *    (a new message, a card under the very row being read) measures a zero delta and changes nothing.
+   * Our own `scrollTop` writes fire `onScroll`, which re-captures `reading` at the corrected spot.
+   */
+  useEffect(() => {
+    const el = containerRef.current;
+    const content = contentRef.current;
+    if (!el || !content || typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(() => {
+      if (anchor.current) {
+        applyAnchor();
+        return;
+      }
+      if (stick.current) {
+        el.scrollTop = el.scrollHeight;
+        return;
+      }
+      const pin = reading.current;
+      if (!pin) return;
+      const row = el.querySelector<HTMLElement>(`[data-event-id="${pin.eventId}"]`);
+      if (!row) {
+        reading.current = null;
+        return;
+      }
+      const delta = row.getBoundingClientRect().top - pin.viewportTop;
+      if (Math.abs(delta) > 0.5) {
+        el.scrollTop += delta;
+        correctedTo.current = el.scrollTop;
+      }
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [applyAnchor]);
+
   const onScroll = (): void => {
     const el = containerRef.current;
     if (!el) return;
+    captureReading();
     // A scroll we did not cause while a pin is live means the reader took over: drop the pin rather
     // than fight them for the rest of the correction window.
     if (anchor.current && Math.abs(el.scrollTop - correctedTo.current) > 2) anchor.current = null;
@@ -310,47 +392,48 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
       )}
 
       <div className={styles.list} data-testid={tid('message-list')} ref={containerRef} onScroll={onScroll}>
-        <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
+        {/* Block wrapper (not a flex column, see the CSS): only here so its size can be observed. */}
+        <div ref={contentRef}>
+          <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
 
-        {!hasMore && (
-          <div className={`${styles.start} ${threadRootId ? styles.startThread : ''}`}>
-            {/* The panel is 400 px wide and the root is already pinned above it, so the thread's
+          {!hasMore && (
+            <div className={`${styles.start} ${threadRootId ? styles.startThread : ''}`}>
+              {/* The panel is 400 px wide and the root is already pinned above it, so the thread's
                 "beginning of" block is one muted line rather than the channel's badge + headline. */}
-            {!threadRootId && (
-              <div className={styles.startIcon} aria-hidden="true">
-                {isDm ? initialsOf(summary?.name ?? '?') : <Hash size={40} />}
-              </div>
-            )}
-            <h2 className={styles.startTitle} data-testid={tid('timeline-start')}>
+              {!threadRootId && (
+                <div className={styles.startIcon} aria-hidden="true">
+                  {isDm ? initialsOf(summary?.name ?? '?') : <Hash size={40} />}
+                </div>
+              )}
+              <h2 className={styles.startTitle} data-testid={tid('timeline-start')}>
+                {threadRootId
+                  ? 'This is the beginning of the thread'
+                  : isDm
+                    ? `This is the beginning of your direct message history with ${label}`
+                    : `This is the beginning of ${label}`}
+              </h2>
               {threadRootId
-                ? 'This is the beginning of the thread'
-                : isDm
-                  ? `This is the beginning of your direct message history with ${label}`
-                  : `This is the beginning of ${label}`}
-            </h2>
-            {threadRootId ? (
-              !hasRows && <p className={styles.startTopic}>No replies yet - start the thread below.</p>
+                ? !hasRows && <p className={styles.startTopic}>No replies yet - start the thread below.</p>
+                : summary?.topic && <p className={styles.startTopic}>{summary.topic}</p>}
+            </div>
+          )}
+
+          {items.map((item) =>
+            item.kind === 'day' ? (
+              <DayDivider key={item.key} ts={item.ts} />
             ) : (
-              summary?.topic && <p className={styles.startTopic}>{summary.topic}</p>
-            )}
-          </div>
-        )}
+              <MessageRow
+                key={item.key}
+                source={source}
+                event={item.event}
+                groupStart={item.groupStart}
+                flash={flashId === item.event.getId()}
+              />
+            ),
+          )}
 
-        {items.map((item) =>
-          item.kind === 'day' ? (
-            <DayDivider key={item.key} ts={item.ts} />
-          ) : (
-            <MessageRow
-              key={item.key}
-              source={source}
-              event={item.event}
-              groupStart={item.groupStart}
-              flash={flashId === item.event.getId()}
-            />
-          ),
-        )}
-
-        <div className={styles.bottomSpacer} />
+          <div className={styles.bottomSpacer} />
+        </div>
       </div>
 
       {!atBottom && (
