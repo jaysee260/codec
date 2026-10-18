@@ -22,23 +22,25 @@
  *     ...
  *   });
  *
- * The verdict is probed once per worker process and cached: the run itself dirties both signals
- * (the very first test that posts into #general moves the window), so a later re-probe would
- * report "dirty" for a run that started clean and would skip tests that should have run.
+ * The verdict is probed at the first guarded test of each spec file and reused for the rest of that file: a file's
+ * own steps dirty both signals (smoke step 2 reads #random, step 4 posts into #general), so a re-probe per test would
+ * skip later steps that were judged on a clean start. A file that runs after *another* file dirtied the same server
+ * gets its own probe and skips honestly instead of failing on a window it cannot judge (BUG-24).
  *
  * Pool runs (issue #2): when global setup restored the homeserver pool it sets `E2E_POOL_RESTORED=1` and deletes
- * `e2e/tmp/fresh-w<i>.json`; the first verdict taken on pool instance i is then written there, so a worker that
- * Playwright restarts after a failure reuses the verdict taken on the pristine server instead of re-probing the
- * server the earlier tests dirtied (BUG-24). Without a restore (`E2E_REUSE_SERVERS`, a reused :8008, WSL1) nothing is
- * persisted and every worker process probes once, as before.
+ * `e2e/tmp/fresh-w*.json`; each verdict is then also written to `e2e/tmp/fresh-w<i>-<spec file>.json`, so a worker
+ * that Playwright restarts after a failure mid-file reuses the verdict taken at the start of that file instead of
+ * re-probing a server the file's earlier tests dirtied. Without a restore (`E2E_REUSE_SERVERS`, a reused :8008, WSL1)
+ * nothing is persisted and each worker process probes once per file.
  *
  * Thread replies do not count as "events after the seeded last message": the seed itself posts a late thread reply
  * into #general after `general.last` (seed/seed.ts, Phase 3), and thread replies never enter the main timeline window
  * (BUG-23).
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { test } from '@playwright/test';
 import { asUser, type MatrixEventJson } from './matrix-api.ts';
 import { workerIndex } from './pool.ts';
 import { eventId, resolveRoom } from './seed.ts';
@@ -64,7 +66,8 @@ export interface FreshSeedTest {
   info(): { annotations: { type: string; description?: string }[] };
 }
 
-let probed: Promise<FreshSeedReport> | undefined;
+/** One verdict per spec file in this process (see checkFreshSeed). */
+const probed = new Map<string, Promise<FreshSeedReport>>();
 
 /** True for an event in a thread (`m.relates_to.rel_type === 'm.thread'`): it is not part of the main timeline. */
 export function isThreadReply(event: MatrixEventJson): boolean {
@@ -77,14 +80,9 @@ export function newestMainTimelineEvent(chunk: MatrixEventJson[]): MatrixEventJs
   return chunk.find((event) => !isThreadReply(event));
 }
 
-/** Where pool instance `i`'s verdict is persisted for the rest of the run. */
-export function freshVerdictFile(i: number): string {
-  return resolve(TMP_DIR, `fresh-w${i}.json`);
-}
-
-/** Deletes every persisted verdict (global setup, right after restoring the pool). */
-export function clearFreshVerdicts(maxWorkers: number): void {
-  for (let i = 0; i < maxWorkers; i += 1) rmSync(freshVerdictFile(i), { force: true });
+/** Where the verdict for spec file `specFile` on pool instance `i` is persisted for the rest of the run. */
+export function freshVerdictFile(i: number, specFile: string): string {
+  return resolve(TMP_DIR, `fresh-w${i}-${basename(specFile).replace(/[^\w.-]/g, '_')}.json`);
 }
 
 /**
@@ -139,10 +137,29 @@ async function probeSeed(): Promise<FreshSeedReport> {
   return { fresh: reasons.length === 0, reasons, newestGeneralEvent: newestId, randomUnread: unread.count };
 }
 
-/** Probes the homeserver once per worker (once per pool instance after a restore) and caches the verdict. */
-export function checkFreshSeed(): Promise<FreshSeedReport> {
-  probed ??= loadOrProbe(process.env.E2E_POOL_RESTORED ? freshVerdictFile(workerIndex()) : undefined, probeSeed);
-  return probed;
+/** The spec file of the running test (the verdict key); '' outside a test. */
+function currentSpecFile(): string {
+  try {
+    return test.info().file;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Probes the homeserver at the first guarded test of each spec file and reuses that verdict for the rest of the file
+ * (BUG-24): a file's own earlier steps do not void its later guarded steps, and a file that runs after another file
+ * dirtied the server skips honestly. After a pool restore the verdict is also persisted per (pool instance, file), so
+ * a worker restarted mid-file reuses it.
+ */
+export function checkFreshSeed(specFile: string = currentSpecFile()): Promise<FreshSeedReport> {
+  let verdict = probed.get(specFile);
+  if (!verdict) {
+    const file = process.env.E2E_POOL_RESTORED ? freshVerdictFile(workerIndex(), specFile) : undefined;
+    verdict = loadOrProbe(file, probeSeed);
+    probed.set(specFile, verdict);
+  }
+  return verdict;
 }
 
 /**

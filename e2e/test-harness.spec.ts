@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import viteConfig from '../vite.config.ts';
-import { loadOrProbe, newestMainTimelineEvent, type FreshSeedReport } from './fixtures/fresh.ts';
+import { freshVerdictFile, loadOrProbe, newestMainTimelineEvent, type FreshSeedReport } from './fixtures/fresh.ts';
 import type { MatrixEventJson } from './fixtures/matrix-api.ts';
 
 /**
@@ -39,7 +39,7 @@ test.describe('fresh-seed guard', () => {
     expect(newestMainTimelineEvent([ev('$new'), ev('$general.last')])?.event_id).toBe('$new');
   });
 
-  test('BUG-24 a restarted worker reuses the verdict persisted for its pool instance instead of re-probing', async () => {
+  test('BUG-24 a restarted worker reuses the persisted verdict instead of re-probing', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'fresh-verdict-'));
     try {
       const file = path.join(dir, 'fresh-w0.json');
@@ -66,6 +66,33 @@ test.describe('fresh-seed guard', () => {
       writeFileSync(file, '{"fresh":');
       expect(await loadOrProbe(file, async () => (probes++, pristine))).toEqual(pristine);
       expect(probes).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('BUG-24 verdicts are kept per (pool instance, spec file): a later file on a dirtied server probes for itself', async () => {
+    const smoke = freshVerdictFile(0, '/repo/e2e/smoke.spec.ts');
+    expect(path.basename(smoke)).toBe('fresh-w0-smoke.spec.ts.json');
+    expect(path.dirname(smoke)).toBe(path.resolve('e2e/tmp'));
+    expect(freshVerdictFile(0, '/repo/e2e/navigation.spec.ts')).not.toBe(smoke);
+    expect(freshVerdictFile(1, '/repo/e2e/smoke.spec.ts')).not.toBe(smoke);
+
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'fresh-verdict-'));
+    try {
+      const first = path.join(dir, path.basename(freshVerdictFile(0, '/repo/e2e/navigation.spec.ts')));
+      const later = path.join(dir, path.basename(smoke));
+      const pristine: FreshSeedReport = { fresh: true, reasons: [] };
+      const dirty: FreshSeedReport = { fresh: false, reasons: ['#general has events after the seeded last message'] };
+      // The first file on the instance judged a pristine server...
+      expect(await loadOrProbe(first, async () => pristine)).toEqual(pristine);
+      // ...a file that runs after it does not inherit that verdict: it probes the (now dirty) server and skips honestly.
+      let probes = 0;
+      expect(await loadOrProbe(later, async () => (probes++, dirty))).toEqual(dirty);
+      expect(probes).toBe(1);
+      // A worker restarted mid-file reuses that file's own verdict.
+      expect(await loadOrProbe(later, async () => (probes++, pristine))).toEqual(dirty);
+      expect(probes).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
