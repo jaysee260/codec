@@ -186,7 +186,7 @@ export function RecoveryDialog() {
           <p className={styles.muted}>
             {reason === 'failed'
               ? 'Try again in a moment. New messages are readable already.'
-              : 'Enter that other recovery key to restore them, or reset the backup: new messages stay readable, older ones stay locked for good.'}
+              : 'Enter that other recovery key to restore them. Reset backup instead creates a new recovery key and identity: older messages stay locked for good, and your other sessions must be verified again.'}
           </p>
         </div>
       );

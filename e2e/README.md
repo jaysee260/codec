@@ -30,7 +30,7 @@ QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..
 | `e2ee-media.spec.ts` | desktop | Phase 5 AC-E3: encrypted image / file / voice (decrypted shape, ciphertext on the media repo, hash check, lazy load) |
 | `e2ee-security-chain.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 on throwaway accounts: the serial setup -> unlock -> SAS (match / mismatch / decline) -> backup chain, AC-E5-4 passphrase unlock |
 | `e2ee-security-regressions.spec.ts` | desktop | Phase 5 AC-E4 / AC-E5 regressions (banner, dialog close testids, unlock errorKind, verification requests, SAS via the store) |
-| `e2ee-recovery-second-key.spec.ts` | desktop | Recovery unlock hang (2026-10-18): backup secret under a second, non-default secret-storage key; unlock with the default key renders the K2 prompt while busy; Cancel -> `locked` (verified) -> `recovery-retry` (wrong key -> `locked`, K2 -> `done`); K2 at the prompt -> `done`; Hide (X) keeps the unlock and prompt alive |
+| `e2ee-recovery-second-key.spec.ts` | desktop | Recovery unlock hang (2026-10-18): backup secret under a second, non-default secret-storage key; unlock with the default key renders the K2 prompt while busy; Cancel -> `locked` (verified) -> `recovery-retry` (wrong key -> `locked`, K2 -> `done`); K2 at the prompt -> `done`; Hide (X) keeps the unlock and prompt alive, also after the `unlock` banner was dismissed (a pending prompt overrides the dismissal) |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
