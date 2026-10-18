@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { devices, expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { DISPLAY_NAMES, PASSWORD, type UserKey } from './seed.ts';
 import { e2eeKeysFile, workerOrigin } from './pool.ts';
-import { SESSION_STORAGE_KEY } from './auth.ts';
+import { SESSION_STORAGE_KEY, statusDiagnosis } from './auth.ts';
 import { noteServerUse } from './run-log.ts';
 import { annotate } from './state.ts';
 
@@ -255,9 +255,13 @@ export async function cryptoState(page: Page): Promise<CryptoSnapshot> {
 
 /** Waits for the first status snapshot (null until ~1 s after app-shell) and returns the state. */
 export async function waitForStatus(page: Page, timeout = 30_000): Promise<CryptoSnapshot & { status: OwnDeviceStatus }> {
-  await expect
-    .poll(async () => (await cryptoState(page)).status !== null, { timeout, message: 'useSecurityStore.status never arrived' })
-    .toBe(true);
+  try {
+    await expect
+      .poll(async () => (await cryptoState(page)).status !== null, { timeout, message: 'useSecurityStore.status never arrived' })
+      .toBe(true);
+  } catch (e) {
+    throw new Error(`${e instanceof Error ? e.message : String(e)}\n\nstatus diagnosis: ${await statusDiagnosis(page)}`);
+  }
   return (await cryptoState(page)) as CryptoSnapshot & { status: OwnDeviceStatus };
 }
 

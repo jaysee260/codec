@@ -152,9 +152,69 @@ export async function settleSecurityBanner(page: Page): Promise<void> {
     )
     .then((h) => h.jsonValue() as Promise<{ hint: unknown }>)
     .then((v) => v.hint)
-    .catch(() => null);
+    .catch(async () => {
+      // Tolerated (a production build has no hook), but say why: CI keeps no browser console.
+      console.warn(`[e2e] settleSecurityBanner: no security status after 30 s; status diagnosis: ${await statusDiagnosis(page)}`);
+      return null;
+    });
   if (hint) await expect(page.getByTestId('security-banner')).toBeVisible();
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+}
+
+/**
+ * Why the security status is still null, as one JSON line for the failure message (CI keeps no browser console):
+ * the session and crypto state, which of the SDK calls behind `refresh()` settle within 2 s, and how the crypto
+ * engine's .wasm was served.
+ */
+export async function statusDiagnosis(page: Page): Promise<string> {
+  if (page.isClosed()) return 'page closed';
+  const read = page
+    .evaluate(async () => {
+      const w = window as any;
+      const session = w.__matrixPoc?.session?.getState?.();
+      const sec = w.__matrixPoc?.security?.store?.getState?.();
+      const client = w.__matrixPoc?.getClient?.();
+      const crypto = client?.getCrypto?.();
+      const settle = async (p: () => Promise<unknown>): Promise<string> => {
+        try {
+          return await Promise.race([
+            Promise.resolve(p()).then(() => 'ok'),
+            new Promise<string>((done) => setTimeout(() => done('timeout'), 2000)),
+          ]);
+        } catch (err) {
+          return `error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      };
+      const userId = client?.getUserId?.();
+      const results = crypto
+        ? await Promise.all([
+            settle(() => crypto.getDeviceVerificationStatus(userId, client.getDeviceId())),
+            settle(() => crypto.userHasCrossSigningKeys(userId, false)),
+            settle(() => crypto.isCrossSigningReady()),
+            settle(() => client.secretStorage.getDefaultKeyId()),
+            settle(() => crypto.getKeyBackupInfo()),
+            settle(() => crypto.getActiveSessionBackupVersion()),
+            settle(() => crypto.getSessionBackupPrivateKey()),
+          ])
+        : [];
+      const names = ['deviceStatus', 'hasCrossSigning', 'crossSigningReady', 'defaultKeyId', 'backupInfo', 'activeBackup', 'backupKey'];
+      const calls = crypto ? Object.fromEntries(names.map((n, i) => [n, results[i]])) : null;
+      const wasm = performance
+        .getEntriesByType('resource')
+        .filter((r) => r.name.includes('.wasm'))
+        .map((r) => `${r.name.split('/').pop()} ${(r as PerformanceResourceTiming).responseStatus ?? '?'} ${Math.round(r.duration)}ms`);
+      return JSON.stringify({
+        session: session && { status: session.status, loadingStage: session.loadingStage, syncState: session.syncState, error: session.error },
+        clientSync: client?.getSyncState?.() ?? null,
+        cryptoReady: sec?.cryptoReady ?? null,
+        cryptoError: sec?.cryptoError ?? null,
+        calls,
+        wasm,
+      });
+    })
+    .catch((err) => `diagnosis failed: ${err instanceof Error ? err.message : String(err)}`);
+  // A page whose main thread is stuck never answers: say so instead of eating the test's remaining time.
+  return Promise.race([read, new Promise<string>((done) => setTimeout(() => done('page did not answer within 5 s (main thread busy?)'), 5000))]);
 }
 
 /** Clicks logout and waits for the login form. */
