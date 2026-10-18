@@ -18,6 +18,7 @@ import {
   cryptoCallbacks,
   findCachedSecretStorageKey,
   hasCachedSecretStorageKey,
+  SecretStorageKeyMissError,
   setSecretStorageKeyPrompt,
   type SecretStorageKeyPromptContext,
 } from './crypto.ts';
@@ -181,20 +182,66 @@ describe('cryptoCallbacks.getSecretStorageKey', () => {
     assert.deepEqual(context, { secretName: 'm.cross_signing.master', differentKey: false });
   });
 
-  test('a wrong key typed at the prompt -> null, and nothing is cached under the prompted id', async () => {
+  const miss = (reason: string) => (e: unknown): boolean => {
+    assert.ok(e instanceof SecretStorageKeyMissError, `SecretStorageKeyMissError, got ${String(e)}`);
+    assert.equal(e.reason, reason);
+    return true;
+  };
+
+  test('a wrong key typed at the prompt rejects (wrong-key), and nothing is cached under the prompted id', async () => {
     const k2 = randomKey();
     setSecretStorageKeyPrompt(async () => encodeRecoveryKey(randomKey())!);
-    assert.equal(await getKey({ k2: await describeKey(k2) }, 'm.megolm_backup.v1'), null);
+    await assert.rejects(getKey({ k2: await describeKey(k2) }, 'm.megolm_backup.v1'), miss('wrong-key'));
     assert.equal(hasCachedSecretStorageKey('k2'), false);
+    assert.equal(hasCachedSecretStorageKey(), false, 'the cache stays empty');
   });
 
-  test('a cancelled prompt -> null', async () => {
+  test('an undecodable answer at the prompt rejects (wrong-key)', async () => {
+    setSecretStorageKeyPrompt(async () => 'definitely not a key');
+    await assert.rejects(getKey({ k2: await describeKey(randomKey()) }, 'm.megolm_backup.v1'), miss('wrong-key'));
+    assert.equal(hasCachedSecretStorageKey(), false);
+  });
+
+  test('a cancelled prompt rejects (cancelled)', async () => {
     setSecretStorageKeyPrompt(async () => null);
-    assert.equal(await getKey({ k2: await describeKey(randomKey()) }, 'm.megolm_backup.v1'), null);
+    await assert.rejects(getKey({ k2: await describeKey(randomKey()) }, 'm.megolm_backup.v1'), miss('cancelled'));
   });
 
-  test('no prompt registered and no match -> null', async () => {
+  test('a blank answer counts as cancelled', async () => {
+    setSecretStorageKeyPrompt(async () => '   ');
+    await assert.rejects(getKey({ k2: await describeKey(randomKey()) }, 'm.megolm_backup.v1'), miss('cancelled'));
+  });
+
+  test('no prompt registered and no match rejects (no-key)', async () => {
     cacheSecretStorageKey('k1', randomKey());
-    assert.equal(await getKey({ k2: await describeKey(randomKey()) }, 'm.megolm_backup.v1'), null);
+    await assert.rejects(getKey({ k2: await describeKey(randomKey()) }, 'm.megolm_backup.v1'), miss('no-key'));
+  });
+
+  test('no key ids offered rejects (no-key) without prompting', async () => {
+    let prompted = 0;
+    setSecretStorageKeyPrompt(async () => {
+      prompted += 1;
+      return encodeRecoveryKey(randomKey())!;
+    });
+    await assert.rejects(getKey({}, 'm.megolm_backup.v1'), miss('no-key'));
+    assert.equal(prompted, 0);
+  });
+
+  test('a typed key for a description without a mac is returned but not cached (the next call prompts again)', async () => {
+    const k = randomKey();
+    const noMac = { algorithm: ALGORITHM } as SecretStorageKeyDescription;
+    let prompted = 0;
+    setSecretStorageKeyPrompt(async () => {
+      prompted += 1;
+      return encodeRecoveryKey(k)!;
+    });
+    const first = await getKey({ legacy: noMac }, 'm.megolm_backup.v1');
+    assert.ok(first);
+    assert.equal(first[0], 'legacy');
+    assert.ok(sameBytes(first[1], k));
+    assert.equal(hasCachedSecretStorageKey('legacy'), false, 'an unchecked key is not remembered');
+    const second = await getKey({ legacy: noMac }, 'm.megolm_backup.v1');
+    assert.ok(second && sameBytes(second[1], k));
+    assert.equal(prompted, 2, 'prompted again on the second read');
   });
 });

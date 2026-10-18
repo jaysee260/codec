@@ -7,7 +7,8 @@
  *   unlock    "Unlock your message history"          action "Unlock"  -> recovery-dialog
  *   restoring "Restoring keys..." + N of M           no action, no dismiss
  *
- * Dismiss hides that need for this page load only (`useSecurityUiStore.dismissed`).
+ * Dismiss hides that need for this page load only (`useSecurityUiStore.dismissed`), except while a recovery-key
+ * prompt is pending: then `unlock` shows regardless (the way back to a prompt hidden with X).
  * testids: security-banner (+data-need), security-banner-action, security-banner-dismiss
  */
 import { KeyRound, LoaderCircle, ShieldAlert, X } from 'lucide-react';
@@ -31,8 +32,11 @@ export function SecurityBanner() {
   const need = useSecurityStore(bannerNeed);
   const dismissed = useSecurityUiStore((s) => (need ? !!s.dismissed[need] : false));
   const progress = useSecurityStore((s) => s.recovery.progress);
+  // A pending recovery-key prompt (dialog hidden mid-unlock) overrides a dismissal: the banner is the only way
+  // back to it, and the unlock waits on it.
+  const promptPending = useSecurityStore((s) => s.prompt?.kind === 'recovery-key');
 
-  if (!need || dismissed) return null;
+  if (!need || (dismissed && !promptPending)) return null;
 
   if (need === 'restoring') {
     const total = progress?.total ?? 0;
