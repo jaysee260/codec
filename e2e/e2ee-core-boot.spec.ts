@@ -38,6 +38,7 @@ import {
   expectCryptoWiped,
   loginWith,
   requireUi,
+  secondContext,
   storedSession,
   traceLoadingStages,
   uiHalf,
@@ -282,7 +283,13 @@ test.describe('AC-E6 encrypted by default', () => {
     await expect(channelItem(page, R.general)).toHaveAttribute('data-encrypted', 'false');
   });
 
-  test('AC-E6-3 #vault composer is encrypted and keys are prepared before the first send', async ({ page }) => {
+  test('AC-E6-3 #vault composer is encrypted and keys are prepared before the first send', async ({ page, browser }) => {
+    // Precondition: another member of #vault (bob) has an E2EE device this new alice device has no Olm session with,
+    // so preparing the room key must claim one (/keys/claim). Without it the criterion depended on devices earlier
+    // specs happened to leave behind: on a fresh homeserver the member device lists are already fetched at login and
+    // there is nobody to claim for, so nothing is requested after opening #vault (fails on master too).
+    const B = await secondContext(browser, 'bob');
+    await waitForStatus(B.page);
     await loginWith(page, 'alice');
     await waitForStatus(page);
     await openChannel(page, R.general);
