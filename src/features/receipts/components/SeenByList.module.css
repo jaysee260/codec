@@ -1,0 +1,202 @@
+/* Seen-by list (DEV-A-R3): desktop popover / phone bottom sheet. Same surfaces as ReactionPicker / MessageActionSheet. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-normal);
+  background: var(--bg-tooltip);
+  box-shadow: var(--shadow-elevation);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.popover {
+  position: fixed;
+  z-index: 60;
+  width: 280px;
+  padding: 8px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  animation: receipt-pop 0.12s ease-out;
+}
+@keyframes receipt-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 57;
+  background: var(--bg-overlay);
+  animation: receipt-fade 0.15s ease-out;
+}
+@keyframes receipt-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.sheet {
+  position: fixed;
+  z-index: 58;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 75%;
+  padding: 6px 8px calc(var(--safe-bottom) + 12px);
+  background: var(--bg-modal);
+  border-radius: var(--radius) var(--radius) 0 0;
+  animation: receipt-sheet-up 0.18s ease-out;
+}
+@keyframes receipt-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+.handle {
+  flex-shrink: 0;
+  width: 40px;
+  height: 4px;
+  margin: 4px auto 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-active);
+}
+
+.sheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 12px;
+  flex-shrink: 0;
+}
+.sheetTitle {
+  color: var(--text-heading);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+.close {
+  width: var(--tap-target);
+  height: var(--tap-target);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+.close:active,
+.close:hover {
+  background: var(--bg-hover);
+  color: var(--text-normal);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+}
+.section + .section {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 8px 4px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.count {
+  font-weight: 600;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+.item:hover {
+  background: var(--bg-hover);
+}
+.sheet .item {
+  min-height: var(--tap-target);
+  padding: 4px 12px;
+}
+
+.avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+.sheet .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+
+.names {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.name {
+  color: var(--text-normal);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+.sheet .name {
+  font-size: 15px;
+}
+.userId {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.empty,
+.unseenCount {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.sheet .empty,
+.sheet .unseenCount {
+  padding: 10px 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover,
+  .sheet,
+  .backdrop {
+    animation: none;
+  }
+}

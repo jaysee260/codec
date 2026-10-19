@@ -52,6 +52,7 @@ import {
   row,
   scrollListToBottom,
   settledEventId,
+  paginateToTop,
 } from './fixtures/ui.ts';
 import {
   avatarNames,
@@ -395,6 +396,9 @@ test.describe('AC-T2 timeline source, sends and hooks', () => {
     const oldestFirst = [...replyIds];
 
     await openGeneral(page);
+    // A thread built earlier (theBigThread is reused per worker) can fall out of #general's initial window when
+    // other specs post after it: page back to the root (dirty-seed rule, e2e/README.md) instead of waiting for it.
+    await paginateToTop(page, async () => (await row(page, rootId).count()) > 0, 12);
     await expect(row(page, rootId)).toBeVisible({ timeout: 20_000 });
     await openThreadFromMessage(page, rootId);
     await expect(threadMessageList(page)).toBeVisible();
@@ -806,6 +810,9 @@ test.describe('AC-T6 ThreadView', () => {
     const { rootId, replyIds } = await theBigThread();
 
     await openGeneral(page);
+    // A thread built earlier (theBigThread is reused per worker) can fall out of #general's initial window when
+    // other specs post after it: page back to the root (dirty-seed rule, e2e/README.md) instead of waiting for it.
+    await paginateToTop(page, async () => (await row(page, rootId).count()) > 0, 12);
     await expect(row(page, rootId)).toBeVisible({ timeout: 20_000 });
     await openThreadFromMessage(page, rootId);
     await expect(threadMessageList(page)).toBeVisible();

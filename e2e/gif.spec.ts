@@ -811,4 +811,49 @@ test.describe('GIF picker — klipy provider against stubs (QA-19)', () => {
     expect(api.requests.length, 'Retry re-runs the last request').toBeGreaterThanOrEqual(1);
     guard.assertClean();
   });
+
+  test('BUG — a full page of mixed-size GIFs lays out as a grid, tiles never overlap', async ({ page }) => {
+    await requireGifUi(test, page, ['composer-gif', 'gif-picker', 'gif-grid']);
+
+    // A real Klipy page: more tiles than the scroller holds, every aspect ratio different. The 8 mock
+    // GIFs always fit, which is why the squashed rows (tiles piled on top of each other) only showed
+    // with a real key.
+    const page24: KlipyItemSpec[] = Array.from({ length: KLIPY_PER_PAGE }, (_, i) => ({
+      id: 8041071659143000 + i,
+      title: `Stubbed mixed ${i}`,
+      w: 480,
+      h: 480,
+      previewW: 200 + ((i * 37) % 140),
+      previewH: 110 + ((i * 53) % 190),
+    }));
+    const guard = guardGifNetwork(page);
+    await stubKlipy(page, { items: page24 });
+    await stubKlipyCdn(page);
+    await useGifProvider(page, 'klipy', { key: FAKE_KEY });
+    await resetGifSession(page);
+    await loginAs(page, 'alice');
+    await openChannel(page, DEV);
+
+    await openGifPicker(page);
+    await expectGridIds(page, page24.map(klipyResultId));
+
+    const columns = Number(await gifGrid(page).getAttribute('data-columns'));
+    const boxes = await gifGrid(page)
+      .locator('[role="option"]')
+      .evaluateAll((els) => els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+      }));
+    expect(boxes).toHaveLength(page24.length);
+    for (const [i, box] of boxes.entries()) {
+      const spec = page24[i]!;
+      // Each tile keeps its own aspect ratio (the 44 px tap-target floor never applies at these sizes).
+      expect(box.height, `tile ${i} keeps its aspect ratio`).toBeCloseTo((box.width * spec.previewH!) / spec.previewW!, 0);
+      if (i >= columns) {
+        const above = boxes[i - columns]!;
+        expect(box.top, `tile ${i} starts below tile ${i - columns}, not on top of it`).toBeGreaterThanOrEqual(above.bottom);
+      }
+    }
+    guard.assertClean();
+  });
 });

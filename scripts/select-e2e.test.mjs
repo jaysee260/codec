@@ -51,6 +51,13 @@ describe('select-e2e', () => {
     assert.deepEqual(pick(['src/lib/preview/fetch.ts']), sorted([...SMOKE, 'e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts']));
   });
 
+  test('read receipts: the feature folder and store slice run the receipt specs; the SDK core also runs CORE', () => {
+    const receipts = ['e2e/receipts.spec.ts', 'e2e/mobile-receipts.spec.ts'];
+    assert.deepEqual(pick(['src/features/receipts/ReadAvatars.tsx', 'src/store/receipts.ts']), sorted([...SMOKE, ...receipts]));
+    assert.deepEqual(pick(['src/lib/matrix/receipts-core.ts']), sorted([...CORE, ...receipts]));
+    assert.ok(!pick(['src/lib/matrix/receipts.ts']).includes('e2e/gif.spec.ts'));
+  });
+
   test('a conversation component runs the conversation area, not every area above it', () => {
     const s = pick(['src/features/conversation/components/MessageList.tsx']);
     assert.ok(s.includes('e2e/conversation-timeline.spec.ts'));

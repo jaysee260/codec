@@ -77,8 +77,15 @@ test.describe('authenticated media', () => {
     await image.click({ force: true }); // the SVG thumbnail may not render; the link still must be safe
     expect((await download).suggestedFilename()).toBe('evil.svg');
     for (const p of page.context().pages()) {
+      // A tab the download opened can close while we walk the list ("Target page ... has been closed"): it cannot be
+      // showing the SVG then, so skip it instead of failing on the race.
+      if (p.isClosed()) continue;
       expect(p.url(), 'no tab may show the SVG').not.toMatch(/^blob:/);
-      expect(await p.evaluate(() => (window as { __svgRan?: boolean }).__svgRan ?? false)).toBe(false);
+      const ran = await p.evaluate(() => (window as { __svgRan?: boolean }).__svgRan ?? false).catch((e: Error) => {
+        if (p.isClosed() || /closed/i.test(e.message)) return false;
+        throw e;
+      });
+      expect(ran).toBe(false);
     }
   });
 });

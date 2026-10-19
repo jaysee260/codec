@@ -35,7 +35,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './fixtures/auth.ts';
 import { asUser, type ApiUser } from './fixtures/matrix-api.ts';
 import { HS_URL, resolveRoom, uniqueName, userId } from './fixtures/seed.ts';
-import { channelItem, hoverActions, messageList, openChannel, openSpace, row, rowByText, settledEventId, typeAndSend } from './fixtures/ui.ts';
+import { channelItem, hoverActions, messageList, nextFrames, openChannel, openSpace, parkAboveBottom, row, rowByText, settledEventId, typeAndSend } from './fixtures/ui.ts';
 import { createRoom, joinRoom, setRoomEncryption } from './fixtures/e2ee-api.ts';
 import { e2eeAfterEach, requireUi, secondContext, waitForStatus } from './fixtures/e2ee.ts';
 import { annotate, markRoomRead } from './fixtures/state.ts';
@@ -847,6 +847,45 @@ test.describe('AC-L7 threads, quotes, edits, scroll', () => {
     await expect(cardFor(cardRow, url)).toHaveAttribute('data-state', 'ready', { timeout: 15_000 });
     await expectImageLoaded(cardFor(cardRow, url)).catch(() => annotate('image-not-loaded', 'the offscreen image did not decode (lazy loading?); measured after the card only'));
     await expect.poll(async () => Math.abs((await reader.boundingBox())!.y - before), { message: 'the message alice reads keeps its position within 2 px', timeout: 3_000 }).toBeLessThanOrEqual(2);
+    expect(guard.violations()).toEqual([]);
+  });
+
+  test('REG-L7-4b parked 10-35 px above the bottom (inside the stick band): a card loading above the viewport keeps the reader', async ({ page }) => {
+    // Regression for the AC-L7-4 root cause (Dev B, 2026-10-18): "stuck" means within 40 px of the bottom, and late
+    // growth used to snap to the true bottom, moving everything on screen by the remaining gap (21-24 px).
+    requireUi('Dev B', ...CARD_UI, 'link-preview-image');
+    const marker = uniq('L74b');
+    const guard = await noThirdParty(page);
+    const url = fixtureUrl(undefined, 'article.html', `t=${marker}`);
+    const gate = deferred();
+    await stubPreview(page, (u) => (u === url ? { continueAfter: gate.promise } : 'continue'));
+    const cardMsg = await bob.send(R.dev, `${url} ${marker}card`);
+    const fillers: string[] = [];
+    for (let i = 0; i < 24; i += 1) fillers.push(await bob.send(R.dev, `${marker} filler ${i}`));
+    await loginAs(page, 'alice', { selection: { spaceId: R.acme, roomId: R.dev } });
+    await openRoom(page, R.dev);
+    const cardRow = row(page, cardMsg);
+    await expect(cardRow).toBeAttached({ timeout: 15_000 });
+    await expect(row(page, fillers[23]!)).toBeVisible({ timeout: 15_000 });
+    await expect(cardFor(cardRow, url)).toHaveAttribute('data-state', 'loading', { timeout: 10_000 });
+    const gap = await parkAboveBottom(page, 20);
+    expect(gap, 'parked inside the 40 px stick band, not at the very bottom').toBeGreaterThanOrEqual(10);
+    expect(gap).toBeLessThanOrEqual(35);
+    const listBox = (await messageList(page).boundingBox())!;
+    const cardBox = (await cardRow.boundingBox())!;
+    expect(cardBox.y + cardBox.height, 'the loading card is above the viewport').toBeLessThan(listBox.y);
+    const reader = row(page, fillers[22]!);
+    const before = (await reader.boundingBox())!.y;
+    const heightBefore = cardBox.height;
+    gate.release();
+    await expect(cardFor(cardRow, url)).toHaveAttribute('data-state', 'ready', { timeout: 15_000 });
+    await expectImageLoaded(cardFor(cardRow, url)).catch(() => annotate('image-not-loaded', 'measured after the card only'));
+    await expect.poll(async () => (await cardRow.boundingBox())!.height, { message: 'the card row grew' }).toBeGreaterThan(heightBefore + 20);
+    await nextFrames(page);
+    const after = (await reader.boundingBox())!.y;
+    expect(Math.abs(after - before), `reader moved ${after - before}px`).toBeLessThanOrEqual(2);
+    const gapAfter = await messageList(page).evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    expect(Math.abs(gapAfter - gap), `bottom gap kept (${gap} -> ${gapAfter})`).toBeLessThanOrEqual(2);
     expect(guard.violations()).toEqual([]);
   });
 
