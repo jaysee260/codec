@@ -1,5 +1,5 @@
 /**
- * QA-19 — desktop GIF suite, AC-G1 .. AC-G8 (docs/PHASE4_ACCEPTANCE.md).
+ * QA-19 — desktop GIF suite, AC-G1 .. AC-G8 (docs/archive/PHASE4_ACCEPTANCE.md).
  *
  * ## Dirty-seed contract
  * Everything happens in **#dev** (never #general, which the smoke demo owns) and every test sends
@@ -148,7 +148,7 @@ test.describe('GIF picker — mock provider (QA-19)', () => {
     if (drift) {
       annotate(
         'catalogue-drift',
-        `src/lib/gif/mock-fixtures.ts and docs/PHASE4_ACCEPTANCE.md disagree (${drift}). This suite derives its expectations from the code, so it is green either way — the doc needs reconciling (docs/BUGS.md).`,
+        `src/lib/gif/mock-fixtures.ts and docs/archive/PHASE4_ACCEPTANCE.md disagree (${drift}). This suite derives its expectations from the code, so it is green either way — the doc needs reconciling (docs/BUGS.md).`,
       );
     }
     requireGifFixtures(test);

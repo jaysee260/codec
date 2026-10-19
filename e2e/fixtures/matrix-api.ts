@@ -259,7 +259,7 @@ export interface ApiUser {
   /** Uploads bytes to the media repo and returns the `mxc://` uri (Phase 2, QA-8). */
   upload(bytes: Uint8Array, contentType: string, filename: string): Promise<string>;
   /**
-   * Posts a voice message with the exact contract shape of docs/PHASE2_ACCEPTANCE.md
+   * Posts a voice message with the exact contract shape of docs/archive/PHASE2_ACCEPTANCE.md
    * (QA-8; "bob's voice note" in the phone demo). See {@link SendVoiceOptions}.
    */
   sendVoice(roomId: string, opts?: SendVoiceOptions): Promise<SentVoice>;
@@ -269,7 +269,7 @@ export interface ApiUser {
   /* ---------------------------------------------------------------- threads (Phase 3, QA-14) */
 
   /**
-   * Posts a thread reply with the **exact** contract content of docs/PHASE3_ACCEPTANCE.md:
+   * Posts a thread reply with the **exact** contract content of docs/archive/PHASE3_ACCEPTANCE.md:
    *
    * ```json
    * { "msgtype": "m.text", "body": body,
@@ -300,7 +300,7 @@ export interface ApiUser {
    * paths for some event ages). `null` when the event carries no thread bundle.
    */
   getThreadSummary(roomId: string, rootId: string): Promise<ServerThreadSummary | null>;
-  /** Alias of {@link getThreadSummary} under the docs/PHASE3_TICKETS.md name. */
+  /** Alias of {@link getThreadSummary} under the docs/archive/PHASE3_TICKETS.md name. */
   threadSummaryOf(roomId: string, rootId: string): Promise<ServerThreadSummary | null>;
   /** `GET /user/{me}/filter/{filterId}` — the sync filter the app registered (AC-T1-1). */
   getFilter(filterId: string): Promise<Record<string, unknown> | undefined>;
@@ -352,7 +352,7 @@ export interface ServerThreadSummary {
   latest_event?: MatrixEventJson;
 }
 
-/** The `m.relates_to` every thread reply must carry (docs/PHASE3_ACCEPTANCE.md). */
+/** The `m.relates_to` every thread reply must carry (docs/archive/PHASE3_ACCEPTANCE.md). */
 export interface ThreadRelatesTo {
   rel_type: string;
   event_id: string;
@@ -565,7 +565,7 @@ export function waveformFromSamples(samples: Float32Array, buckets = 100): numbe
  *
  * Phase 3: neither do **thread replies**. With `threadSupport: true` Synapse reports them under
  * `unread_thread_notifications` and the app's room badge is `getRoomUnreadNotificationCount(Total)`,
- * i.e. main only (docs/PHASE3_PLAN.md "Room badges"). `/messages` still returns thread replies in the
+ * i.e. main only (docs/archive/PHASE3_PLAN.md "Room badges"). `/messages` still returns thread replies in the
  * room chunk, so without this they would be counted here and `unreadFor` would drift above the badge
  * the moment this suite leaves a thread reply in a seeded room.
  */

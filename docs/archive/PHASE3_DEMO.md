@@ -1,13 +1,13 @@
 # Codec threads - Demo Handoff (Phase 3)
 
-The Phase 1 web client and the Phase 2 phone app (docs/DEMO.md, docs/PHASE2_DEMO.md), now with threads: reply to any message in a side thread, as in Slack and Element, presented the way Discord does it. Everything runs on this PC. Final test numbers: see docs/STATUS.md "Phase 3".
+The Phase 1 web client and the Phase 2 phone app (docs/archive/DEMO.md, docs/archive/PHASE2_DEMO.md), now with threads: reply to any message in a side thread, as in Slack and Element, presented the way Discord does it. Everything runs on this PC. Final test numbers: see docs/STATUS.md "Phase 3".
 
 ## 1. Start everything (this PC, `C:\Users\jcgon\Development\matrix-poc`)
 | Step | Command | Notes |
 |---|---|---|
 | 1 | `npm run hs:up` then `npm run seed` | As before. For pristine badges `npm run seed:reset` (about 1 min); the reset also seeds a sample thread in `#dev`. |
 | 2 | `npm run dev` | Desktop client at **http://localhost:5173**; log in as **alice** / **password123**. |
-| 3 | `npm run hs:lan` (phone only, keep it open) | LAN proxy for the phone, as in Phase 2 (docs/PHASE2_DEMO.md section 1). |
+| 3 | `npm run hs:lan` (phone only, keep it open) | LAN proxy for the phone, as in Phase 2 (docs/archive/PHASE2_DEMO.md section 1). |
 | 4 | `npm run thread:sample -- --room "#general:localhost"` | Posts a live thread in `#general` as bob with replies by bob and carol, and prints the ids. Use it when you want a ready-made thread; the walkthrough below starts one by hand. |
 | 5 | During the demo: `npm run thread:sample -- --root <id> --replies 1` | Adds one bob reply to the thread with that root id, live, so the count ticks while the stakeholder watches. The root id is printed by step 4; for a thread started by hand, read it from the open panel's `data-root` attribute (DevTools, `[data-testid="thread-panel"]`), or simply use step 4's thread for the live-reply steps. |
 
@@ -26,7 +26,7 @@ The Phase 1 web client and the Phase 2 phone app (docs/DEMO.md, docs/PHASE2_DEMO
 Second screen, optional: open http://localhost:5173 in an incognito window as **bob** / **password123** and reply from there; the reply appears in alice's panel and summary row live.
 
 ## 3. Phone walkthrough (Android, about two minutes)
-The APK is rebuilt with threads (`npm run cap:build:android:lan`); install and log in exactly as in docs/PHASE2_DEMO.md section 1, Path B.
+The APK is rebuilt with threads (`npm run cap:build:android:lan`); install and log in exactly as in docs/archive/PHASE2_DEMO.md section 1, Path B.
 
 | # | Do | You should see |
 |---|---|---|

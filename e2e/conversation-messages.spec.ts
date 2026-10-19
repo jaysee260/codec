@@ -1,7 +1,7 @@
 /**
  * QA-5 — conversation suite, part messages: AC-B4, AC-B5 (docs/ACCEPTANCE.md).
  *
- * Split out of the former `conversation.spec.ts` (issue #2, docs/PERF_PLAN.md) so its parts can run on
+ * Split out of the former `conversation.spec.ts` (issue #2, docs/archive/PERF_PLAN.md) so its parts can run on
  * different Playwright workers; the tests were moved verbatim (same titles, bodies, assertions, timeouts).
  * The three files are `conversation-timeline`, `conversation-compose` and `conversation-messages`.
  *
@@ -9,7 +9,7 @@
  * Every test logs in fresh. Seeded messages are located by event id from `seed/seed-output.json`;
  * anything this run creates is located by its unique text inside `message-list`. Messages #1-#15
  * of #general are older than the initial ~30-event sync window, so tests that touch them call
- * `withFullHistory()` first to page the room in (see docs/ARCHITECTURE.md, "Initial window").
+ * `withFullHistory()` first to page the room in (see docs/GOTCHAS.md, "Initial window").
  *
  * Nothing here asserts an exact message count: the devs post into the same rooms while this runs.
  */

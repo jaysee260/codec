@@ -488,7 +488,7 @@ const DEV: Step[] = [
   { who: 'dave', body: 'Bumping Node to 24 in CI this week, shout if that breaks anything.' },
   { who: 'bob', body: "Should be fine, we're already on 24 locally." },
   {
-    // Phase 3 thread in #dev (docs/PHASE3_TICKETS.md PRIN-12): carol root; bob, alice, carol replies.
+    // Phase 3 thread in #dev (docs/archive/PHASE3_TICKETS.md PRIN-12): carol root; bob, alice, carol replies.
     who: 'carol',
     body: 'Which Node 24 features are we actually relying on? Thread below.',
     key: 'dev.threadRoot',
@@ -638,7 +638,7 @@ const SPACES: SpaceSpec[] = [
       { name: 'general', alias: 'general', topic: 'Company-wide chat. Be nice.', members: ['alice', 'bob', 'carol', 'dave'], order: '01', script: GENERAL, key: 'general' },
       { name: 'random', alias: 'random', topic: 'Off-topic, memes, lunch plans.', members: ['alice', 'bob', 'carol', 'dave'], order: '02', script: RANDOM, key: 'random' },
       { name: 'dev', alias: 'dev', topic: 'Engineering talk. Stack traces welcome.', members: ['alice', 'bob', 'carol', 'dave'], order: '03', script: DEV, key: 'dev' },
-      // Phase 5: an encrypted channel, created empty (see ChannelSpec.encrypted; docs/PHASE5_ACCEPTANCE.md AC-E7-1).
+      // Phase 5: an encrypted channel, created empty (see ChannelSpec.encrypted; docs/archive/PHASE5_ACCEPTANCE.md AC-E7-1).
       { name: 'vault', alias: 'vault', topic: 'Encrypted. Say it here.', members: ['alice', 'bob', 'dave'], order: '04', script: [], key: 'vault', encrypted: true },
     ],
   },

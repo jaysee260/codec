@@ -2,10 +2,10 @@
  * Wire shape of a sent GIF (Phase 4) and its validator. Pure module (no SDK, no env, no DOM) so
  * `scripts/verify-gif.mjs` / `scripts/send-gif-sample.mjs` import it and post exactly what the client posts.
  *
- * Decision (orchestrator, 2026-10-09, after the Advisor's finding; docs/PHASE4_PLAN.md): Klipy's integration terms
+ * Decision (orchestrator, 2026-10-09, after the Advisor's finding; docs/archive/PHASE4_PLAN.md): Klipy's integration terms
  * forbid re-hosting / proxying its media, so GIF bytes are **never** uploaded to the media repo. A GIF is an
  * `m.text` message whose body is "<title> <url>" (Element shows the link and, with URL previews on, unfurls it)
- * plus a structured `dev.matrixpoc.gif` field that this client renders inline (docs/PHASE4_ACCEPTANCE.md):
+ * plus a structured `dev.matrixpoc.gif` field that this client renders inline (docs/archive/PHASE4_ACCEPTANCE.md):
  *
  *   { "msgtype": "m.text", "body": "Tacos dance https://static.klipy.com/ii/.../hd.gif",
  *     "dev.matrixpoc.gif": { "provider": "klipy", "id": "8041071659142944", "title": "Tacos dance",

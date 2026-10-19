@@ -2,7 +2,7 @@
 /**
  * Post a thread to a room through the client-server API (Phase 3; QA fixture; demo prep). The root is sent by
  * alice, the replies alternate bob / carol and carry exactly the spec relation the client sends
- * (docs/ARCHITECTURE.md "Reply shape"):
+ * (docs/CORE_API.md "Threads", "Wire shapes"):
  *
  *   "m.relates_to": { "rel_type": "m.thread", "event_id": "<root>", "is_falling_back": true,
  *                     "m.in_reply_to": { "event_id": "<previous reply, or the root for the first one>" } }
@@ -36,7 +36,7 @@ const value = (name, def) => {
 const roomArg = value('--room', '#dev:localhost');
 const replyCount = Math.max(0, Number(value('--replies', '3')));
 const rootAs = value('--root-as', 'alice');
-/** Reply sender(s), round-robin. `--as bob` (docs/PHASE3_TICKETS.md) is the same as `--reply-as bob`. */
+/** Reply sender(s), round-robin. `--as bob` (docs/archive/PHASE3_TICKETS.md) is the same as `--reply-as bob`. */
 const replyAs = (value('--reply-as') ?? value('--as') ?? 'bob,carol').split(',').map((s) => s.trim()).filter(Boolean);
 /** Existing root event id: reply to it instead of posting a new root. */
 const existingRoot = value('--root');

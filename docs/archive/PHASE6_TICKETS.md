@@ -1,8 +1,8 @@
 # Phase 6 Tickets
 
-Priorities: **P0** = the desktop demo script in docs/PHASE6_PLAN.md breaks without it. P1 = demo noticeably better (embeds are the first P1 to cut). P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 5 (Principal resumes at 24, Dev A at 30, Dev B at 32, QA at 30). Waves 16-18.
+Priorities: **P0** = the desktop demo script in docs/archive/PHASE6_PLAN.md breaks without it. P1 = demo noticeably better (embeds are the first P1 to cut). P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 5 (Principal resumes at 24, Dev A at 30, Dev B at 32, QA at 30). Waves 16-18.
 
-## Ownership map (hard rule, as docs/PHASE5_TICKETS.md)
+## Ownership map (hard rule, as docs/archive/PHASE5_TICKETS.md)
 | Owner | Owns (may create/edit) | Must not edit |
 |---|---|---|
 | Principal | `src/lib/**` (new `src/lib/preview/**`), `src/store/**`, `src/app/**`, `public/**` (new `public/preview-fixtures/`), `scripts/**`, `seed/**`, `homeserver/**`, `package.json`, `vite.config.ts`, `docs/ARCHITECTURE.md` | - |
@@ -11,7 +11,7 @@ Priorities: **P0** = the desktop demo script in docs/PHASE6_PLAN.md breaks witho
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:*` script lines in `package.json` | anything else |
 | PM | `docs/PHASE6_*.md`, `docs/STATUS.md` | anything else |
 
-Shared-layer needs go in your report as **Request to <owner>: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 6 deltas (link previews)" wins); behaviour in docs/PHASE6_ACCEPTANCE.md is not. Rules this phase: never call `client.getUrlPreview` outside `src/lib/preview`; never render an image URL that did not come from `mxcToHttp`; never create an embed iframe before a click; never request a preview in an encrypted room before the reader clicks; the card must reserve its image box before the bytes arrive; test messages go in `#dev` / `#vault`, never `#general`.
+Shared-layer needs go in your report as **Request to <owner>: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 6 deltas (link previews)" wins); behaviour in docs/archive/PHASE6_ACCEPTANCE.md is not. Rules this phase: never call `client.getUrlPreview` outside `src/lib/preview`; never render an image URL that did not come from `mxcToHttp`; never create an embed iframe before a click; never request a preview in an encrypted room before the reader clicks; the card must reserve its image box before the bytes arrive; test messages go in `#dev` / `#vault`, never `#general`.
 
 ## Shared API (Principal exposes; devs consume only)
 Aligned 2026-10-18 to the Principal's `src/lib/preview/` as it stands in the working tree (`types`, `extract`, `normalize`, `cache`, `embed`, `hidden`, `fetch`, `policy`, `hooks`, `index`); import everything from `@/lib/preview`.
@@ -30,7 +30,7 @@ Aligned 2026-10-18 to the Principal's `src/lib/preview/` as it stands in the wor
 | `src/app/devtools.ts` | `window.__matrixPoc.preview` | The whole module (landed). QA asserts through it (AC-L1, AC-L6-5, AC-L8-1). |
 | `src/lib/matrix/utils.ts` (existing) | `mxcToHttp(mxc, w?, h?, method?)` | Dev A builds `<img src>` with `mxcToHttp(image.mxc, w, h, 'scale')`; the media service worker adds the token when authenticated media is on. |
 | `homeserver/homeserver.yaml`, `scripts/hs.mjs` | `url_preview_ip_range_whitelist: ['127.0.0.1/32', '::1/128']` (landed) | Test servers only; the pool snapshot is rebuilt by the orchestrator after the change. |
-| `public/preview-fixtures/` (landed) | `article.html`, `square.html`, `long.html`, `nodims.html`, `noimage.html`, `title-only.html`, `empty.html`, `hero.png` (1200x630), `thumb.png` (128x128); `npm run preview:fixtures` regenerates the PNGs | Served by Vite at `/preview-fixtures/<name>`; tags per docs/PHASE6_ACCEPTANCE.md "Fixture pages". Synapse measures downloaded images, so pages without `og:image:width/height` still come back with dimensions; the no-dimensions thumbnail case is a stub. |
+| `public/preview-fixtures/` (landed) | `article.html`, `square.html`, `long.html`, `nodims.html`, `noimage.html`, `title-only.html`, `empty.html`, `hero.png` (1200x630), `thumb.png` (128x128); `npm run preview:fixtures` regenerates the PNGs | Served by Vite at `/preview-fixtures/<name>`; tags per docs/archive/PHASE6_ACCEPTANCE.md "Fixture pages". Synapse measures downloaded images, so pages without `og:image:width/height` still come back with dimensions; the no-dimensions thumbnail case is a stub. |
 | `@/features/link-preview` (Dev A) | `LinkPreviewCard({ eventId, url, auto: boolean, ts? })`, `EmbedPlayer({ embed, poster? })` | One component per URL; owns its state via `useLinkPreview(url, { enabled: auto \|\| clicked, ts })` / `useHiddenPreview`; renders nothing when hidden or (plain room) `empty`. Dev B only maps URLs to cards. |
 
 ---

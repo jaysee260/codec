@@ -49,7 +49,7 @@ Principal exposes these in `src/app/theme.css`; devs use only the variables.
 | Docker Desktop on Windows | Homeserver won't start / data perms | WSL2 backend; named volume for `/data`, not a bind mount; generate config once with `generate`; `npm run hs:up` waits on `/_matrix/client/versions`; port 8008 conflict check documented. |
 | Synapse rate limits during seed and tests | 429s, flaky tests | `homeserver.yaml`: `rc_message`, `rc_login`, `rc_registration`, `rc_joins`, `rc_invites` set to `per_second: 1000, burst_count: 1000`; seed and QA helpers retry on 429 honouring `retry_after_ms`. |
 | Edits/reactions/redactions aggregation | Seeded history renders wrong | Rely on SDK relation aggregation (`event.replacingEvent()`, `timelineSet.relations`, `event.isRedacted()`); hide `m.replace` / `m.reaction` rows in the list. |
-| Two devs collide on files | Merge pain | Strict ownership map in `docs/TICKETS.md`; shared layers change only via Principal. |
+| Two devs collide on files | Merge pain | Strict ownership map in `docs/archive/TICKETS.md`; shared layers change only via Principal. |
 | "Doesn't feel like Discord" | Stakeholder unimpressed | Shared tokens above; DEV-A-10 / DEV-B-11 polish tickets; demo dry run in Wave 3 with screenshots compared against Discord. |
 | Playwright on Windows | QA blocked | `npx playwright install chromium` in `postinstall`; Chromium only; tests use `data-testid` only, never text-of-CSS. |
 
@@ -57,5 +57,5 @@ Principal exposes these in `src/app/theme.css`; devs use only the variables.
 | Wave | Who | Output |
 |---|---|---|
 | 1 (now) | Principal | Repo, docker-compose, seed, client/stores, shell, ARCHITECTURE.md |
-| 2 | Dev A, Dev B, QA in parallel | Tickets in `docs/TICKETS.md`; P0 first |
+| 2 | Dev A, Dev B, QA in parallel | Tickets in `docs/archive/TICKETS.md`; P0 first |
 | 3 | All | Integration, bug fixes from QA, demo dry run, `docs/STATUS.md` final |

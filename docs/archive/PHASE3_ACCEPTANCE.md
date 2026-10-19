@@ -1,6 +1,6 @@
 # Phase 3 Acceptance Criteria and Test ID Contract
 
-Extends docs/ACCEPTANCE.md and docs/PHASE2_ACCEPTANCE.md (conventions, registries and criteria stay in force). Numbering `AC-T<group>-<n>`; each group names its tickets (docs/PHASE3_TICKETS.md). "desktop" = the `desktop` Playwright project, "phone" = the `mobile` project (Pixel 7), logged in as alice, **dirty seed always allowed**: every criterion creates its own root message (alice via the UI or bob via API) and never relies on seeded threads. "a thread reply via API" = QA's `sendThreadReply`, which sends the contract below as bob. Names in the Shared API are subject to the Principal's ARCHITECTURE deltas; the wire shapes here are not.
+Extends docs/ACCEPTANCE.md and docs/archive/PHASE2_ACCEPTANCE.md (conventions, registries and criteria stay in force). Numbering `AC-T<group>-<n>`; each group names its tickets (docs/archive/PHASE3_TICKETS.md). "desktop" = the `desktop` Playwright project, "phone" = the `mobile` project (Pixel 7), logged in as alice, **dirty seed always allowed**: every criterion creates its own root message (alice via the UI or bob via API) and never relies on seeded threads. "a thread reply via API" = QA's `sendThreadReply`, which sends the contract below as bob. Names in the Shared API are subject to the Principal's ARCHITECTURE deltas; the wire shapes here are not.
 
 ## Thread reply event (the contract Dev B, Principal and QA code against)
 `sendText(roomId, body, { threadRoot })` sends exactly this `m.room.message` content (`sendFile` / `sendVoiceMessage` add the same `m.relates_to` to their content):
@@ -163,7 +163,7 @@ Conventions as docs/ACCEPTANCE.md. **Prefix rule**: inside `thread-panel`, every
 | AC-T10-1 | Given `npm run thread:sample -- --root <id>`, then bob posts one reply with the contract shape into that thread, prints JSON `{ roomId, rootId, replyIds }` and exits 0. |
 | AC-T10-2 | Given `npm run thread:sample` with no `--root`, then it posts a root as bob in `#general` (or `--room`), then replies by bob, carol, bob (`--replies`, default 3), and prints the same JSON. |
 | AC-T10-3 | Given `npm run seed` on a fresh homeserver, then `#dev` contains a thread (root by carol, 3 replies) and `seed-output.json` has `dev.threadRoot`, `dev.threadReply1..3`; `#general`'s message count and alice's seeded badges are unchanged. (P1; verified on the next reset.) |
-| AC-T10-4 | docs/ARCHITECTURE.md has a "Phase 3 deltas" section listing every name or shape that differs from the Shared API table in docs/PHASE3_TICKETS.md. |
+| AC-T10-4 | docs/ARCHITECTURE.md has a "Phase 3 deltas" section listing every name or shape that differs from the Shared API table in docs/archive/PHASE3_TICKETS.md. |
 
 ### AC-T11 Demo walkthrough (QA-17)
 | ID | Given / When / Then |

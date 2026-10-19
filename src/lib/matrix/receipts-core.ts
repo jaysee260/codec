@@ -3,7 +3,7 @@
  * plain Node can import it for `src/lib/matrix/receipts-core.test.ts`. `receipts.ts` binds these to the SDK's
  * `Room` / `Thread` receipt holders and re-exports everything here.
  *
- * Vocabulary (docs/RECEIPTS_PLAN.md):
+ * Vocabulary (docs/archive/RECEIPTS_PLAN.md):
  *  - a user's **read point** is the newest event their latest receipt (or a later message of theirs) covers;
  *  - a **displayed row** is an event the list renders (`useTimeline().events`); receipts often point at hidden
  *    events (reactions, edits, redactions, state), so a read point is attached to the nearest displayed row at or

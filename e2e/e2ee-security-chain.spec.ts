@@ -9,7 +9,7 @@
  * Devices: "A" is kept open across the chain (`keep: true`); B, C and D come and go one at a time, so at most
  * two contexts are open at once (AC-E8-1). `status.verified` can lag a tick after unlock / SAS: always poll.
  *
- * Part chain (the serial AC-E4/AC-E5 chain, AC-E5-4) of the former `e2ee-security.spec.ts`, split (issue #2, docs/PERF_PLAN.md) so the
+ * Part chain (the serial AC-E4/AC-E5 chain, AC-E5-4) of the former `e2ee-security.spec.ts`, split (issue #2, docs/archive/PERF_PLAN.md) so the
  * two halves can run on different Playwright workers; tests moved verbatim. Other half: `e2ee-security-regressions.spec.ts`.
  */
 import { expect, test, type Browser, type Page } from '@playwright/test';

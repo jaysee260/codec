@@ -37,7 +37,7 @@ Devs needing a shared-layer change put it in their report as **Request to Princi
 | | `getReactions(roomId, eventId)` | `=> { key: string, count: number, mine: boolean, senders: string[], myEventId?: string }[]` (from `timelineSet.relations`) |
 | `src/lib/format.ts` | `sanitizeHtml(html)` | DOMPurify wrapper, allowlist per Matrix spec (`a strong em code pre blockquote br p ul ol li img del`), `a` gets `target=_blank rel=noopener noreferrer` |
 | | `linkify(text)`, `formatTime(ts)`, `isSameDay(a,b)` | helpers |
-| `src/app/theme.css` | CSS variables | per `docs/PLAN.md` |
+| `src/app/theme.css` | CSS variables | per `docs/archive/PLAN.md` |
 
 ---
 
@@ -134,7 +134,7 @@ Devs needing a shared-layer change put it in their report as **Request to Princi
 
 **QA-2 API helper** - `e2e/fixtures/matrix-api.ts`: `asUser('bob')` -> `{ send(roomId, body, extra?), sendHtml, react(roomId, eventId, key), typing(roomId, on), redact(roomId, eventId), receipt(roomId, eventId), getReceipts(roomId, eventId), getEvent(roomId, eventId), hierarchy(spaceId), invite, joinedMembers }` on raw `fetch`, token cached per user, retries on 429. Used by every live-update criterion.
 
-**QA-3 Smoke test** - `e2e/smoke.spec.ts`: one serial spec that walks `docs/PLAN.md` demo steps 1-10 in order as alice, using bob via QA-2 for step 9; asserts each "should see" column; takes a full-page screenshot per step into `e2e/results/demo/` even on success (they are the stakeholder pre-read). Must pass before the Wave 3 dry run.
+**QA-3 Smoke test** - `e2e/smoke.spec.ts`: one serial spec that walks `docs/archive/PLAN.md` demo steps 1-10 in order as alice, using bob via QA-2 for step 9; asserts each "should see" column; takes a full-page screenshot per step into `e2e/results/demo/` even on success (they are the stakeholder pre-read). Must pass before the Wave 3 dry run.
 
 **QA-4 Navigation suite** - `e2e/navigation.spec.ts` covering AC-A1..A9. Creation tests use unique names (`memes-${Date.now()}`) so re-runs on the same seed pass.
 

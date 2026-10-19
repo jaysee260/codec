@@ -1,5 +1,5 @@
 /**
- * Per-worker server selection for parallel runs (issue #2, docs/PERF_PLAN.md).
+ * Per-worker server selection for parallel runs (issue #2, docs/archive/PERF_PLAN.md).
  *
  * The run has N workers (`E2E_WORKERS`, default below). Worker i (Playwright's `TEST_PARALLEL_INDEX`, 0..N-1)
  * talks to its own Synapse on 8008+i and its own Vite dev server on 5173+i; every Synapse is a byte copy of the same

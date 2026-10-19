@@ -1,5 +1,5 @@
 /**
- * Phase 7 QA-36: calls in rooms (desktop). docs/PHASE7_ACCEPTANCE.md AC-R3-1/2 (through the UI), AC-R4-3, AC-R4-6
+ * Phase 7 QA-36: calls in rooms (desktop). docs/archive/PHASE7_ACCEPTANCE.md AC-R3-1/2 (through the UI), AC-R4-3, AC-R4-6
  * (P1), AC-R6-6, AC-R6-7 (P1, the "No call keys" tile), AC-R8-1/2/4.
  *
  * Rooms: `#vault` (alice, bob, dave; encrypted; seeded with the public preset, so `grantCallPowerLevels` gives the

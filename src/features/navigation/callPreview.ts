@@ -1,7 +1,7 @@
 /**
  * DEV-A-34: "is this room's last message a missed call for me?" for the sidebar rows (`data-preview="missed-call"`).
  *
- * Pure (no SDK / React / `@/` imports; `lines.ts` is pure too) so `node --test` loads it. Contract: docs/PHASE7_ACCEPTANCE.md "Wire shapes":
+ * Pure (no SDK / React / `@/` imports; `lines.ts` is pure too) so `node --test` loads it. Contract: docs/archive/PHASE7_ACCEPTANCE.md "Wire shapes":
  * a `dev.matrixpoc.call` event `{ kind: 'missed', call_id, participants: [<rung members who did not answer>] }` is a
  * missed call for every user in `participants`. The ring (`org.matrix.msc4075.rtc.notification`) and the decline
  * (`org.matrix.msc4310.rtc.decline`) are timeline lines too, so a later one of them means the missed call is no longer

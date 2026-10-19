@@ -36,7 +36,7 @@ export interface GifPage {
   results: GifResult[];
   /** Pass back as `opts.page` to fetch the next page; `null` when this was the last page (Klipy: a page number). */
   nextPage: string | number | null;
-  /** `nextPage !== null` (the name docs/PHASE4_ACCEPTANCE.md uses). */
+  /** `nextPage !== null` (the name docs/archive/PHASE4_ACCEPTANCE.md uses). */
   hasNext: boolean;
 }
 
@@ -60,7 +60,7 @@ export interface GifProvider {
 }
 
 /**
- * The `dev.matrixpoc.gif` field of a sent GIF message, exactly as on the wire (docs/PHASE4_ACCEPTANCE.md
+ * The `dev.matrixpoc.gif` field of a sent GIF message, exactly as on the wire (docs/archive/PHASE4_ACCEPTANCE.md
  * "GIF message event"). The timeline renders `<img src={url}>` straight from the provider's host (never the media
  * repo) and `stillUrl` under reduced motion.
  */

@@ -1,412 +1,112 @@
 # Bug log
 
-QA owns this file (docs/TICKETS.md QA-6, docs/PHASE2_TICKETS.md QA-13). Every failing test gets a
-row; devs close a row with the commit that fixes it (put the commit sha in **Status**).
+Every bug QA found, by phase, newest phase first. A row is closed with the commit that fixed it in **Status**. QA owns
+this file; devs only fill in the fix.
 
-**Severity** — `S1` blocks the demo script (docs/PLAN.md on desktop, docs/PHASE2_PLAN.md on the
-phone, docs/PHASE3_PLAN.md for threads) · `S2` wrong but the demo still works · `S3` cosmetic.
-Phase 3 raises two specific things to `S1` on sight: **a thread reply leaking into the channel
-timeline** (as a row or as a reply quote) and **any Phase 1/2 criterion regressing after
-`threadSupport: true`** — both are the premise of the whole phase, so neither demo survives them.
+## Open now
 
-**Platform** (Phase 2 column) — `web-desktop` the `desktop` Playwright project / a real browser at
-1280 px · `web-mobile-emulated` the `mobile` Playwright project (`devices['Pixel 7']`, fake mic; no
-emulator exists on this machine) · `android-device` the APK on the stakeholder's phone ·
-`ios-device` the Mac/iPhone pass. **Manual** = `yes` when the row came from a human walking the demo
-rather than from a test (every `android-device` / `ios-device` row is manual by definition).
+| Bug | Where | What | Status |
+|---|---|---|---|
+| BUG-4 | Phase 2 (phone shell) | First login on a loaded homeserver is slow (10.6 s / 16.1 s measured, 1.8 s on a quiet one) | open, S3 |
 
-**Reproducing** — steps are written from a fresh seed:
+Everything else in this file is fixed or waived. Manual checks that need a real phone or the 704.chat homelab are listed
+under each phase as a "checklist".
+
+## How to read a row
+
+- **Severity**: `S1` blocks the demo script, `S2` is wrong but the demo still works, `S3` is cosmetic. A thread reply
+  leaking into the channel, or any Phase 1/2 criterion regressing after `threadSupport: true`, is `S1` on sight.
+- **Platform**: `web-desktop` (the `desktop` Playwright project or a browser at 1280 px), `web-mobile-emulated` (the
+  `mobile` project, `devices['Pixel 7']`, fake mic), `android-device` (the APK on a real phone), `ios-device` (the
+  Mac/iPhone pass).
+- **Manual** = `yes` when a human found it walking the demo rather than a test. Device rows are always manual.
+- **AC ref** points at the acceptance criterion in the phase's `docs/archive/*_ACCEPTANCE.md`.
+
+## Reproducing
+
+Steps in each row start from a fresh seed.
 
 ```
 npm run hs:up && npm run seed:reset && npm run dev          # homeserver + fixtures + client
 npm run test:e2e                                            # both projects
-npm run test:e2e:desktop                                    # Phase 1 suite only
-npm run test:e2e:mobile                                     # Phase 2 phone suites only
-npm run test:e2e:threads                                    # Phase 3 thread specs (both projects)
-npm run test:e2e:gif                                        # Phase 4 GIF specs (both projects)
-npm run test:e2e:link-preview                               # Phase 6 link preview specs (both projects)
+npm run test:e2e:desktop                                    # desktop project only
+npm run test:e2e:mobile                                     # phone project only
+npm run test:e2e:threads | :gif | :link-preview | :receipts | :e2ee | :calls
 npm run test:android-build                                  # APK build + manifest checks
 npx playwright test e2e/conversation-timeline.spec.ts -g "AC-B3-2" --project=desktop
-npx playwright test e2e/voice.spec.ts -g "AC-V2-1" --project=mobile
 npx playwright show-trace e2e/results/<project>/<test-dir>/trace.zip
 ```
 
-Artefacts live under `e2e/results/desktop/<test-dir>/` and `e2e/results/mobile/<test-dir>/` (failure
-screenshot, trace, video — one `outputDir` per project so the runs do not wipe each other),
-`e2e/results/demo/` (desktop demo screenshots) and `e2e/demo-mobile/` (phone demo screenshots, one
-per step, written even when green). The APK check unpacks to `e2e/results/apk/`.
+Artefacts: `e2e/results/desktop/<test-dir>/` and `e2e/results/mobile/<test-dir>/` (failure screenshot, trace, video; one
+`outputDir` per project so runs do not wipe each other), `e2e/results/demo/` (desktop demo screenshots),
+`e2e/demo-mobile/` (phone demo screenshots, one per step, written even when green), `e2e/results/apk/` (the unpacked APK).
 
-## Phase 1 (desktop)
+## Read receipts (sent / seen by)
 
-| BUG | AC ref | Sev | Platform | Manual | Owner | Steps (from fresh seed) | Expected | Actual | Screenshot/trace | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| BUG-1 | AC-B5-3, AC-B5-4, AC-B1-1, demo step 5 | S1 | web-desktop | no | Dev B | 1. Log in as alice. 2. Page `#general` back to the beginning. 3. Hover bob's "Lunch today? Thinking tacos." (`general.reacted`). 4. Click `message-action-react`, pick 🎉. 5. Click the new `reaction-🎉` pill to remove it. | The pill is clickable and the reaction is redacted. | Click times out: *"`<span data-testid="message-timestamp">` from `<div data-testid="message-$Yl6…">` subtree intercepts pointer events"*. Root cause: `MessageList.module.css .list` was `display:flex; flex-direction:column`, so every row was a flex item with the default `flex-shrink:1`; combined with `MessageRow.module.css .row { min-height:22px }` (an explicit min-height overrides the automatic minimum size) the flex algorithm shrank **every** row to 22 px while its content stayed 34 px+. Measured: `clientHeight 580 / scrollHeight 978`, all 24 rows `height 22px`, `flex-shrink 1`, content overflowing. Rows therefore painted over each other and the *following* row won hit-testing on pills, quotes and images. | `e2e/results/smoke-demo-script-QA-3-smo-8c4a7-oday-message-then-remove-it-chromium/` (trace.zip + test-failed-1.png) | **Fixed** by Dev B during Wave 2 — `.list` is no longer a flex container and `.row` sets `flex-shrink: 0`. Re-verified: AC-B5-1..B5-6 and demo step 5 pass. |
-| BUG-2 | AC-B3-2 | S2 | web-desktop | no | Dev B | 1. Log in as alice (`#general` opens). 2. Note the top-most rendered row and its viewport `y`. 3. Scroll `message-list` to the top so backwards pagination fires. 4. When the older messages have rendered, measure that same row's viewport `y` again. | DEV-B-3: capture `scrollHeight` before `paginateBack` and restore `scrollTop += delta` after, so the anchor row stays at the same viewport position (criterion allows no jump). | The anchor row moved **~545-582 px** down the viewport — the list kept `scrollTop` while ~30 events were prepended, throwing the reader out of position on every page-in. `timeline-loading` did appear and the older messages did load, so the demo's "scroll to the top" still worked; only the anchoring was missing. | `e2e/results/conversation-DEV-B-3-backw-f00e8-er-messages-without-jumping-chromium/` (trace.zip + test-failed-1.png) | **Fixed** by Dev B during Wave 2. Re-verified: AC-B3-2 passes, anchor drift now ≤ 5 px. |
-| BUG-3 | AC-A6-2, AC-A8-1, demo step 10 | S1 | web-desktop | no | Principal | 1. `npm run test:e2e` (or `npx playwright test e2e/navigation.spec.ts e2e/smoke.spec.ts`) — the failure needs a *loaded* homeserver, it does not reproduce running one test alone (`-g "AC-A6-2" --repeat-each=3` is 3/3 green). 2. Watch the create-channel / create-space criteria. | `create-channel-dialog` closes, the new room appears in `channel-list` with its `data-name`, selected, topic in the header. | The dialog closes (so `createChannel`/`createSpace` resolved server-side and the room exists) but the item **never appears in `channel-list`** within 15-20 s: *"element(s) not found"*. Intermittent and it moves between criteria — one run failed AC-A6-2 + step 10, the next passed AC-A6-2 and failed AC-A8-1 + step 10. Always a *newly created* room, never a seeded one, so the suspicion is the freshly-created room not reaching `useRoomStore.channelsBySpace` (`waitForRoom` / `recomputeRooms` missing the sync that carries it) rather than the sidebar render. Blocks demo step 10, hence S1. `expectChannelListed()` in `e2e/navigation.spec.ts` now records what the sidebar actually held, which separates "room never arrived" from "arrived without its name". | `e2e/results/navigation-DEV-A-6-creat-*-chromium/` and `e2e/results/smoke-*-step-10-*/` (trace.zip); look for the `diagnostic` annotation in the HTML report | **Fixed** (Principal). Two layers: (a) Synapse's separate `rc_room_creation` limiter (default burst 10, then 1/min per user) had not been relaxed, so after hours of test runs `createRoom` returned 429 and the dialog showed an error; (b) the store selected the new room from the first `/sync` batch (create + join only) before `m.space.parent` arrived in the next batch, so the selection flipped to Home. Fix: `retryOnRateLimit` honouring `retry_after_ms` (30 s budget) around `createChannel`/`createSpace`/`createDm`/`inviteUser`/`joinRoom` in `src/lib/matrix/actions.ts`; a selection invariant plus pending selection in `src/store/rooms.ts`; `rc_room_creation: 1000/1000` in `homeserver/homeserver.yaml`, `scripts/hs.mjs` and `homeserver/wsl/configure.sh` (applies on the next homeserver restart; until then alice's room creation is still ~1/min after a burst of 10). Re-verified: AC-A6 / AC-A8 / AC-A1 groups 9/9 pass. |
-
-## Phase 2 (phone shell, voice notes, Capacitor)
-
-Wave 5 QA pass against the `mobile` Playwright project (`devices['Pixel 7']`, 412x839, touch, fake
-microphone) and `npm run test:android-build`, on a **dirty** homeserver (hours of traffic; every
-Phase 2 test is written to tolerate it).
-
-| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| BUG-4 | AC-SH-2, docs/PHASE2_PLAN.md phone demo step 1 | S3 | web-desktop | no | Principal | 1. Run the whole `desktop` project (`npm run test:e2e:desktop`, ~14 min) against the current dirty homeserver. 2. Watch the last spec, `smoke.spec.ts` step 1. | Login to painted shell in under 10 s (AC-SH-2); the demo scripts want under 3 s. | **10 609 ms** at the tail of the run — just over the criterion. Re-running step 1 alone on an idle homeserver passes (7.4 s for the whole test, login well inside budget), and the **phone** smoke measures **1 832 ms** on the same homeserver, so this is initial-sync cost on a server that has just absorbed a 14-minute suite, not a layout or code regression. Recorded because login time *is* a demo criterion: if the stakeholder's device pass is run straight after a full suite, step 1 may feel slow. Mitigation for demo day: do not run the suites immediately before the demo, or `npm run seed:reset` first. | `e2e/results/desktop/smoke-demo-script-QA-3-smo-73c29-*/` (trace.zip) | **Open** — environment/perf, no code change proposed. **Worse in Phase 3 and now consequential:** the final Wave 8 `desktop` run measured **16 083 ms** at the tail of a 31-minute suite, and because `smoke.spec.ts` is `mode: 'serial'`, step 1's failure left **all 11 later steps "did not run"** — including the new thread step 11. The cause still looks like initial-sync cost on a hammered homeserver rather than a thread regression: the `mobile` smoke's step 1 measured **1 832 ms** on the same homeserver when it ran first, and step 11 passes in 2.1 s when `smoke.spec.ts` is run on its own (`npm run test:e2e:smoke`). Two things follow for demo day: do not run the suites immediately before the demo (or `npm run seed:reset` first), and judge the demo steps from a standalone smoke run, not from the tail of a full-project run. |
-| — | — | — | — | — | — | *No product defect found in the emulated phone pass.* **52** Phase 2 acceptance criteria green in **58 tests** — `voice.spec.ts` (18 tests / 23 criteria), `mobile-nav.spec.ts` (30 / 29), `mobile-smoke.spec.ts` (10 phone-demo steps) — plus **6** more (AC-C1-1..4, AC-C3-1/2) in the 20 checks of `npm run test:android-build`: **58 criteria in all**. The six failures on the first run were all QA-side and are listed under "Fixture-side defects" below. | | | `e2e/demo-mobile/` (10 phone demo screenshots) | — |
-
-### Flake pass (QA P2)
-
-`--repeat-each=3` of both phone suites on the dirty homeserver:
-
-| Suite | Result |
-|---|---|
-| `mobile-nav.spec.ts` (AC-M5-2 excluded — it creates a room per run and `rc_room_creation` is still 1/min) | **87/87**, three runs, no flake. The two tight spec budgets held every time: AC-M2-1's 300 ms drawer open and AC-M1-3's 500 ms layout flip. |
-| `voice.spec.ts` | **53/54** on the first pass, then **54/54** on a repeat and **4/4** on AC-V5-2 alone — 1 failure in 112 executions, never reproduced. |
-
-The single failure was AC-V5-2 reporting that a voice note had reached `#dev` after
-`recording-cancel`. The most likely window was QA-side: the test used to `page.unroute()` the injected
-500 straight after cancelling, so a retry still in flight would have been served by the **real** media
-repo and the note would have landed after the criterion said it was discarded. The `unroute` is gone —
-the 500 now stays installed for the rest of the test, so the assertion judges the product rather than
-the teardown. **If this reappears**, it is a genuine DEV-B-13 defect ("`recording-cancel` does not
-abort an upload retry already in flight") and deserves an S2 row; capture
-`e2e/results/mobile/voice-AC-V5-2-*/trace.zip` before the next run overwrites it.
-
-### Contract note for the Principal (not a bug, needs one line in the registry)
-
-`voice-waveform`'s `data-samples` is **the number of bars drawn**, not the number of waveform
-samples the event carried. For a note with no waveform (`[]`, AC-V4-3) `VoiceMessage.tsx` draws
-`FLAT_BARS = 40` placeholder bars and reports `data-samples="40"`. AC-V3-1 ("`data-samples` =
-waveform length") and the registry row ("one bar per waveform sample") agree with each other only
-when a waveform exists. `e2e/voice.spec.ts` therefore asserts `data-samples === waveform.length` for
-AC-V3-1/AC-V4-1 and, for the empty case, asserts that the bars are flat (all the same height) and
-that `data-samples` equals the bar count — which is what the criterion actually promises. Either
-reading is fine; the registry should just say which.
-
-### Phase 2 criteria that cannot be judged here (no emulator, no device) — stakeholder checklist
-
-Every one of these is a **manual, device** row waiting to be filled in; none of them failed, they
-were never run. The suites annotate them as `not run here`.
-
-| Criterion | What the stakeholder has to see | Where |
-|---|---|---|
-| AC-C1-6 | Install the APK, open it: login form within 3 s, no white screen; log in as alice through the LAN proxy; `#general` renders. | phone demo prep |
-| AC-M2-8 | Swipe from the left edge opens the drawer; swipe left closes it; Android **back** closes an open drawer instead of leaving the app. | demo step 2 |
-| AC-M6-4 | With the keyboard open: `composer-input`, mic/send and the newest message visible; closed, the composer sits above the gesture bar. | demo step 5 |
-| AC-M6-5 | Status-bar area dark (`#1e1f22`), no content under it, no pull-to-refresh or overscroll bounce. | demo step 1 |
-| AC-V1-6 (P2) | Record for 120 s: it auto-stops and sends, timer caps at `2:00`. | — |
-| AC-V5-3 | First mic tap shows the Android permission prompt; Allow records, Deny shows `recording-error`; the choice survives a restart. | demo step 6 |
-| AC-C3-* (iOS) | Mac handoff: Xcode build, mic prompt, Ogg/Opus playback on iOS 18.4+. | docs/PHASE2_PLAN.md |
-
-### Waived
-
-**AC-V2-4** — *no longer waived* since the voice-format change (see "Voice format" below): Chromium
-now sends `audio/ogg` and `e2e/voice.spec.ts` asserts it. Original Phase 2 text, for history:
-(`info.mimetype` is `audio/ogg` on Chromium). docs/ARCHITECTURE.md "Phase 2 deltas"
-records the decision to send the native `MediaRecorder` container with no transcoding; Chromium and
-the Android WebView therefore produce `audio/webm`. Verified instead: the mimetype is one of
-`audio/ogg` / `audio/webm` / `audio/mp4` **and** the uploaded bytes really are that container
-(AC-V2-3 magic check — observed `1A 45 DF A3`, WebM/EBML, every run).
-
-### Device report template (fill one block per finding)
+QA-R1..R3 against `e2e/receipts.spec.ts` (desktop) and `e2e/mobile-receipts.spec.ts` (phone), helpers in
+`e2e/fixtures/receipts.ts`. Other users read through the API (`readAs` = raw `POST /receipt/m.read`, `readPrivateAs` =
+`m.read.private`, threaded with the root id); bob's browser context only where his own client is the subject (AC-R2-1,
+AC-R7-2/3). 15 s polls, no `waitForTimeout`, a fresh message per test in #dev / #vault. Every test asserts the core
+through `window.__matrixPoc.receipts` first, then the UI by testid.
 
 ```
-Device:            e.g. Pixel 7a
-Android version:   e.g. 15 (API 35)
-WebView version:   Settings > Apps > Android System WebView, or chrome://version inside the WebView
-APK:               android/app/build/outputs/apk/debug/app-debug.apk, built <date>, VITE_HS_URL=<url>
-Demo step:         docs/PHASE2_PLAN.md step N  (or "outside the script")
-Criterion:         AC-M*/AC-V*/AC-C*  (or "none — new finding")
-Steps:             1. ... 2. ... 3. ...
-Expected:          <the "They should see" cell, verbatim>
-Actual:            <what happened; note whether it is reproducible>
-Screenshot:        <attach; phone screenshots go in docs/screenshots/device-*.png>
-Severity:          S1 blocks the demo / S2 wrong but the demo works / S3 cosmetic
+npm run test:e2e:receipts                                         # both specs, both projects
+npx playwright test e2e/receipts.spec.ts --project=desktop -g "AC-R7-2"
+npx playwright test e2e/mobile-receipts.spec.ts --project=mobile -g "AC-R5-1"
 ```
 
-Paste the filled block into the **Actual** cell of a new row with `Platform: android-device` (or
-`ios-device`) and `Manual: yes`.
+**Result (run 5, fix wave, both projects, 2 workers): 37 passed, 0 failed, 0 skipped** (`receipts.spec.ts` 33/33 incl.
+REV-R1 / REV-R5, `mobile-receipts.spec.ts` 4/4). Run 4 had 2 #vault failures from a Vite dep re-optimization mid-run
+(`Failed to fetch dynamically imported module .../.vite/deps/rust-crypto-*.js`, so crypto never booted); environment, green on rerun. No product defect found by the e2e run; the fix-wave code review found three (REV-R1 S1, REV-R2 S3, REV-R5 S3, below), all fixed, each with a regression test that fails on the pre-fix commit `ade0095` and passes now.
 
-## Phase 3 (threads)
+**Severity rule (read receipts).** `S1` on sight: a public `m.read` sent while "Send read receipts" is OFF, or a viewer
+shown as having read something they did not. `S2`: avatars on the wrong row, status stuck at `sending`, the list jumps
+when avatars / the check appear. `S3`: cosmetic.
 
-Wave 8 QA pass (QA-14..18) against `e2e/threads.spec.ts` (desktop, 43 tests) and
-`e2e/mobile-threads.spec.ts` (phone, 14 tests) on a **dirty** homeserver, plus the QA-17 regression
-gate on the Phase 1/2 projects after the Principal's `threadSupport: true` flip. Every thread test
-creates its own root and replies through the API, so nothing here needs a fresh seed.
-
-```
-npm run test:e2e:threads                                       # both thread specs, both projects
-npx playwright test e2e/threads.spec.ts --project=desktop -g "AC-T6-4"
-npx playwright test e2e/mobile-threads.spec.ts --project=mobile -g "AC-T3-4"
-npm run thread:sample -- --root <eventId>                      # bob replies into a live thread
-```
-
-**Wave 8 reading note.** Dev A and Dev B were implementing while this pass ran, so a red criterion
-could mean three different things. The specs separate them: each test declares the UI entry point it
-needs (`requireThreadUi`, `e2e/fixtures/threads.ts`) and **skips with a `not-built` annotation** when
-that entry point is absent. A test that *ran* and failed is therefore a product defect or a test
-defect — never "not implemented yet". The not-built list for this pass is under "Not built yet".
-
-| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| BUG-5 | AC-T2-3 | S2 | web-desktop | no | Principal (PRIN-9) | 1. Log in as alice, open `#general`. 2. In the console (the dev hook the test uses): `__matrixPoc.actions.sendText(roomId, 'x', { replyTo: $root, threadRoot: $root })`. 3. Look for the message on the server. | The call **rejects** and no event is sent (`replyTo` with `threadRoot` is a contradiction; an in-thread quote reply, `is_falling_back: false`, is explicitly out of scope — docs/PHASE3_PLAN.md "Out of scope"). | The promise **resolves** and an event **is sent**, with exactly the shape the phase ruled out: `"m.relates_to": { "rel_type": "m.thread", "event_id": "$root", "is_falling_back": false, "m.in_reply_to": { "event_id": "$root" } }`. `sendRoomMessage` in `src/lib/matrix/actions.ts` passes `replyTo` straight into `threadRelation()`, whose first branch builds the `is_falling_back: false` form; there is no guard. Consequences beyond the criterion: the contract in docs/PHASE3_ACCEPTANCE.md says `is_falling_back` is *always* `true`, and our own readers treat `is_falling_back: false` as a real quote (`getReplyTargetId`), so such an event renders a reply quote inside the panel — which AC-T1-3 forbids. Suggested fix: reject when both are set, at the top of `sendText` / `sendRoomMessage`, and drop the `replyTo` branch of `threadRelation` until in-thread quote replies are in scope. | `e2e/results/desktop/threads-AC-T2-timeline-sou-b6c56-hreadRoot-and-sends-nothing-desktop/` (the `sent-anyway` annotation carried the full event) | **Fixed** by the Principal during Wave 8, exactly as suggested: `sendText` now throws `ThreadReplyConflictError` (`src/lib/matrix/actions.ts`) **before** anything is sent, and `sendRoomMessage` no longer takes a `replyTo` at all, so the `is_falling_back: false` branch is gone. Re-verified in the final `desktop` run: AC-T2-3 passes and no event reaches the server. |
-| BUG-6 | AC-T6-4 (AC-B3-2 rule) | S2 | web-desktop | no | Dev B (DEV-B-20) | 1. Create a root with 40 API thread replies (`sendThreadReply` in a loop, or `npm run thread:sample -- --root <id> --replies 40`). 2. Open the thread from the message toolbar. 3. Note the top-most rendered reply row and its viewport `y`. 4. Scroll `thread-message-list` to the top so the thread pages back. 5. Measure that same row's `y` again. | The anchor row stays put (`thread-timeline-loading` shows, older replies prepend, drift <= 5 px — the same rule DEV-B-3 implements for the room timeline and AC-T6-4 restates for the panel). | The anchor row moved **504.6 px** down the viewport: the panel keeps `scrollTop` while a page of older replies is prepended, so the reader is thrown out of position on every page-in. This is BUG-2 again, in the second list — the room timeline's anchoring (capture `scrollHeight`, restore `scrollTop += delta`) has not been applied to `thread-message-list`. Everything else about thread pagination is correct: all 40 replies load, oldest first, no duplicate ids, `thread-timeline-start` appears (AC-T2-4 passes). | `e2e/results/desktop/threads-AC-T6-ThreadView-A-00f09--and-pages-in-without-drift-desktop/` (the `anchor-drift` annotation has the measurement) | **Test defect, not a product bug** (re-filed 2026-10-08): the drift assertion took its baseline before its own `scrollTop = 0`, so it measured the panel scrollTop (deterministic 504.59 px); real drift is 0.4 px. The orchestrator fixed `e2e/threads.spec.ts` to take the baseline inside the same `evaluate` (mirroring AC-B3-2); AC-T6-4 passes. Latent defect fixed by Dev B while investigating: `usePagination` captured a pin while the list was shorter than the viewport and walked the panel off the newest reply; it now pins only when live geometry says the list is away from the bottom. |
-| BUG-7 | AC-T9-3 | S2 | web-desktop | no | Dev B (DEV-B-22) | 1. Open a thread, send two replies of your own from `thread-composer-input`. 2. Hover the second reply, click `message-action-delete`, confirm with `delete-confirm`. | The row stays and shows `message-redacted` (as a redacted message does in the room timeline, AC-B9), and the divider/summary count drops by 1. | The **row disappears from `thread-message-list` entirely** — the test's diagnostic reports `row-gone/no-placeholder` where the criterion wants `row-present/redacted`. **Half the criterion is fine and that half is verified separately** (the test asserts the two independently, and only the row assertion fails): the redaction goes through and `thread-replies-divider` does tick from `2 replies` to `1 reply`. So this is purely the panel's render path dropping redacted thread replies instead of rendering the Phase 1 `message-redacted` placeholder the room timeline shows (AC-B9). A P1 ticket, but a row vanishing under the reader's cursor mid-demo is the kind of thing a stakeholder notices, hence S2 rather than S3. | `e2e/results/desktop/threads-AC-T9-in-thread-ed-bd097--and-drops-the-count-by-one-desktop/` | **Fixed** (Dev B, DEV-B-22): read-only tombstone in `useRoomEvents` (the SDK parks the redacted reply in the room live timeline; the panel re-inserts it via `room.findEventById`). AC-T9-3 passes unmodified (row shows `message-redacted`, counts drop by 1), so ruling G-2 keeps its primary text and the fallback wording is not needed. Residual: a reply redacted before the client loaded has no row at all, because the server no longer reports it as part of the thread. |
-
-### PM rulings (2026-10-08; full text in docs/PHASE3_ACCEPTANCE.md "Rulings")
-
-| Ruling | Subject | Decision |
-|---|---|---|
-| G-1 | AC-A4-2 (Phase 1) says `#dev` has three members with carol absent; PRIN-12 seeds a carol-authored thread root in `#dev`, so carol joins it on the next reset | Not a defect. AC-A4-2 derives the expected members from the server (`/joined_members`), as QA already implemented; the criterion text in docs/ACCEPTANCE.md is updated. |
-| G-2 | BUG-7 / AC-T9-3: Synapse strips `m.relates_to` on redaction and drops the reply from `/relations`, so a redacted thread reply cannot be shown as a tombstone without client-side memory | AC-T9-3 becomes "the reply disappears from the panel and the divider/summary counts drop by one" **unless Dev B reports a cheap tombstone** (checking now), in which case the row shows `message-redacted` and the counts still drop. **Outcome**: Dev B shipped a read-only tombstone (BUG-7 fixed); AC-T9-3 passes unmodified, the fallback wording is not needed. Residual: a reply redacted before the client loaded has no row at all. |
-
-### QA-17 regression gate — the `threadSupport: true` flip did not regress Phase 1/2
-
-Run after PRIN-8 landed and after QA-14's main-timeline-only receipt fixtures were in place (the gate
-precondition in docs/PHASE3_PLAN.md "Sequence").
-
-| Project | Result | Verdict |
-|---|---|---|
-| `desktop` (96 tests) | 79 pass / 9 fail / 8 skip, then **87 pass / 1 fail / 8 skip** after triage | No regression from the flip. 8 of the 9 failures were a **transient broken build**: every one is `app-shell` / `current-user` never rendering after login, in one contiguous block (AC-B5-6, AC-B6-1..5, AC-B7-1/2/3), and all 8 pass on re-run — the dev server on 5173 was serving a half-saved edit while Dev B worked. The 9th is AC-A4-2, see G-1. |
-| `mobile` (58 tests) | 57 pass / 1 fail / 0 skip, then **58 pass** after a fixture fix | No regression from the flip. The single failure (AC-V2-5) was a QA-side seed-window defect, listed under "Fixture-side defects". |
-
-Two gate findings that are **not** product defects but do need an owner:
-
-| # | Finding | Owner |
-|---|---|---|
-| G-1 | **AC-A4-2 ("`#dev` has three members and carol is absent") is no longer true of this homeserver, and will not be true again.** Carol joined `#dev` on 2026-10-08 (Phase 3 thread tooling), and **PRIN-12 seeds the `#dev` thread with a carol-authored root**, so carol is a `#dev` member from the next `seed:reset` onwards: the criterion's seeded expectation now contradicts another Phase 3 ticket. QA has made the test derive membership from the server and record the drift with `noteSeedDrift` (the criterion's real content — the panel lists exactly who the server says is joined — still passes), but the **criterion text in docs/ACCEPTANCE.md needs a PM decision**: drop "carol is absent", or seed the `#dev` thread under a member who is already there. | PM / Principal |
-| G-2 | `npm run verify:threads` pointed at a `scripts/verify-thread-shell.mjs` that was not in the tree, so the command failed immediately. **Resolved during Wave 8** — the Principal landed the script; re-checked at the end of this pass. | Principal (closed) |
-
-### Final Wave 8 runs (AC-T11-3)
-
-`npx playwright test --project=desktop` then `--project=mobile`, sequentially, on the dirty
-homeserver, with both thread specs and both smoke step 11s in place.
-
-| Project | Tests | Pass | Fail | Skip | Did not run | Time |
-|---|---|---|---|---|---|---|
-| `desktop` | 141 | **114** | 3 | 13 | 11 | 31.1 min |
-| `mobile` | 74 | **65** | 2 | 7 | 0 | 3.4 min |
-
-**Desktop failures**: BUG-6 (AC-T6-4) and BUG-7 (AC-T9-3), both open and listed above, plus
-**BUG-4** (`smoke.spec.ts` step 1, login 16 083 ms) — and because that spec is `mode: 'serial'`,
-step 1's failure is what produced all **11 "did not run"**, demo step 11 included. Run on its own,
-`npm run test:e2e:smoke` is 7 passed / 5 skipped with step 11a green and step 11b skipped
-(`header-threads` not built), and both screenshot sets are written: `e2e/results/demo/11-*` (5 shots)
-and `e2e/demo-mobile/11-*` (4 shots).
-
-**Mobile failures**: both **intermittent, both pass on re-run, neither is a product defect**, and
-both are now hardened in the specs (see "Fixture-side defects" 7 and 8). The 13 desktop and 7 mobile
-skips are the 8 known fresh-seed skips, 1 manual clipboard criterion, the `not-built` thread UI, and
-the device-only AC-T3-5.
-
-**Re-verified after the hardening**: `e2e/mobile-threads.spec.ts` 8 passed / 6 not-built, and
-`e2e/voice.spec.ts` 18/18 passed.
-
-### Observation: the thread suites make `#general` slower to page back (no defect, one recommendation)
-
-After this pass `#general` holds **1 066 events, 335 of them (31.4 %) thread replies**. Thread
-replies are real events in the room's `/messages` history but are *correctly* absent from the main
-timeline, so backwards pagination has to walk ~1.5x more server events to surface the same number of
-rendered rows. The visible effect is in the Phase 1 suite, not the product: `conversation.spec.ts`
-tests that call `withFullHistory()` went from a few seconds to **36-43 s each**, which is most of why
-the final `desktop` run took 31 minutes against the gate run's 10.
-
-Nothing fails because of it and no criterion is violated — the app still reaches
-`timeline-start` correctly. Two follow-ups worth taking:
-
-1. **QA (next pass):** move the 40-reply pagination fixtures (`theBigThread()` in
-   `e2e/threads.spec.ts`) from `#general` to `#dev`. The criteria do not name a room, and it would
-   keep ~80 events per run out of the room every Phase 1 pagination criterion walks.
-2. **Principal (worth a look, not a bug):** a room where a third of the history is thread replies is
-   now the normal case for this homeserver. Worth confirming that `paginateBack` cannot return a page
-   of *only* thread replies and be mistaken for "no more history" — the tests reach the start banner,
-   so it behaves today, but the margin is narrower than it was.
-
-### Not built yet (as of this QA pass — informational, not defects)
-
-Probed once per run by `requireThreadUi`; these are the entry points that were absent, with the
-criteria that consequently skipped rather than failed.
-
-| Missing | Owner | Criteria skipped |
-|---|---|---|
-| `header-threads` / `header-threads-unread` — the button is not in `channel-header`. `src/features/navigation/components/ThreadList.tsx` **exists** and already uses the registry names (`thread-list[data-variant]`, `thread-list-item-{rootId}`, `-author` / `-snippet` / `-count` / `-time` / `-avatars`, `thread-list-empty`, `thread-list-close`), but nothing mounts it and `ThreadList.module.css` is missing — it is dead code today, so the app still builds; it will not once the header imports it. | Dev A (DEV-A-17) | desktop AC-T2-7, AC-T7-1..8; phone AC-T7-1 / 2 / 4 / 7; desktop demo step 11b; phone demo step 11b |
-| `header-back` / `header-thread-room` on phone | Dev A (DEV-A-18) | phone AC-T8-1, AC-T8-2 |
-
-Built and green at the time of the pass: `message-action-thread` (toolbar and sheet), `thread-panel`
-with the registry composer, `thread-root`, `thread-replies-divider`, `thread-message-list`,
-`thread-typing`, `thread-summary-{rootId}` with `-count` / `-time` / `-avatars`,
-`thread-timeline-start`, `thread-timeline-loading`, `thread-close`, `app-shell[data-thread-open]`.
-
-### Contract divergences for the Principal (not defects; the devs code against the ticket table)
-
-| # | docs/PHASE3_TICKETS.md "Shared API" says | The tree has | Why it matters |
-|---|---|---|---|
-| D-1 | `src/store/thread.ts`, `useThreadStore` with `open: { roomId, rootId } \| null` plus `openThreadRootId` | `src/store/threads.ts`, `useThreadStore` with `openThreadRootId` / `openThreadRoomId` fields and a `useOpenThread()` selector returning `{ roomId, threadRootId }` | Internal only, and QA asserts the DOM contract (`app-shell[data-thread-open]`, `thread-panel[data-root]`) rather than the store, so nothing in the suite depends on it. **Resolved during Wave 8**: docs/ARCHITECTURE.md now has the "Phase 3 deltas (threads)" section AC-T10-4 asks for, which records these renames. Left here as the record of what QA checked. |
-| D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. **Closed** (Dev A, 2026-10-08): `relativeTime.ts` deleted, `ThreadList.tsx` imports `formatRelative` from `@/lib/format.ts`; one implementation of the pinned strings. |
-| D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
-
-## Phase 5 (end-to-end encryption)
-
-```
-npm run test:e2e:e2ee                                              # e2ee-core-* + e2ee-media + e2ee-security-* (desktop)
-npx playwright test e2e/smoke.spec.ts --project=desktop -g "step 13" # Phase 5 demo walk-through -> e2e/results/demo/13-*
-npx playwright test e2e/e2ee-security-chain.spec.ts --project=desktop -g "AC-E5-2"
-```
-Prefix with `PLAYWRIGHT_BROWSERS_PATH=/tmp/claude-0/pwb` in the build container. Security chains and the demo run on
-**throwaway accounts** (`freshUser()`): cross-signing cannot be undone, so alice's account is never set up by a test.
-
-**S1 on sight (Phase 5):** plaintext reaches the wire in an encrypted room · a raw encrypted mxc is navigated to ·
-keys survive logout · setup offers a new key on an account that already has secret storage.
-
-| BUG | AC ref | Sev | Owner | Found | Expected | Actual | Status |
-|---|---|---|---|---|---|---|---|
-| BUG-11 | AC-E1-4 | S3 | Principal (`src/store/session.ts`) | `e2ee-core` AC-E1-4 | A token rejected after boot shows "Session expired" on the login form | Wipe is correct, but `onSessionLoggedOut` -> plain `logout()`: no message (only the boot-time path says it) | Fixed (session expired message on token rejection); regression `e2ee-core` AC-E1-4 |
-| BUG-12 | AC-SH layout, AC-T6 | S1 | Principal (`src/app/Shell.tsx`) | thread panel `hidden` in AC-E2-5 | Members / thread panel beside `main` | `security-dialogs-host` was a grid child: panels pushed to a 2nd row, height 0 | Fixed 21179cb; regression `e2ee-core` "(21179cb a)" |
-| BUG-13 | AC-E2-5 | - | PM | `e2ee-core` AC-E2-5 | Reactions `m.room.encrypted` on the wire | `m.reaction` in clear: matrix-js-sdk never encrypts reactions (Element parity) | **Resolved** (PM, 2026-10-18): AC-E2-5 reworded (edits, replies and thread replies `m.room.encrypted`; reactions in the clear, Element parity), limitation recorded in PHASE5_PLAN.md and PHASE5_DEMO.md; test asserts the clear relation only |
-| BUG-14 | AC-E4-1 | S3 | Principal (`UserFooter`) or PM | `e2ee-security` AC-E4-1 | `current-user[data-verified="unknown"]` on an account with no cross-signing | `"false"` once status lands | Fixed (`unknown` without cross-signing); regression `e2ee-security` AC-E4-1 |
-| BUG-15 | AC-E8-3 (Phase 1 suites) | S2 | Principal (`seed/`) | fixture load | `seed/seed-output.json` keeps the 11 seeded event ids | `"events": {}` since the additive `npm run seed` (2026-10-17 23:54): `conversation.spec` and smoke steps 3+ throw "has no event" | Fixed (seed re-records event ids); regression guard in `e2e/fixtures/seed.ts` loadSeed |
-| BUG-16 | registry | S3 | Dev A or PM | helpers | `verify-close` / `recovery-close` / `setup-close` | One shared `dialog-close` in all three | Not a bug: the corner X has its own id since c59d1f8, footer buttons keep `dialog-close`; pinned by the BUG-16 regression test |
-| BUG-17 | demo rows 8-9 | S3 | PM (docs/PHASE5_PLAN.md) | smoke step 13 | After the emoji match, window 3 offers Unlock and the user pastes the key | Window 1 holds the backup key, so the SAS hands it over and the restore runs by itself; the banner flashes `unlock` then disappears | **Fixed** (PM, 2026-10-18): demo rows 8-9 reworded (row 8: history restores by itself after the emoji match; row 9: the recovery-key path with window 1 closed), Recovery decision row, AC-E4-4, AC-E2-6, AC-E5-1, AC-E5-2 and PHASE5_DEMO.md aligned; step 13 accepts both |
-| BUG-18 | AC-A1-2, AC-E8-3 (smoke step 1, Phase 1-4 suites) | S2 | Principal (`src/store/rooms.ts` `recomputeRooms`, `src/store/bridge.ts`) | full regression 2026-10-18 | A fresh login (no `nav.selection`) lands on Acme HQ / #general | Lands on Home / DM Bob in 3 of 4 tries (`navigation` AC-A1-2 `--repeat-each=4`). Likely: the first-load rule (`firstReady && spaces.length > 0`) runs on a debounced recompute fired mid initial sync (Phase 5 decryption / state events), before the spaces are known, so it falls back to `dms[0]`. Apply the first-load landing only once the initial sync is `Prepared` | Fixed 31f965d (no room recompute before the initial sync is prepared); regression `navigation` AC-A1-2, smoke step 1 |
-| BUG-19 | AC-V6-6 | S3 | QA (`e2e/mobile-nav.spec.ts`) | mobile-nav, about 1 in 3 | The anchor stays put while older rows are prepended | "anchor drift 44 px" or "pagination did not add rows": the 44 px phone security banner (correct for an account without encryption) mounts ~1 s after the shell, after the test scrolled and measured | Fixed (test): `loginAs()` now waits for the security status and the banner (`settleSecurityBanner`). The AC-V6-6 drift is also measured inside `message-list`. Same 48 px shift on desktop broke `conversation` AC-B3-2 (3/4 red); both now pass 4/4 |
-| BUG-20 | AC-E8-3 | S2 | QA (`e2e/auth-media.spec.ts`) | full regression 2 | Every test's browser contexts closed at its end | The SSO login-token test never closed its `browser.newContext()`, so a logged-in alice synced (with crypto) for the whole run; later logins took 16 s+ in "Setting up encryption" / "Syncing" and missed the 20 s shell timeout (5 desktop tests) | Fixed (test): context closed in `finally` |
-| BUG-21 | AC-E8-3, AC-SH-2 | S2 | QA (`e2e/fixtures/auth.ts`) + coordinator (homeserver data) | full regression 3 | Test logins leave no devices behind | `loginAs` never logged out: alice has **1206 devices, 790 with device keys**. Since Phase 5 every login queries and every encrypted send shares keys with all of them. Logins slow down over a run (shell > 20 s, AC-SH-2 11.6 s, AC-E5-6 backup count stuck) | Test half fixed: `loginAs` logs out the sessions of earlier tests (`navigation` run: +2 devices for 29 tests). Server reset 2026-10-18 cleared them. Run 4 holds: alice 1 -> 11 devices over 290 tests (6 web, 4 API-helper logins) |
-| BUG-22 | AC-G8-1, demo step 7 | S3 | QA (`gif.spec`, `mobile-gif.spec`, `smoke.spec`) | full regression 4 | GIF decoded / thumbnail box <= 400 px | Read once right after mount: `naturalWidth` 0 (decode not done) and `boundingBox()` null (bubble re-rendering). Flaky in long runs; the dev server watching `e2e/results` (Faster test runs thread) widens the window | Fixed (test): both polled. AC-G7-1 3/3, smoke demo chain and mobile-gif green in isolation |
-| BUG-23 | AC-B1-1, AC-B3-1, AC-A2-3, smoke steps 2/3/5/6 | S2 | QA (`e2e/fixtures/fresh.ts`) | issue #2 run 1 (also with 1 worker) | The fresh-seed guard lets its 7 tests run on a pristine seed | Always skipped "requires a fresh seed" since 6cb6989: the seed posts a `late` thread reply into #general after `general.last`, and the probe took the newest event of any kind | Fixed (test): the probe ignores `m.thread` replies; regression `test-harness` BUG-23 |
-| BUG-24 | same as BUG-23 | S3 | QA (`fresh.ts`) + `e2e/global-setup.ts` | issue #2 run 1, fix wave | A guarded test is judged on the server state its spec file started from | One verdict per worker: re-probed after a restart (spurious skips), and reused by later files on a server earlier files had dirtied (smoke step 3 failed after navigation) | Fixed (test): verdict per (pool instance, spec file), probed at the file's first guarded test; after a pool restore persisted as `e2e/tmp/fresh-w<i>-<file>.json` (cleared by global setup); regression `test-harness` BUG-24 (x2) Skip reasons name the first write after the seed and the spec file using the server then (`fixtures/run-log.ts`, PERF-3 ruling); regression `test-harness` PERF-3 |
-| BUG-25 | PERF-1, PERF-6 | S2 | coordinator (`vite.config.ts`) | issue #2 run 1 (load avg 19 on 4 cores) | Idle Vite dev servers cost ~nothing during a run | Each Vite's watcher stat-ed Playwright trace files in `e2e/results` (~6400 statx/s, ~45% of a core per Vite, x N workers); logins timed out at 20 s | Fixed: `server.watch.ignored` (e2e/results, playwright-report, homeserver, ...); regression `test-harness` BUG-25 |
-| BUG-26 | smoke step 2 (AC-A2-1) | S3 | QA (`e2e/smoke.spec.ts`) | issue #2, pristine seed after BUG-23 | Acme channel list = the seed's [general, random, dev, vault] | Spec expected [general, random, dev]: stale since Phase 5 added #vault, masked by the BUG-23 skip | Fixed (test): expectation lists #vault (Advisor ruling) |
-| BUG-27 | AC-A5-2 | S2 | Principal (`scripts/hs-pool.mjs`) + PM (`docs/SEED_DATA.md`) | issue #2, pristine snapshot | Pristine seed: alice's only Acme unread is #random, so reading it clears the Acme dot | The snapshot bakes in `send-encrypted-sample.mjs`, leaving 4 unread in #vault (seed contract: created empty); the dot stays | **Fixed** (002be00): the snapshot build marks #vault read for alice (receipt + `m.fully_read`); spec unchanged (Advisor ruling); AC-A5-2 green in run 3 |
-| BUG-28 | AC-B1-1 | S2 | Principal (message list scroll pinning, `src/`) | issue #2 run 2, pristine seed (red since the guard stopped skipping it) | #general opens scrolled to the bottom and stays there | The list pins to the bottom before the 48 px security banner mounts; when the banner shrinks the list (clientHeight 580 -> 532) nothing re-pins, so it rests 48 px short and the newest message is cut off by 31 px. A viewport resize does not re-pin either. Deterministic with 1 or 3 workers | Fixed afb6209 (`MessageList.tsx` ResizeObserver re-pins while stuck to the bottom); AC-B1-1 + regression `conversation-timeline` BUG-28 green in run 3 (3 workers) |
-| BUG-29 | AC-B3-2 | S3 | QA (`e2e/conversation-timeline.spec.ts`) | issue #2 fix wave, fresh pool server (4/6 red with 1 worker) | The test sees `timeline-loading` while the page request is in flight | On a freshly restored server the request takes ~80 ms, so the indicator is mounted for ~85 ms and the polling `waitFor` missed it; pagination and the no-jump anchor were correct | Fixed (test): a MutationObserver installed with the scroll records the rendered indicator; 8/8 green. Same assertion |
-
-The literal `${MARKER}` line in `homeserver/homeserver.yaml` (unparsable YAML since f6fce71) is fixed by PR #5, regression `homeserver-config.spec.ts`.
-
-**Known limit (not a bug):** a *redacted* encrypted edit seen from history renders as "Message deleted": room v11
-redaction empties the whole `m.room.encrypted` content, so no client can tell it was an edit (Element does the same).
-Live, it is hidden (regression test). **Dev only:** a Vite HMR wave during boot can leave the page on
-"Setting up encryption..." (seen once while devs were saving files); not reproducible in a build.
-
-Regression tests for fixes found by others (JC's rule): Dev B's redacted relations and stuck "Decrypting..." reply
-quote; the Principal's 21179cb (a) grid, (b) no rows for edits / reactions, (c) banner with no rooms, (d) `errorKind`,
-(e) newest incoming request, (f) `unlock` hint for secret storage without cross-signing. All in `e2ee-core` / `e2ee-security`.
-
-Not automated: AC-E2-8 (`decrypting` lasts milliseconds), AC-E4-2 wrong password (first upload needs no UIA, so no
-password is ever asked), AC-E5-7 (needs 50+ sessions in one backup). All `test.fixme` with the reason.
-
-**Full regression 2026-10-18 (61e6cef, `--output e2e/results/qa-regression-1018-0136`).** Desktop 121 passed /
-53 failed / 35 skipped; mobile 37 / 34 / 10. All red but two tests is BUG-18: the test lands on DM Bob, or it cannot find a
-`channel-item-*` of Acme HQ. QA fixes in the tests: `navigation` AC-A3-1 now expects the m.direct rooms alice is
-*joined* to (e2ee suites leave their throwaway DMs), AC-A6-3 expects an encrypted channel (AC-E6-1 supersedes
-"unencrypted"; PM: please reword AC-A6-3), and the `e2ee-core` AC-E6-1 teardown also leaves the #general that comes
-with a new space. Five orphan encrypted "general" rooms from earlier runs are still in alice's Other Rooms. They need
-cleanup by someone allowed to change shared homeserver data.
-
-**Regression runs 2 and 3 (31f965d).** Run 2: desktop 175/7/27, mobile 78/3/0 (BUG-19, BUG-20, AC-V4-4 404
-allowlist). Run 3, with those fixed (`e2e/results/qa-regression3-1018-0446`): desktop 179/7/23, mobile 79/2/0. 7 of the 9
-red tests are slow logins or syncs (BUG-21). The other two, AC-V6-6 (1474 px jump) and AC-B3-2 (`timeline-loading`
-not seen), pass in isolation; I'll re-judge them after the device cleanup.
-
-**Regression run 4 (df1a7ca, fresh homeserver, `e2e/results/qa-regression4-1018-0949`).** Desktop 189/2/18 (40 min),
-mobile 81/0/0 (10 min). The 2 red were BUG-22. AC-V6-6 and AC-B3-2 passed (the run-3 failures were BUG-21 load).
-
-### Manual 704.chat checklist (AC-E8-4)
-Real server: https://matrix.704.chat, SSO via Keycloak, Element on the side. Mark `ok` / `fail: <what>`.
-
-| # | AC | Check | JC | Charlie | Juanjo |
+| ID | Sev | Criterion | Repro | Owner | Status |
 |---|---|---|---|---|---|
-| 1 | AC-E5-8 | Log in via Keycloak; banner says **Verify** (never **Set up**); unlock with the recovery key you have in Element | | | |
-| 2 | AC-E5-8 | Same with the **passphrase** instead of the key (if you have one) | | | |
-| 3 | AC-E5-8 | All 6 encrypted rooms read: old history decrypted, no "Unable to decrypt" left after the restore | | | |
-| 4 | AC-E5-8 | Element still unlocks with the same key afterwards (key unchanged) | | | |
-| 5 | AC-E4-8 | Verify codec from Element (Element starts): same 7 emoji, both say verified | | | |
-| 6 | AC-E4-8 | Verify from codec (codec starts, Element accepts) | | | |
-| 7 | AC-E4-8 | Element's session list shows the codec session with a green shield | | | |
-| 8 | AC-E4-8 | Brand-new SSO account: **Set up** opens the Keycloak popup ("Finish signing in in the window that opened"), the key appears after the popup closes | | | |
-| 9 | interop | Text from codec decrypts in Element, and Element's text decrypts in codec | | | |
-| 10 | AC-E3-7 | Image from Element (with a thumbnail) renders in codec; voice note from Element plays in codec | | | |
-| 11 | interop | Image, file and voice note sent from codec open / play in Element | | | |
-| 12 | AC-E1-3 | Log out of codec, log in again: new session, banner back (DevTools > Application > IndexedDB: no old `matrix-poc-crypto:` store) | | | |
+| REV-R1 | S1 | AC-R7-2 (review finding 1) | Toggle "Send read receipts" OFF, then receive a message before the account-data `/sync` echo arrives: `getSendReadReceipts` still read the old account data (ON), so a public `m.read` went out. `npx playwright test e2e/receipts.spec.ts --project=desktop -g "REV-R1"` holds the account-data PUT with `page.route` and asserts the receipt for bob's new message is `m.read.private` while the PUT is held, and no `m.read` is sent after the click. On `ade0095` (pre-fix) it fails: "OFF immediately, before the echo", expected false, got true. | Principal | **Fixed** (uncommitted: optimistic `withPendingSendReadReceipts` in `receipts-core.ts`); REV-R1 green |
+| REV-R2 | S3 | AC-R8-1 (review finding 2) | `receipt-avatars` opens a dialog but was `role="group"` with no `aria-haspopup`. Now `role="button"`, `aria-haspopup="dialog"`, `aria-expanded` true while its list is open. AC-R8-1 asserts all three, plus the false -> true -> false cycle. On `ade0095` it fails: expected role "button", got "group". | Dev A | **Fixed** (uncommitted, `ReadAvatars.tsx`); AC-R8-1 green |
+| REV-R5 | S3 | AC-R3-2 / AC-R8-2 (review finding 5) | A **hover** preview swallowed Escape (capture + `stopPropagation`), so Escape with focus in the thread panel closed only the preview, not the panel; an edit could not be cancelled either. Now only a **pinned** list consumes Escape. `-g "REV-R5"`: pinned list + Escape keeps `thread-panel`; hover preview (focus on a thread row's strip) + Escape closes both. On `ade0095` it fails: "a hover preview lets Escape through: the thread panel closes too", expected 0 panels, got 1. | Dev A | **Fixed** (uncommitted, `SeenByList.tsx`); REV-R5 green |
+| REV-STICK | S2 | AC-L7-4, AC-R9-1 (stick-to-bottom, review / CI finding) | "Stuck to the bottom" means within 40 px of it (`NEAR_BOTTOM_PX`), but every commit and every late growth while stuck snapped to the **true** bottom. A reader parked 2-39 px above the bottom saw everything jump by that gap. On CI, the 24 px receipt strip on the newest row created the gap, and AC-L7-4 went red. Dev B's fix in `MessageList.tsx`: while stuck, keep the current gap unless gap <= 2 or a new event arrives at the end. Regressions, each parking the list 20 px above the bottom: **REG-L7-4b** (`link-preview.spec.ts`, a card loads above the viewport), **REG-STICK-b1** (typing notification), **REG-STICK-b2** (edit of a visible message), **REG-STICK-c** (a read-avatar strip appears on an older row above the viewport) in `receipts.spec.ts`. With the pre-fix `MessageList.tsx` from `4771771`, all four fail: "moved -20px", which is exactly the gap. `npx playwright test e2e/receipts.spec.ts e2e/link-preview.spec.ts --project=desktop -g "REG-"` | Dev B | **Fixed** (`25bc97c`); 4/4 green, 9/9 on `--repeat-each=3` |
 
-## Voice format (Ogg remux + software-decode fallback, docs/VOICE_FORMAT_PLAN.md)
-
-QA pass against `e2e/ogg-remux.spec.ts` (Node, the remuxer on the real Chromium fixtures
-`e2e/fixtures/chromium-{1s,3s}.webm`, judged by the independent reader `e2e/fixtures/ogg.ts`),
-`e2e/voice-compat.spec.ts` (native vs fallback playback; the "old iPhone" simulation is
-`e2e/fixtures/old-iphone.ts`) and `e2e/voice.spec.ts` (AC-V2-4 now asserted), all in the `mobile`
-project, on the dirty homeserver. Notes go to `#dev`.
-
-```
-npx playwright test -c playwright.local.config.ts e2e/ogg-remux.spec.ts e2e/voice-compat.spec.ts e2e/voice.spec.ts --project=mobile
-npx playwright test -c playwright.local.config.ts e2e/voice-compat.spec.ts --project=mobile -g "AC-F5"
-```
-
-| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| BUG-32 | decision 1 (lossless remux), AC-F1 | S3 | web-mobile-emulated (Node) | no | Principal | `remuxWebmOpusToOgg(chromium-3s.webm sliced to 60 % of its bytes)` — a recording cut in the middle of a SimpleBlock. | The truncated trailing block is dropped (the remuxer's own header says so): 34 audio packets, the 34 complete SimpleBlocks. | 35 packets: the partial block was emitted as a full Opus packet (a corrupt last frame). `readElement()` clamped `dataEnd` to the buffer, so the `el.end > cluster.dataEnd` truncation check in the packet loop could never fire. | `e2e/ogg-remux.spec.ts` "remux of a WebM cut mid-cluster …" | **Fixed** (Principal, `src/lib/audio/ogg.ts`: elements record `truncated`, the packet loop breaks on it). Re-verified: the regression test passes. |
-| BUG-31 | AC-A5-2 | S3 | web-desktop | no | QA | Full suite in CI (3 pool workers): an E2EE spec adds encrypted #vault to Acme on the same server before `navigation.spec.ts` runs; repro locally with `E2E_WORKERS=1` running `e2ee-core-boot`, `e2ee-core-timeline`, `navigation` on desktop. | After reading #random the Acme dot goes away only when no other Acme channel is unread. | The test summed only #general/#dev via the receipt-derived `unreadFor`, which cannot see bob's `m.room.encrypted` messages, so it expected the dot gone while #vault was still unread. Test bug, not an app bug; order-dependent on master too. | `e2e/navigation.spec.ts` AC-A5-2 | **Fixed**: the precondition now reads the channel list's own `channel-unread-*` badges (what the dot sums); asserts the dot stays when any remain. Re-verified with the repro order. |
-| — | AC-V1-2 | — | web-mobile-emulated | no | — | Baseline run before the change: AC-V1-2 (live level meter) failed once. | — | Passed in every run of this pass (full voice run, and the suite alone). Not reproducible; environment flake of the fake mic in this container's Chromium, not a voice-format regression. | — | Not a bug. |
-| — | phone demo step 1 | — | web-mobile-emulated | no | — | `mobile-smoke.spec.ts` run as the first spec right after the dev server cold-started (same run as the voice specs). | Lands in #general. | Header read "random" once (the pre-seeded `nav.selection` race the voice.spec `openRoom` helper already works around); the 12 later serial steps did not run. The suite alone right after: 13/13 green. | — | Not a voice-format defect; flake on a cold dev server. |
-
-Regression tests added for Dev B's notes (no bug found, kept as guards): a native `play()` that never
-settles switches to the fallback after the ~4 s stall timeout (`voice-compat.spec.ts` "stalled native
-play() …"), and a WKWebView-style `canPlayType` that *lies* (`'maybe'`) recovers through the
-`<audio>` format-error path ("old iPhone whose canPlayType lies").
-
-## Phase 4 (GIF picker)
-
-Wave 11 QA pass (QA-19 / QA-20) against `e2e/gif.spec.ts` (desktop, 16 tests) and
-`e2e/mobile-gif.spec.ts` (phone, 6 tests) on a **dirty** homeserver, plus demo step 12 in both smoke
-specs. Everything runs in **#dev** — never #general — and every test sends its own messages and
-asserts on ids it created, so nothing here needs a fresh seed.
-
-```
-npm run test:e2e:gif                                           # both GIF specs, both projects
-npx playwright test e2e/gif.spec.ts --project=desktop -g "AC-G3-1"
-npx playwright test e2e/mobile-gif.spec.ts --project=mobile -g "AC-G9-1"
-npx playwright test e2e/smoke.spec.ts --project=desktop        # demo step 12 needs steps 1-11 first
-npm run gif:fixtures                                           # regenerate public/gif-fixtures/
-npm run gif:sample -- --id mock-7                              # bob posts a GIF (demo row 7)
-```
-
-**Result: no S1 or S2 product defect.** Both projects are green with **no skips**
-(desktop 16/16, phone 6/6, desktop smoke step 12 and phone smoke step 12 both pass). Every criterion
-this pass can judge from a browser — the picker, both variants, the slash commands, keyboard
-navigation, the send flow, the wire contract, the host allow list, the thread path, the `klipy` code
-path against stubs including 404 and 429 — behaves as specified. The three rows below are
-**contract/documentation divergences**, not broken behaviour; the fourth block is the quota guard.
-
-**Quota guard (AC-G11-3).** Every GIF test installs `guardGifNetwork` (`e2e/fixtures/gif.ts`) before
-any stub. An unstubbed request to `api.klipy.com` **fails the test** — a Klipy test key allows 100
-requests an hour, so a leaking suite would spend the stakeholder's quota. Requests to
-`static.klipy.com` are *served* from the local fixture bytes rather than failed, because the
-`klipy` criteria must post real messages whose `url` is on the Klipy CDN (AC-G3-2) and every later
-test that opens #dev then renders those rows; failing on that would make each klipy test poison every
-test after it. Either way nothing leaves the machine. No run in this pass recorded a violation.
-
-| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| BUG-10 | AC-G4-2, AC-G5-3, AC-G8-1, docs/PHASE4_PLAN.md desktop demo row 3 | S2 | web-desktop + android-device | no | PM + Principal (PRIN-13) | 1. `grep "title: '" src/lib/gif/mock-fixtures.ts`. 2. Compare with the "Mock provider fixture contract" table in docs/PHASE4_ACCEPTANCE.md. 3. In the app under `mock`, type `/gif tacos` and press Enter. 4. Press ArrowRight twice, then Enter — the keystrokes the stakeholder's demo script prescribes. | Per the acceptance table and the demo script: `tacos` matches **three** fixtures (`mock-1` Tacos dance, `mock-2` Tacos Tuesday, `mock-3` Tacos party), so two ArrowRights move the selection to `mock-3` and Enter sends "Tacos party". AC-G4-2 names `mock-1`, `-mock-2`, `-mock-3` explicitly; AC-G5-3 says "ArrowRight twice then Enter sends `mock-3`". | `src/lib/gif/mock-fixtures.ts` titles `mock-2` **"Taco Tuesday"** (no "s") and `mock-3` **"Party time"**, so a case-insensitive substring match on `tacos` returns **one** fixture, `mock-1`. Both ArrowRights clamp at index 0 and Enter sends "Tacos dance". The feature is correct — the *search* is a faithful substring match and the picker's clamping is right (AC-G5-1) — but the document, the criteria and the stakeholder's scripted keystrokes describe a catalogue the code does not have. Either `mock-2`/`mock-3` are renamed to "Tacos Tuesday"/"Tacos party" (what the doc, AC-G4-2, AC-G5-3 and the demo script all assume) or those three criteria and demo row 3 are rewritten. Note the two files were realigned repeatedly during Wave 11 and this is the residue; QA's own suite is unaffected, because it **derives** every mock expectation from `mock-fixtures.ts` at run time (`e2e/fixtures/gif.ts` module header) and reports the mismatch as a `catalogue-drift` annotation on AC-G1-3 rather than as a red test. | the `catalogue-drift` annotation on `[desktop] AC-G1-3`; `e2e/results/demo/12-picker-prefilled.png` shows the one-result grid the demo actually gets | **Fixed and verified 2026-10-09.** Ruled by the orchestrator: the rename stands — `mock-2` becomes "Tacos Tuesday" and `mock-3` "Tacos party", so `tacos` matches `mock-1..3` and demo row 3 lands on `mock-3` as written. The Principal is landing it (`mock-fixtures.ts` + `npm run gif:fixtures`); the doc and all four criteria then need no edit. Landed by the Principal and re-verified by QA: `mock-2` = "Tacos Tuesday", `mock-3` = "Tacos party", so `tacos` and `taco` now match `mock-1..3`, `party` -> `mock-3, mock-4`, `cat` -> `mock-5, mock-6`, `dance` -> `mock-1` — exactly the acceptance table. AC-G4-2 and AC-G5-3 are satisfiable as written, and desktop demo step 12 now derives `tacos` for demo row 2, so two ArrowRights land on `mock-3` as the script narrates. The `catalogue-drift` annotation on AC-G1-3 is gone (verified: annotations empty). |
-| BUG-9 | AC-G2-1, AC-G2-2 | S3 | web-desktop | no | Principal (PRIN-14) | 1. Stub `api.klipy.com` with two items whose ids are `9041071659142944` and `9041071659142945` (both 16-digit Klipy-shaped numbers above `Number.MAX_SAFE_INTEGER` = 9007199254740991). 2. Open the picker under `klipy`. 3. Inspect the two tiles. | Two tiles with distinct `gif-item-{id}` test ids and distinct `previewUrl`s. | **Both tiles carry `data-testid="gif-item-9041071659142944"` and both load `.../9041071659142944/sm.webp`** — their `<img alt>`, title and reserved dimensions are correct, so only the identity is wrong. Cause: Klipy ids arrive as JSON **numbers**, and `JSON.parse` rounds anything above 2^53 to the nearest double, so the two ids collapse onto one before `mapKlipyItem` stringifies them (`String(item.id)`). Consequences if a real Klipy id ever exceeds 2^53: duplicate React keys, a tile that previews the wrong GIF, and a `dev.matrixpoc.gif.id` that does not round-trip. The acceptance example id (`8041071659142944`) is *below* the limit, which is why nothing else caught it; ids beginning with 9 would not be. Fix if it is judged worth it: read ids as strings off the wire (a `JSON.parse` reviver, or ask Klipy whether ids are bounded). Found while writing the phone klipy test; QA's stub ids are now pinned below the limit with a comment. | `e2e/results/mobile/mobile-gif-GIF-sheet-—-kli-31e14-nd-a-pick-sends-the-CDN-url-mobile/` (the strict-mode violation lists both `<img>` elements with the same `src`) | **Fixed and verified 2026-10-09.** Ruled by the orchestrator: a Klipy `GifResult.id` becomes the item's **`slug`** instead of `String(item.id)`, which removes the limit entirely — a slug is already a string, so nothing passes through a double. Landed in `mapKlipyItem` (`item.slug` first, `String(item.id)` only when there is no slug) and re-verified by QA. QA's stub now pins `slug === String(spec.id)` (`klipyItem` / `klipyResultId` in `e2e/fixtures/gif.ts`), so every id assertion — tile test ids and the `dev.matrixpoc.gif.id` on the wire — pins the same string under either mapping and the suite needs no flag day. |
-
-### Contract divergences for the Principal (not defects)
-
-| # | Subject | Divergence | Suggested resolution |
-|---|---|---|---|
-| 1 | `customer_id` on every Klipy request | AC-G2-1 now requires each request to carry "a `customer_id` (stable across reloads in the same browser, `matrix-poc.gifCustomerId`)", and `provider.ts` exports `getGifCustomerId()` which generates and persists exactly that uuid — but `getGifProvider()` calls `createKlipyProvider({ apiKey, baseUrl })` **without** `customerId`, and `klipy.ts` only sets the parameter `if (options.customerId)`. So no `customer_id` is ever sent. docs/PHASE4_PLAN.md "Out of scope" explicitly lists "recent/favourite GIFs and Klipy's `customer_id`", so the **code follows the plan and the acceptance criterion is the odd one out**. | **Resolved and verified 2026-10-09.** Ruled by the orchestrator: `customer_id` **is** sent on every Klipy request, so AC-G2-1 stands and `getGifProvider()` gains `customerId: getGifCustomerId()` (falling back to `undefined`) — the Principal is landing it, and docs/PHASE4_PLAN.md "Out of scope" needs its `customer_id` clause struck. QA asserts the key path segment, `q`, `page`, `per_page` and `content_filter` and **not** `customer_id`, so the suite is green either way; the presence assertion is now in AC-G2-1 (the trending request carries a non-empty `customer_id`, and the following search carries the **same** value, so it is persisted rather than regenerated per call). The value itself is a random uuid and is deliberately not pinned. |
-| 2 | `GifResult` / `GifPage` field names | docs/PHASE4_TICKETS.md's Shared API table promises `{ url, w, h, previewMime }` and `GifPage { items, hasNext }`; the shipped `types.ts` has `{ fullUrl, fullW, fullH, previewMimetype }` and `GifPage { results, nextPage, hasNext }`. The tickets already say names are "subject to the Principal's ARCHITECTURE deltas", and the **wire** shape (which is what the tickets protect) matches the acceptance contract exactly. | Informational only — the ticket table wants a refresh, or docs/ARCHITECTURE.md "Phase 4 deltas" wants writing (it does not exist yet, which is why this is listed at all: AC-G10-2 requires that section). No code change. |
-
-### Phase 4 criteria this pass cannot judge — stakeholder checklist
-
-| AC | Why | Who |
-|---|---|---|
-| AC-G3-5 (a `static.klipy.com` `<img>` loads in the Android WebView, no CSP / sanitizer / Capacitor block) | Needs the APK on a real device with internet. The browser half is covered: the `klipy` criteria render `<img src="https://static.klipy.com/...">` from the stub and the image decodes (`naturalWidth > 0`), so nothing in the dev build blocks the host. | stakeholder, `android-device` |
-| AC-G9-2, Android-back half (back closes the GIF sheet before the drawers) | `@capacitor/app` back-button events are not dispatched in Chromium, so the `mobile` project cannot press it. The backdrop and `gif-close` halves are asserted. Same limitation as Phase 2's AC-M-back and Phase 3's AC-T3-5. | stakeholder, `android-device` |
-| The real Klipy key (AC-G2-* against the live service) | No key exists yet; the whole `klipy` path is tested against `page.route` stubs written from the verified response shape. The live run is the stakeholder's (docs/PHASE4_PLAN.md "User-only steps"). If the live mapping is wrong it will be wrong in exactly one function, `mapKlipyItem`. | stakeholder, after pasting a key |
-| AC-G8-3 (a GIF row far out of view unmounts its `<img>` into a sized `message-gif-placeholder`, remounts with no layout shift) | **Not covered by a dedicated test this pass** — a DEV-B-25 P1 half, not in the QA-19 brief. It is not unverified, though: `GifMessage` implements it (an IntersectionObserver with a 200 px margin and the four `data-state` values), `expectGifPlaying` in every pick assertion depends on a row *leaving* `offscreen` when scrolled in, and desktop demo step 12 row 4 asserts the placeholder whenever the row genuinely leaves the margin. What is missing is the layout-shift measurement (`message-list.scrollHeight` unchanged +/- 2 px) under a forced 20-message scroll. | QA, if it is promoted to P0 |
-| AC-G8-4 (reduced motion shows `stillUrl` plus `message-gif-play`; clicking play animates) | **Not covered by a dedicated test this pass** — the other DEV-B-25 P1 half, not in the QA-19 brief. The ingredients are all verified elsewhere: AC-G1-3 asserts every `<id>.png` still frame is served, and the contract test asserts `stillUrl` reaches the wire. What is missing is a `page.emulateMedia({ reducedMotion: 'reduce' })` test of the `paused` -> `playing` transition. | QA, if it is promoted to P0 |
-| Element interop (the GIF body shows as a link and the server unfurls it) | Needs a second client by hand. The wire half is asserted: `msgtype` is `m.text` and the url is the last whitespace-separated token of `body`, which is what makes Element linkify and unfurl it. | stakeholder, manual |
+Rulings / test-side notes (no product defect):
+- **AC-R6-2 (Advisor ruling, 2026-10-18).** An *unthreaded* `m.read` (no `thread_id`) on a main message newer than a
+  thread reply T1 puts the reader's avatar on T1 in the thread panel. That is the Matrix spec (an unthreaded receipt
+  reads everything before it, threads included) and matches `hasUserReadEvent` / Element: SDK v43
+  `Thread.getEventReadUpTo` falls back to the newer unthreaded receipt (by ts). The spec asserts the AC strictly with
+  `thread_id: "main"` (what Codec and Element send), and AC-R6-2b asserts that the unthreaded case agrees with
+  `getSeenBy`. PM asked to reword AC-R6-2.
+- AC-R1-5 fails the send with 403 `M_FORBIDDEN`: on 5xx the SDK scheduler retries with backoff (~30 s) before
+  `NOT_SENT`. The Phase 1 UI has no retry control, so "retry still works" is annotated, not asserted.
+- AC-R5-3 asks for 44 px **tall** targets: `receipt-avatars` is 44 px tall and 34 px wide (one avatar), as specified.
+- **PR-selected set** (`node scripts/select-e2e.mjs origin/master`, 18 specs, both projects, 2 workers): 266 passed,
+  2 failed, 11 skipped (the usual fresh-seed / manual skips). Neither failure is caused by read receipts:
+  - `link-preview.spec.ts` AC-L7-4 (scrolled up, a card loading above the viewport): **environment-specific** (it
+    passes on GitHub CI for master; this container's Chromium is older). Here the row being read moves **21 px**,
+    deterministically (3/3 alone). It fails the same way on the wave-A commit `d6c56d3` (no receipt UI) and on
+    **master `f45c086`** (2/2 each, run from a throwaway git worktree), so it predates this branch. A probe of row heights
+    shows only the card row changes (102 -> 416 px), with no receipt strip involved, so the error is in the list's
+    reading-pin compensation, under this local Chromium only. No ticket.
+  - `threads.spec.ts` AC-T6-4: the 40-reply root row in #general did not render within 20 s under the 2-worker load;
+    3/3 green in isolation. Load flake, not a defect.
+- **Final: PR-selected set on the merged tree (`c0881a0`, master PRs #16-#18 merged in), 19 specs, both projects, 2 workers:
+  288 passed, 0 failed, 13 skipped** (fresh-seed / manual skips), including the AC-T6-4 and auth-media hardening below.
+  An earlier `threads.spec.ts` run failed AC-T1-4 once while the merge was being written (Vite: `Expected string in
+  JSON but found "<<"`, conflict markers mid-merge); green on the merged tree.
+- **PR-selected set, fix wave (after `25bc97c`), 18 specs, both projects, 2 workers: 272 passed, 2 failed, 11 skipped.**
+  AC-L7-4 now passes here too (Dev B's stick-band fix), as do the four REG-* regressions. Both failures are test-side
+  and pass 3/3 in isolation; both are now hardened:
+  - `threads.spec.ts` AC-T6-4 (and the other `theBigThread` consumer): the thread is built once per worker and
+    reused. In a long run other specs post into #general after it, so the root falls out of the initial window and
+    `message-{root}` never renders. Fix: page back to the root (`paginateToTop`, the dirty-seed rule) before opening it.
+  - `auth-media.spec.ts` "SVG is downloaded, never opened": the loop over `context().pages()` evaluated in a tab the
+    download had just closed ("Target page ... has been closed"). Fix: skip closed tabs, and treat a close
+    mid-evaluate as "not showing the SVG".
+- Environment: this container's `/home/claude/pwb` had no ffmpeg, so `video: 'retain-on-failure'` failed every test
+  at `newPage` in 0.1 s. Fixed outside the repo with a symlink to `/opt/pw-browsers/ffmpeg-1011`.
+- Fixture defect fixed during the run: `sendStatusByText` called `room.getPendingEvents()`, which throws under
+  `pendingEventOrdering: chronological`. Local echoes are in the live timeline.
 
 ## Phase 7 (voice calls)
 
@@ -548,72 +248,377 @@ Two Phase 5 / Phase 1 tests changed with Phase 6 (full-suite run 1, both test-si
   `/read_markers` before bob posts, `markRoomRead` in `fixtures/state.ts`), and `link-preview.spec.ts` marks #dev read
   for alice after every test.
 
-## Read receipts (sent / seen by)
+## Voice format (Ogg remux + software-decode fallback, docs/archive/VOICE_FORMAT_PLAN.md)
 
-QA-R1..R3 against `e2e/receipts.spec.ts` (desktop) and `e2e/mobile-receipts.spec.ts` (phone), helpers in
-`e2e/fixtures/receipts.ts`. Other users read through the API (`readAs` = raw `POST /receipt/m.read`, `readPrivateAs` =
-`m.read.private`, threaded with the root id); bob's browser context only where his own client is the subject (AC-R2-1,
-AC-R7-2/3). 15 s polls, no `waitForTimeout`, a fresh message per test in #dev / #vault. Every test asserts the core
-through `window.__matrixPoc.receipts` first, then the UI by testid.
+QA pass against `e2e/ogg-remux.spec.ts` (Node, the remuxer on the real Chromium fixtures
+`e2e/fixtures/chromium-{1s,3s}.webm`, judged by the independent reader `e2e/fixtures/ogg.ts`),
+`e2e/voice-compat.spec.ts` (native vs fallback playback; the "old iPhone" simulation is
+`e2e/fixtures/old-iphone.ts`) and `e2e/voice.spec.ts` (AC-V2-4 now asserted), all in the `mobile`
+project, on the dirty homeserver. Notes go to `#dev`.
 
 ```
-npm run test:e2e:receipts                                         # both specs, both projects
-npx playwright test e2e/receipts.spec.ts --project=desktop -g "AC-R7-2"
-npx playwright test e2e/mobile-receipts.spec.ts --project=mobile -g "AC-R5-1"
+npx playwright test -c playwright.local.config.ts e2e/ogg-remux.spec.ts e2e/voice-compat.spec.ts e2e/voice.spec.ts --project=mobile
+npx playwright test -c playwright.local.config.ts e2e/voice-compat.spec.ts --project=mobile -g "AC-F5"
 ```
 
-**Result (run 5, fix wave, both projects, 2 workers): 37 passed, 0 failed, 0 skipped** (`receipts.spec.ts` 33/33 incl.
-REV-R1 / REV-R5, `mobile-receipts.spec.ts` 4/4). Run 4 had 2 #vault failures from a Vite dep re-optimization mid-run
-(`Failed to fetch dynamically imported module .../.vite/deps/rust-crypto-*.js`, so crypto never booted); environment, green on rerun. No product defect found by the e2e run; the fix-wave code review found three (REV-R1 S1, REV-R2 S3, REV-R5 S3, below), all fixed, each with a regression test that fails on the pre-fix commit `ade0095` and passes now.
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-32 | decision 1 (lossless remux), AC-F1 | S3 | web-mobile-emulated (Node) | no | Principal | `remuxWebmOpusToOgg(chromium-3s.webm sliced to 60 % of its bytes)` — a recording cut in the middle of a SimpleBlock. | The truncated trailing block is dropped (the remuxer's own header says so): 34 audio packets, the 34 complete SimpleBlocks. | 35 packets: the partial block was emitted as a full Opus packet (a corrupt last frame). `readElement()` clamped `dataEnd` to the buffer, so the `el.end > cluster.dataEnd` truncation check in the packet loop could never fire. | `e2e/ogg-remux.spec.ts` "remux of a WebM cut mid-cluster …" | **Fixed** (Principal, `src/lib/audio/ogg.ts`: elements record `truncated`, the packet loop breaks on it). Re-verified: the regression test passes. |
+| BUG-31 | AC-A5-2 | S3 | web-desktop | no | QA | Full suite in CI (3 pool workers): an E2EE spec adds encrypted #vault to Acme on the same server before `navigation.spec.ts` runs; repro locally with `E2E_WORKERS=1` running `e2ee-core-boot`, `e2ee-core-timeline`, `navigation` on desktop. | After reading #random the Acme dot goes away only when no other Acme channel is unread. | The test summed only #general/#dev via the receipt-derived `unreadFor`, which cannot see bob's `m.room.encrypted` messages, so it expected the dot gone while #vault was still unread. Test bug, not an app bug; order-dependent on master too. | `e2e/navigation.spec.ts` AC-A5-2 | **Fixed**: the precondition now reads the channel list's own `channel-unread-*` badges (what the dot sums); asserts the dot stays when any remain. Re-verified with the repro order. |
+| — | AC-V1-2 | — | web-mobile-emulated | no | — | Baseline run before the change: AC-V1-2 (live level meter) failed once. | — | Passed in every run of this pass (full voice run, and the suite alone). Not reproducible; environment flake of the fake mic in this container's Chromium, not a voice-format regression. | — | Not a bug. |
+| — | phone demo step 1 | — | web-mobile-emulated | no | — | `mobile-smoke.spec.ts` run as the first spec right after the dev server cold-started (same run as the voice specs). | Lands in #general. | Header read "random" once (the pre-seeded `nav.selection` race the voice.spec `openRoom` helper already works around); the 12 later serial steps did not run. The suite alone right after: 13/13 green. | — | Not a voice-format defect; flake on a cold dev server. |
 
-**Severity rule (read receipts).** `S1` on sight: a public `m.read` sent while "Send read receipts" is OFF, or a viewer
-shown as having read something they did not. `S2`: avatars on the wrong row, status stuck at `sending`, the list jumps
-when avatars / the check appear. `S3`: cosmetic.
+Regression tests added for Dev B's notes (no bug found, kept as guards): a native `play()` that never
+settles switches to the fallback after the ~4 s stall timeout (`voice-compat.spec.ts` "stalled native
+play() …"), and a WKWebView-style `canPlayType` that *lies* (`'maybe'`) recovers through the
+`<audio>` format-error path ("old iPhone whose canPlayType lies").
 
-| ID | Sev | Criterion | Repro | Owner | Status |
+## Phase 5 (end-to-end encryption)
+
+```
+npm run test:e2e:e2ee                                              # e2ee-core-* + e2ee-media + e2ee-security-* (desktop)
+npx playwright test e2e/smoke.spec.ts --project=desktop -g "step 13" # Phase 5 demo walk-through -> e2e/results/demo/13-*
+npx playwright test e2e/e2ee-security-chain.spec.ts --project=desktop -g "AC-E5-2"
+```
+Prefix with `PLAYWRIGHT_BROWSERS_PATH=/tmp/claude-0/pwb` in the build container. Security chains and the demo run on
+**throwaway accounts** (`freshUser()`): cross-signing cannot be undone, so alice's account is never set up by a test.
+
+**S1 on sight (Phase 5):** plaintext reaches the wire in an encrypted room · a raw encrypted mxc is navigated to ·
+keys survive logout · setup offers a new key on an account that already has secret storage.
+
+| BUG | AC ref | Sev | Owner | Found | Expected | Actual | Status |
+|---|---|---|---|---|---|---|---|
+| BUG-11 | AC-E1-4 | S3 | Principal (`src/store/session.ts`) | `e2ee-core` AC-E1-4 | A token rejected after boot shows "Session expired" on the login form | Wipe is correct, but `onSessionLoggedOut` -> plain `logout()`: no message (only the boot-time path says it) | Fixed (session expired message on token rejection); regression `e2ee-core` AC-E1-4 |
+| BUG-12 | AC-SH layout, AC-T6 | S1 | Principal (`src/app/Shell.tsx`) | thread panel `hidden` in AC-E2-5 | Members / thread panel beside `main` | `security-dialogs-host` was a grid child: panels pushed to a 2nd row, height 0 | Fixed 21179cb; regression `e2ee-core` "(21179cb a)" |
+| BUG-13 | AC-E2-5 | - | PM | `e2ee-core` AC-E2-5 | Reactions `m.room.encrypted` on the wire | `m.reaction` in clear: matrix-js-sdk never encrypts reactions (Element parity) | **Resolved** (PM, 2026-10-18): AC-E2-5 reworded (edits, replies and thread replies `m.room.encrypted`; reactions in the clear, Element parity), limitation recorded in PHASE5_PLAN.md and PHASE5_DEMO.md; test asserts the clear relation only |
+| BUG-14 | AC-E4-1 | S3 | Principal (`UserFooter`) or PM | `e2ee-security` AC-E4-1 | `current-user[data-verified="unknown"]` on an account with no cross-signing | `"false"` once status lands | Fixed (`unknown` without cross-signing); regression `e2ee-security` AC-E4-1 |
+| BUG-15 | AC-E8-3 (Phase 1 suites) | S2 | Principal (`seed/`) | fixture load | `seed/seed-output.json` keeps the 11 seeded event ids | `"events": {}` since the additive `npm run seed` (2026-10-17 23:54): `conversation.spec` and smoke steps 3+ throw "has no event" | Fixed (seed re-records event ids); regression guard in `e2e/fixtures/seed.ts` loadSeed |
+| BUG-16 | registry | S3 | Dev A or PM | helpers | `verify-close` / `recovery-close` / `setup-close` | One shared `dialog-close` in all three | Not a bug: the corner X has its own id since c59d1f8, footer buttons keep `dialog-close`; pinned by the BUG-16 regression test |
+| BUG-17 | demo rows 8-9 | S3 | PM (docs/archive/PHASE5_PLAN.md) | smoke step 13 | After the emoji match, window 3 offers Unlock and the user pastes the key | Window 1 holds the backup key, so the SAS hands it over and the restore runs by itself; the banner flashes `unlock` then disappears | **Fixed** (PM, 2026-10-18): demo rows 8-9 reworded (row 8: history restores by itself after the emoji match; row 9: the recovery-key path with window 1 closed), Recovery decision row, AC-E4-4, AC-E2-6, AC-E5-1, AC-E5-2 and PHASE5_DEMO.md aligned; step 13 accepts both |
+| BUG-18 | AC-A1-2, AC-E8-3 (smoke step 1, Phase 1-4 suites) | S2 | Principal (`src/store/rooms.ts` `recomputeRooms`, `src/store/bridge.ts`) | full regression 2026-10-18 | A fresh login (no `nav.selection`) lands on Acme HQ / #general | Lands on Home / DM Bob in 3 of 4 tries (`navigation` AC-A1-2 `--repeat-each=4`). Likely: the first-load rule (`firstReady && spaces.length > 0`) runs on a debounced recompute fired mid initial sync (Phase 5 decryption / state events), before the spaces are known, so it falls back to `dms[0]`. Apply the first-load landing only once the initial sync is `Prepared` | Fixed 31f965d (no room recompute before the initial sync is prepared); regression `navigation` AC-A1-2, smoke step 1 |
+| BUG-19 | AC-V6-6 | S3 | QA (`e2e/mobile-nav.spec.ts`) | mobile-nav, about 1 in 3 | The anchor stays put while older rows are prepended | "anchor drift 44 px" or "pagination did not add rows": the 44 px phone security banner (correct for an account without encryption) mounts ~1 s after the shell, after the test scrolled and measured | Fixed (test): `loginAs()` now waits for the security status and the banner (`settleSecurityBanner`). The AC-V6-6 drift is also measured inside `message-list`. Same 48 px shift on desktop broke `conversation` AC-B3-2 (3/4 red); both now pass 4/4 |
+| BUG-20 | AC-E8-3 | S2 | QA (`e2e/auth-media.spec.ts`) | full regression 2 | Every test's browser contexts closed at its end | The SSO login-token test never closed its `browser.newContext()`, so a logged-in alice synced (with crypto) for the whole run; later logins took 16 s+ in "Setting up encryption" / "Syncing" and missed the 20 s shell timeout (5 desktop tests) | Fixed (test): context closed in `finally` |
+| BUG-21 | AC-E8-3, AC-SH-2 | S2 | QA (`e2e/fixtures/auth.ts`) + coordinator (homeserver data) | full regression 3 | Test logins leave no devices behind | `loginAs` never logged out: alice has **1206 devices, 790 with device keys**. Since Phase 5 every login queries and every encrypted send shares keys with all of them. Logins slow down over a run (shell > 20 s, AC-SH-2 11.6 s, AC-E5-6 backup count stuck) | Test half fixed: `loginAs` logs out the sessions of earlier tests (`navigation` run: +2 devices for 29 tests). Server reset 2026-10-18 cleared them. Run 4 holds: alice 1 -> 11 devices over 290 tests (6 web, 4 API-helper logins) |
+| BUG-22 | AC-G8-1, demo step 7 | S3 | QA (`gif.spec`, `mobile-gif.spec`, `smoke.spec`) | full regression 4 | GIF decoded / thumbnail box <= 400 px | Read once right after mount: `naturalWidth` 0 (decode not done) and `boundingBox()` null (bubble re-rendering). Flaky in long runs; the dev server watching `e2e/results` (Faster test runs thread) widens the window | Fixed (test): both polled. AC-G7-1 3/3, smoke demo chain and mobile-gif green in isolation |
+| BUG-23 | AC-B1-1, AC-B3-1, AC-A2-3, smoke steps 2/3/5/6 | S2 | QA (`e2e/fixtures/fresh.ts`) | issue #2 run 1 (also with 1 worker) | The fresh-seed guard lets its 7 tests run on a pristine seed | Always skipped "requires a fresh seed" since 6cb6989: the seed posts a `late` thread reply into #general after `general.last`, and the probe took the newest event of any kind | Fixed (test): the probe ignores `m.thread` replies; regression `test-harness` BUG-23 |
+| BUG-24 | same as BUG-23 | S3 | QA (`fresh.ts`) + `e2e/global-setup.ts` | issue #2 run 1, fix wave | A guarded test is judged on the server state its spec file started from | One verdict per worker: re-probed after a restart (spurious skips), and reused by later files on a server earlier files had dirtied (smoke step 3 failed after navigation) | Fixed (test): verdict per (pool instance, spec file), probed at the file's first guarded test; after a pool restore persisted as `e2e/tmp/fresh-w<i>-<file>.json` (cleared by global setup); regression `test-harness` BUG-24 (x2) Skip reasons name the first write after the seed and the spec file using the server then (`fixtures/run-log.ts`, PERF-3 ruling); regression `test-harness` PERF-3 |
+| BUG-25 | PERF-1, PERF-6 | S2 | coordinator (`vite.config.ts`) | issue #2 run 1 (load avg 19 on 4 cores) | Idle Vite dev servers cost ~nothing during a run | Each Vite's watcher stat-ed Playwright trace files in `e2e/results` (~6400 statx/s, ~45% of a core per Vite, x N workers); logins timed out at 20 s | Fixed: `server.watch.ignored` (e2e/results, playwright-report, homeserver, ...); regression `test-harness` BUG-25 |
+| BUG-26 | smoke step 2 (AC-A2-1) | S3 | QA (`e2e/smoke.spec.ts`) | issue #2, pristine seed after BUG-23 | Acme channel list = the seed's [general, random, dev, vault] | Spec expected [general, random, dev]: stale since Phase 5 added #vault, masked by the BUG-23 skip | Fixed (test): expectation lists #vault (Advisor ruling) |
+| BUG-27 | AC-A5-2 | S2 | Principal (`scripts/hs-pool.mjs`) + PM (`docs/SEED_DATA.md`) | issue #2, pristine snapshot | Pristine seed: alice's only Acme unread is #random, so reading it clears the Acme dot | The snapshot bakes in `send-encrypted-sample.mjs`, leaving 4 unread in #vault (seed contract: created empty); the dot stays | **Fixed** (002be00): the snapshot build marks #vault read for alice (receipt + `m.fully_read`); spec unchanged (Advisor ruling); AC-A5-2 green in run 3 |
+| BUG-28 | AC-B1-1 | S2 | Principal (message list scroll pinning, `src/`) | issue #2 run 2, pristine seed (red since the guard stopped skipping it) | #general opens scrolled to the bottom and stays there | The list pins to the bottom before the 48 px security banner mounts; when the banner shrinks the list (clientHeight 580 -> 532) nothing re-pins, so it rests 48 px short and the newest message is cut off by 31 px. A viewport resize does not re-pin either. Deterministic with 1 or 3 workers | Fixed afb6209 (`MessageList.tsx` ResizeObserver re-pins while stuck to the bottom); AC-B1-1 + regression `conversation-timeline` BUG-28 green in run 3 (3 workers) |
+| BUG-29 | AC-B3-2 | S3 | QA (`e2e/conversation-timeline.spec.ts`) | issue #2 fix wave, fresh pool server (4/6 red with 1 worker) | The test sees `timeline-loading` while the page request is in flight | On a freshly restored server the request takes ~80 ms, so the indicator is mounted for ~85 ms and the polling `waitFor` missed it; pagination and the no-jump anchor were correct | Fixed (test): a MutationObserver installed with the scroll records the rendered indicator; 8/8 green. Same assertion |
+
+The literal `${MARKER}` line in `homeserver/homeserver.yaml` (unparsable YAML since f6fce71) is fixed by PR #5, regression `homeserver-config.spec.ts`.
+
+**Known limit (not a bug):** a *redacted* encrypted edit seen from history renders as "Message deleted": room v11
+redaction empties the whole `m.room.encrypted` content, so no client can tell it was an edit (Element does the same).
+Live, it is hidden (regression test). **Dev only:** a Vite HMR wave during boot can leave the page on
+"Setting up encryption..." (seen once while devs were saving files); not reproducible in a build.
+
+Regression tests for fixes found by others (JC's rule): Dev B's redacted relations and stuck "Decrypting..." reply
+quote; the Principal's 21179cb (a) grid, (b) no rows for edits / reactions, (c) banner with no rooms, (d) `errorKind`,
+(e) newest incoming request, (f) `unlock` hint for secret storage without cross-signing. All in `e2ee-core` / `e2ee-security`.
+
+Not automated: AC-E2-8 (`decrypting` lasts milliseconds), AC-E4-2 wrong password (first upload needs no UIA, so no
+password is ever asked), AC-E5-7 (needs 50+ sessions in one backup). All `test.fixme` with the reason.
+
+**Full regression 2026-10-18 (61e6cef, `--output e2e/results/qa-regression-1018-0136`).** Desktop 121 passed /
+53 failed / 35 skipped; mobile 37 / 34 / 10. All red but two tests is BUG-18: the test lands on DM Bob, or it cannot find a
+`channel-item-*` of Acme HQ. QA fixes in the tests: `navigation` AC-A3-1 now expects the m.direct rooms alice is
+*joined* to (e2ee suites leave their throwaway DMs), AC-A6-3 expects an encrypted channel (AC-E6-1 supersedes
+"unencrypted"; PM: please reword AC-A6-3), and the `e2ee-core` AC-E6-1 teardown also leaves the #general that comes
+with a new space. Five orphan encrypted "general" rooms from earlier runs are still in alice's Other Rooms. They need
+cleanup by someone allowed to change shared homeserver data.
+
+**Regression runs 2 and 3 (31f965d).** Run 2: desktop 175/7/27, mobile 78/3/0 (BUG-19, BUG-20, AC-V4-4 404
+allowlist). Run 3, with those fixed (`e2e/results/qa-regression3-1018-0446`): desktop 179/7/23, mobile 79/2/0. 7 of the 9
+red tests are slow logins or syncs (BUG-21). The other two, AC-V6-6 (1474 px jump) and AC-B3-2 (`timeline-loading`
+not seen), pass in isolation; I'll re-judge them after the device cleanup.
+
+**Regression run 4 (df1a7ca, fresh homeserver, `e2e/results/qa-regression4-1018-0949`).** Desktop 189/2/18 (40 min),
+mobile 81/0/0 (10 min). The 2 red were BUG-22. AC-V6-6 and AC-B3-2 passed (the run-3 failures were BUG-21 load).
+
+### Manual 704.chat checklist (AC-E8-4)
+Real server: https://matrix.704.chat, SSO via Keycloak, Element on the side. Mark `ok` / `fail: <what>`.
+
+| # | AC | Check | JC | Charlie | Juanjo |
 |---|---|---|---|---|---|
-| REV-R1 | S1 | AC-R7-2 (review finding 1) | Toggle "Send read receipts" OFF, then receive a message before the account-data `/sync` echo arrives: `getSendReadReceipts` still read the old account data (ON), so a public `m.read` went out. `npx playwright test e2e/receipts.spec.ts --project=desktop -g "REV-R1"` holds the account-data PUT with `page.route` and asserts the receipt for bob's new message is `m.read.private` while the PUT is held, and no `m.read` is sent after the click. On `ade0095` (pre-fix) it fails: "OFF immediately, before the echo", expected false, got true. | Principal | **Fixed** (uncommitted: optimistic `withPendingSendReadReceipts` in `receipts-core.ts`); REV-R1 green |
-| REV-R2 | S3 | AC-R8-1 (review finding 2) | `receipt-avatars` opens a dialog but was `role="group"` with no `aria-haspopup`. Now `role="button"`, `aria-haspopup="dialog"`, `aria-expanded` true while its list is open. AC-R8-1 asserts all three, plus the false -> true -> false cycle. On `ade0095` it fails: expected role "button", got "group". | Dev A | **Fixed** (uncommitted, `ReadAvatars.tsx`); AC-R8-1 green |
-| REV-R5 | S3 | AC-R3-2 / AC-R8-2 (review finding 5) | A **hover** preview swallowed Escape (capture + `stopPropagation`), so Escape with focus in the thread panel closed only the preview, not the panel; an edit could not be cancelled either. Now only a **pinned** list consumes Escape. `-g "REV-R5"`: pinned list + Escape keeps `thread-panel`; hover preview (focus on a thread row's strip) + Escape closes both. On `ade0095` it fails: "a hover preview lets Escape through: the thread panel closes too", expected 0 panels, got 1. | Dev A | **Fixed** (uncommitted, `SeenByList.tsx`); REV-R5 green |
-| REV-STICK | S2 | AC-L7-4, AC-R9-1 (stick-to-bottom, review / CI finding) | "Stuck to the bottom" means within 40 px of it (`NEAR_BOTTOM_PX`), but every commit and every late growth while stuck snapped to the **true** bottom. A reader parked 2-39 px above the bottom saw everything jump by that gap. On CI, the 24 px receipt strip on the newest row created the gap, and AC-L7-4 went red. Dev B's fix in `MessageList.tsx`: while stuck, keep the current gap unless gap <= 2 or a new event arrives at the end. Regressions, each parking the list 20 px above the bottom: **REG-L7-4b** (`link-preview.spec.ts`, a card loads above the viewport), **REG-STICK-b1** (typing notification), **REG-STICK-b2** (edit of a visible message), **REG-STICK-c** (a read-avatar strip appears on an older row above the viewport) in `receipts.spec.ts`. With the pre-fix `MessageList.tsx` from `4771771`, all four fail: "moved -20px", which is exactly the gap. `npx playwright test e2e/receipts.spec.ts e2e/link-preview.spec.ts --project=desktop -g "REG-"` | Dev B | **Fixed** (`25bc97c`); 4/4 green, 9/9 on `--repeat-each=3` |
+| 1 | AC-E5-8 | Log in via Keycloak; banner says **Verify** (never **Set up**); unlock with the recovery key you have in Element | | | |
+| 2 | AC-E5-8 | Same with the **passphrase** instead of the key (if you have one) | | | |
+| 3 | AC-E5-8 | All 6 encrypted rooms read: old history decrypted, no "Unable to decrypt" left after the restore | | | |
+| 4 | AC-E5-8 | Element still unlocks with the same key afterwards (key unchanged) | | | |
+| 5 | AC-E4-8 | Verify codec from Element (Element starts): same 7 emoji, both say verified | | | |
+| 6 | AC-E4-8 | Verify from codec (codec starts, Element accepts) | | | |
+| 7 | AC-E4-8 | Element's session list shows the codec session with a green shield | | | |
+| 8 | AC-E4-8 | Brand-new SSO account: **Set up** opens the Keycloak popup ("Finish signing in in the window that opened"), the key appears after the popup closes | | | |
+| 9 | interop | Text from codec decrypts in Element, and Element's text decrypts in codec | | | |
+| 10 | AC-E3-7 | Image from Element (with a thumbnail) renders in codec; voice note from Element plays in codec | | | |
+| 11 | interop | Image, file and voice note sent from codec open / play in Element | | | |
+| 12 | AC-E1-3 | Log out of codec, log in again: new session, banner back (DevTools > Application > IndexedDB: no old `matrix-poc-crypto:` store) | | | |
 
-Rulings / test-side notes (no product defect):
-- **AC-R6-2 (Advisor ruling, 2026-10-18).** An *unthreaded* `m.read` (no `thread_id`) on a main message newer than a
-  thread reply T1 puts the reader's avatar on T1 in the thread panel. That is the Matrix spec (an unthreaded receipt
-  reads everything before it, threads included) and matches `hasUserReadEvent` / Element: SDK v43
-  `Thread.getEventReadUpTo` falls back to the newer unthreaded receipt (by ts). The spec asserts the AC strictly with
-  `thread_id: "main"` (what Codec and Element send), and AC-R6-2b asserts that the unthreaded case agrees with
-  `getSeenBy`. PM asked to reword AC-R6-2.
-- AC-R1-5 fails the send with 403 `M_FORBIDDEN`: on 5xx the SDK scheduler retries with backoff (~30 s) before
-  `NOT_SENT`. The Phase 1 UI has no retry control, so "retry still works" is annotated, not asserted.
-- AC-R5-3 asks for 44 px **tall** targets: `receipt-avatars` is 44 px tall and 34 px wide (one avatar), as specified.
-- **PR-selected set** (`node scripts/select-e2e.mjs origin/master`, 18 specs, both projects, 2 workers): 266 passed,
-  2 failed, 11 skipped (the usual fresh-seed / manual skips). Neither failure is caused by read receipts:
-  - `link-preview.spec.ts` AC-L7-4 (scrolled up, a card loading above the viewport): **environment-specific** (it
-    passes on GitHub CI for master; this container's Chromium is older). Here the row being read moves **21 px**,
-    deterministically (3/3 alone). It fails the same way on the wave-A commit `d6c56d3` (no receipt UI) and on
-    **master `f45c086`** (2/2 each, run from a throwaway git worktree), so it predates this branch. A probe of row heights
-    shows only the card row changes (102 -> 416 px), with no receipt strip involved, so the error is in the list's
-    reading-pin compensation, under this local Chromium only. No ticket.
-  - `threads.spec.ts` AC-T6-4: the 40-reply root row in #general did not render within 20 s under the 2-worker load;
-    3/3 green in isolation. Load flake, not a defect.
-- **Final: PR-selected set on the merged tree (`c0881a0`, master PRs #16-#18 merged in), 19 specs, both projects, 2 workers:
-  288 passed, 0 failed, 13 skipped** (fresh-seed / manual skips), including the AC-T6-4 and auth-media hardening below.
-  An earlier `threads.spec.ts` run failed AC-T1-4 once while the merge was being written (Vite: `Expected string in
-  JSON but found "<<"`, conflict markers mid-merge); green on the merged tree.
-- **PR-selected set, fix wave (after `25bc97c`), 18 specs, both projects, 2 workers: 272 passed, 2 failed, 11 skipped.**
-  AC-L7-4 now passes here too (Dev B's stick-band fix), as do the four REG-* regressions. Both failures are test-side
-  and pass 3/3 in isolation; both are now hardened:
-  - `threads.spec.ts` AC-T6-4 (and the other `theBigThread` consumer): the thread is built once per worker and
-    reused. In a long run other specs post into #general after it, so the root falls out of the initial window and
-    `message-{root}` never renders. Fix: page back to the root (`paginateToTop`, the dirty-seed rule) before opening it.
-  - `auth-media.spec.ts` "SVG is downloaded, never opened": the loop over `context().pages()` evaluated in a tab the
-    download had just closed ("Target page ... has been closed"). Fix: skip closed tabs, and treat a close
-    mid-evaluate as "not showing the SVG".
-- Environment: this container's `/home/claude/pwb` had no ffmpeg, so `video: 'retain-on-failure'` failed every test
-  at `newPage` in 0.1 s. Fixed outside the repo with a symlink to `/opt/pw-browsers/ffmpeg-1011`.
-- Fixture defect fixed during the run: `sendStatusByText` called `room.getPendingEvents()`, which throws under
-  `pendingEventOrdering: chronological`. Local echoes are in the live timeline.
+## Phase 4 (GIF picker)
+
+Wave 11 QA pass (QA-19 / QA-20) against `e2e/gif.spec.ts` (desktop, 16 tests) and
+`e2e/mobile-gif.spec.ts` (phone, 6 tests) on a **dirty** homeserver, plus demo step 12 in both smoke
+specs. Everything runs in **#dev** — never #general — and every test sends its own messages and
+asserts on ids it created, so nothing here needs a fresh seed.
+
+```
+npm run test:e2e:gif                                           # both GIF specs, both projects
+npx playwright test e2e/gif.spec.ts --project=desktop -g "AC-G3-1"
+npx playwright test e2e/mobile-gif.spec.ts --project=mobile -g "AC-G9-1"
+npx playwright test e2e/smoke.spec.ts --project=desktop        # demo step 12 needs steps 1-11 first
+npm run gif:fixtures                                           # regenerate public/gif-fixtures/
+npm run gif:sample -- --id mock-7                              # bob posts a GIF (demo row 7)
+```
+
+**Result: no S1 or S2 product defect.** Both projects are green with **no skips**
+(desktop 16/16, phone 6/6, desktop smoke step 12 and phone smoke step 12 both pass). Every criterion
+this pass can judge from a browser — the picker, both variants, the slash commands, keyboard
+navigation, the send flow, the wire contract, the host allow list, the thread path, the `klipy` code
+path against stubs including 404 and 429 — behaves as specified. The three rows below are
+**contract/documentation divergences**, not broken behaviour; the fourth block is the quota guard.
+
+**Quota guard (AC-G11-3).** Every GIF test installs `guardGifNetwork` (`e2e/fixtures/gif.ts`) before
+any stub. An unstubbed request to `api.klipy.com` **fails the test** — a Klipy test key allows 100
+requests an hour, so a leaking suite would spend the stakeholder's quota. Requests to
+`static.klipy.com` are *served* from the local fixture bytes rather than failed, because the
+`klipy` criteria must post real messages whose `url` is on the Klipy CDN (AC-G3-2) and every later
+test that opens #dev then renders those rows; failing on that would make each klipy test poison every
+test after it. Either way nothing leaves the machine. No run in this pass recorded a violation.
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-10 | AC-G4-2, AC-G5-3, AC-G8-1, docs/archive/PHASE4_PLAN.md desktop demo row 3 | S2 | web-desktop + android-device | no | PM + Principal (PRIN-13) | 1. `grep "title: '" src/lib/gif/mock-fixtures.ts`. 2. Compare with the "Mock provider fixture contract" table in docs/archive/PHASE4_ACCEPTANCE.md. 3. In the app under `mock`, type `/gif tacos` and press Enter. 4. Press ArrowRight twice, then Enter — the keystrokes the stakeholder's demo script prescribes. | Per the acceptance table and the demo script: `tacos` matches **three** fixtures (`mock-1` Tacos dance, `mock-2` Tacos Tuesday, `mock-3` Tacos party), so two ArrowRights move the selection to `mock-3` and Enter sends "Tacos party". AC-G4-2 names `mock-1`, `-mock-2`, `-mock-3` explicitly; AC-G5-3 says "ArrowRight twice then Enter sends `mock-3`". | `src/lib/gif/mock-fixtures.ts` titles `mock-2` **"Taco Tuesday"** (no "s") and `mock-3` **"Party time"**, so a case-insensitive substring match on `tacos` returns **one** fixture, `mock-1`. Both ArrowRights clamp at index 0 and Enter sends "Tacos dance". The feature is correct — the *search* is a faithful substring match and the picker's clamping is right (AC-G5-1) — but the document, the criteria and the stakeholder's scripted keystrokes describe a catalogue the code does not have. Either `mock-2`/`mock-3` are renamed to "Tacos Tuesday"/"Tacos party" (what the doc, AC-G4-2, AC-G5-3 and the demo script all assume) or those three criteria and demo row 3 are rewritten. Note the two files were realigned repeatedly during Wave 11 and this is the residue; QA's own suite is unaffected, because it **derives** every mock expectation from `mock-fixtures.ts` at run time (`e2e/fixtures/gif.ts` module header) and reports the mismatch as a `catalogue-drift` annotation on AC-G1-3 rather than as a red test. | the `catalogue-drift` annotation on `[desktop] AC-G1-3`; `e2e/results/demo/12-picker-prefilled.png` shows the one-result grid the demo actually gets | **Fixed and verified 2026-10-09.** Ruled by the orchestrator: the rename stands — `mock-2` becomes "Tacos Tuesday" and `mock-3` "Tacos party", so `tacos` matches `mock-1..3` and demo row 3 lands on `mock-3` as written. The Principal is landing it (`mock-fixtures.ts` + `npm run gif:fixtures`); the doc and all four criteria then need no edit. Landed by the Principal and re-verified by QA: `mock-2` = "Tacos Tuesday", `mock-3` = "Tacos party", so `tacos` and `taco` now match `mock-1..3`, `party` -> `mock-3, mock-4`, `cat` -> `mock-5, mock-6`, `dance` -> `mock-1` — exactly the acceptance table. AC-G4-2 and AC-G5-3 are satisfiable as written, and desktop demo step 12 now derives `tacos` for demo row 2, so two ArrowRights land on `mock-3` as the script narrates. The `catalogue-drift` annotation on AC-G1-3 is gone (verified: annotations empty). |
+| BUG-9 | AC-G2-1, AC-G2-2 | S3 | web-desktop | no | Principal (PRIN-14) | 1. Stub `api.klipy.com` with two items whose ids are `9041071659142944` and `9041071659142945` (both 16-digit Klipy-shaped numbers above `Number.MAX_SAFE_INTEGER` = 9007199254740991). 2. Open the picker under `klipy`. 3. Inspect the two tiles. | Two tiles with distinct `gif-item-{id}` test ids and distinct `previewUrl`s. | **Both tiles carry `data-testid="gif-item-9041071659142944"` and both load `.../9041071659142944/sm.webp`** — their `<img alt>`, title and reserved dimensions are correct, so only the identity is wrong. Cause: Klipy ids arrive as JSON **numbers**, and `JSON.parse` rounds anything above 2^53 to the nearest double, so the two ids collapse onto one before `mapKlipyItem` stringifies them (`String(item.id)`). Consequences if a real Klipy id ever exceeds 2^53: duplicate React keys, a tile that previews the wrong GIF, and a `dev.matrixpoc.gif.id` that does not round-trip. The acceptance example id (`8041071659142944`) is *below* the limit, which is why nothing else caught it; ids beginning with 9 would not be. Fix if it is judged worth it: read ids as strings off the wire (a `JSON.parse` reviver, or ask Klipy whether ids are bounded). Found while writing the phone klipy test; QA's stub ids are now pinned below the limit with a comment. | `e2e/results/mobile/mobile-gif-GIF-sheet-—-kli-31e14-nd-a-pick-sends-the-CDN-url-mobile/` (the strict-mode violation lists both `<img>` elements with the same `src`) | **Fixed and verified 2026-10-09.** Ruled by the orchestrator: a Klipy `GifResult.id` becomes the item's **`slug`** instead of `String(item.id)`, which removes the limit entirely — a slug is already a string, so nothing passes through a double. Landed in `mapKlipyItem` (`item.slug` first, `String(item.id)` only when there is no slug) and re-verified by QA. QA's stub now pins `slug === String(spec.id)` (`klipyItem` / `klipyResultId` in `e2e/fixtures/gif.ts`), so every id assertion — tile test ids and the `dev.matrixpoc.gif.id` on the wire — pins the same string under either mapping and the suite needs no flag day. |
+
+### Contract divergences for the Principal (not defects)
+
+| # | Subject | Divergence | Suggested resolution |
+|---|---|---|---|
+| 1 | `customer_id` on every Klipy request | AC-G2-1 now requires each request to carry "a `customer_id` (stable across reloads in the same browser, `matrix-poc.gifCustomerId`)", and `provider.ts` exports `getGifCustomerId()` which generates and persists exactly that uuid — but `getGifProvider()` calls `createKlipyProvider({ apiKey, baseUrl })` **without** `customerId`, and `klipy.ts` only sets the parameter `if (options.customerId)`. So no `customer_id` is ever sent. docs/archive/PHASE4_PLAN.md "Out of scope" explicitly lists "recent/favourite GIFs and Klipy's `customer_id`", so the **code follows the plan and the acceptance criterion is the odd one out**. | **Resolved and verified 2026-10-09.** Ruled by the orchestrator: `customer_id` **is** sent on every Klipy request, so AC-G2-1 stands and `getGifProvider()` gains `customerId: getGifCustomerId()` (falling back to `undefined`) — the Principal is landing it, and docs/archive/PHASE4_PLAN.md "Out of scope" needs its `customer_id` clause struck. QA asserts the key path segment, `q`, `page`, `per_page` and `content_filter` and **not** `customer_id`, so the suite is green either way; the presence assertion is now in AC-G2-1 (the trending request carries a non-empty `customer_id`, and the following search carries the **same** value, so it is persisted rather than regenerated per call). The value itself is a random uuid and is deliberately not pinned. |
+| 2 | `GifResult` / `GifPage` field names | docs/archive/PHASE4_TICKETS.md's Shared API table promises `{ url, w, h, previewMime }` and `GifPage { items, hasNext }`; the shipped `types.ts` has `{ fullUrl, fullW, fullH, previewMimetype }` and `GifPage { results, nextPage, hasNext }`. The tickets already say names are "subject to the Principal's ARCHITECTURE deltas", and the **wire** shape (which is what the tickets protect) matches the acceptance contract exactly. | Informational only — the ticket table wants a refresh, or docs/ARCHITECTURE.md "Phase 4 deltas" wants writing (it does not exist yet, which is why this is listed at all: AC-G10-2 requires that section). No code change. |
+
+### Phase 4 criteria this pass cannot judge — stakeholder checklist
+
+| AC | Why | Who |
+|---|---|---|
+| AC-G3-5 (a `static.klipy.com` `<img>` loads in the Android WebView, no CSP / sanitizer / Capacitor block) | Needs the APK on a real device with internet. The browser half is covered: the `klipy` criteria render `<img src="https://static.klipy.com/...">` from the stub and the image decodes (`naturalWidth > 0`), so nothing in the dev build blocks the host. | stakeholder, `android-device` |
+| AC-G9-2, Android-back half (back closes the GIF sheet before the drawers) | `@capacitor/app` back-button events are not dispatched in Chromium, so the `mobile` project cannot press it. The backdrop and `gif-close` halves are asserted. Same limitation as Phase 2's AC-M-back and Phase 3's AC-T3-5. | stakeholder, `android-device` |
+| The real Klipy key (AC-G2-* against the live service) | No key exists yet; the whole `klipy` path is tested against `page.route` stubs written from the verified response shape. The live run is the stakeholder's (docs/archive/PHASE4_PLAN.md "User-only steps"). If the live mapping is wrong it will be wrong in exactly one function, `mapKlipyItem`. | stakeholder, after pasting a key |
+| AC-G8-3 (a GIF row far out of view unmounts its `<img>` into a sized `message-gif-placeholder`, remounts with no layout shift) | **Not covered by a dedicated test this pass** — a DEV-B-25 P1 half, not in the QA-19 brief. It is not unverified, though: `GifMessage` implements it (an IntersectionObserver with a 200 px margin and the four `data-state` values), `expectGifPlaying` in every pick assertion depends on a row *leaving* `offscreen` when scrolled in, and desktop demo step 12 row 4 asserts the placeholder whenever the row genuinely leaves the margin. What is missing is the layout-shift measurement (`message-list.scrollHeight` unchanged +/- 2 px) under a forced 20-message scroll. | QA, if it is promoted to P0 |
+| AC-G8-4 (reduced motion shows `stillUrl` plus `message-gif-play`; clicking play animates) | **Not covered by a dedicated test this pass** — the other DEV-B-25 P1 half, not in the QA-19 brief. The ingredients are all verified elsewhere: AC-G1-3 asserts every `<id>.png` still frame is served, and the contract test asserts `stillUrl` reaches the wire. What is missing is a `page.emulateMedia({ reducedMotion: 'reduce' })` test of the `paused` -> `playing` transition. | QA, if it is promoted to P0 |
+| Element interop (the GIF body shows as a link and the server unfurls it) | Needs a second client by hand. The wire half is asserted: `msgtype` is `m.text` and the url is the last whitespace-separated token of `body`, which is what makes Element linkify and unfurl it. | stakeholder, manual |
+
+## Phase 3 (threads)
+
+Wave 8 QA pass (QA-14..18) against `e2e/threads.spec.ts` (desktop, 43 tests) and
+`e2e/mobile-threads.spec.ts` (phone, 14 tests) on a **dirty** homeserver, plus the QA-17 regression
+gate on the Phase 1/2 projects after the Principal's `threadSupport: true` flip. Every thread test
+creates its own root and replies through the API, so nothing here needs a fresh seed.
+
+```
+npm run test:e2e:threads                                       # both thread specs, both projects
+npx playwright test e2e/threads.spec.ts --project=desktop -g "AC-T6-4"
+npx playwright test e2e/mobile-threads.spec.ts --project=mobile -g "AC-T3-4"
+npm run thread:sample -- --root <eventId>                      # bob replies into a live thread
+```
+
+**Wave 8 reading note.** Dev A and Dev B were implementing while this pass ran, so a red criterion
+could mean three different things. The specs separate them: each test declares the UI entry point it
+needs (`requireThreadUi`, `e2e/fixtures/threads.ts`) and **skips with a `not-built` annotation** when
+that entry point is absent. A test that *ran* and failed is therefore a product defect or a test
+defect — never "not implemented yet". The not-built list for this pass is under "Not built yet".
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-5 | AC-T2-3 | S2 | web-desktop | no | Principal (PRIN-9) | 1. Log in as alice, open `#general`. 2. In the console (the dev hook the test uses): `__matrixPoc.actions.sendText(roomId, 'x', { replyTo: $root, threadRoot: $root })`. 3. Look for the message on the server. | The call **rejects** and no event is sent (`replyTo` with `threadRoot` is a contradiction; an in-thread quote reply, `is_falling_back: false`, is explicitly out of scope — docs/archive/PHASE3_PLAN.md "Out of scope"). | The promise **resolves** and an event **is sent**, with exactly the shape the phase ruled out: `"m.relates_to": { "rel_type": "m.thread", "event_id": "$root", "is_falling_back": false, "m.in_reply_to": { "event_id": "$root" } }`. `sendRoomMessage` in `src/lib/matrix/actions.ts` passes `replyTo` straight into `threadRelation()`, whose first branch builds the `is_falling_back: false` form; there is no guard. Consequences beyond the criterion: the contract in docs/archive/PHASE3_ACCEPTANCE.md says `is_falling_back` is *always* `true`, and our own readers treat `is_falling_back: false` as a real quote (`getReplyTargetId`), so such an event renders a reply quote inside the panel — which AC-T1-3 forbids. Suggested fix: reject when both are set, at the top of `sendText` / `sendRoomMessage`, and drop the `replyTo` branch of `threadRelation` until in-thread quote replies are in scope. | `e2e/results/desktop/threads-AC-T2-timeline-sou-b6c56-hreadRoot-and-sends-nothing-desktop/` (the `sent-anyway` annotation carried the full event) | **Fixed** by the Principal during Wave 8, exactly as suggested: `sendText` now throws `ThreadReplyConflictError` (`src/lib/matrix/actions.ts`) **before** anything is sent, and `sendRoomMessage` no longer takes a `replyTo` at all, so the `is_falling_back: false` branch is gone. Re-verified in the final `desktop` run: AC-T2-3 passes and no event reaches the server. |
+| BUG-6 | AC-T6-4 (AC-B3-2 rule) | S2 | web-desktop | no | Dev B (DEV-B-20) | 1. Create a root with 40 API thread replies (`sendThreadReply` in a loop, or `npm run thread:sample -- --root <id> --replies 40`). 2. Open the thread from the message toolbar. 3. Note the top-most rendered reply row and its viewport `y`. 4. Scroll `thread-message-list` to the top so the thread pages back. 5. Measure that same row's `y` again. | The anchor row stays put (`thread-timeline-loading` shows, older replies prepend, drift <= 5 px — the same rule DEV-B-3 implements for the room timeline and AC-T6-4 restates for the panel). | The anchor row moved **504.6 px** down the viewport: the panel keeps `scrollTop` while a page of older replies is prepended, so the reader is thrown out of position on every page-in. This is BUG-2 again, in the second list — the room timeline's anchoring (capture `scrollHeight`, restore `scrollTop += delta`) has not been applied to `thread-message-list`. Everything else about thread pagination is correct: all 40 replies load, oldest first, no duplicate ids, `thread-timeline-start` appears (AC-T2-4 passes). | `e2e/results/desktop/threads-AC-T6-ThreadView-A-00f09--and-pages-in-without-drift-desktop/` (the `anchor-drift` annotation has the measurement) | **Test defect, not a product bug** (re-filed 2026-10-08): the drift assertion took its baseline before its own `scrollTop = 0`, so it measured the panel scrollTop (deterministic 504.59 px); real drift is 0.4 px. The orchestrator fixed `e2e/threads.spec.ts` to take the baseline inside the same `evaluate` (mirroring AC-B3-2); AC-T6-4 passes. Latent defect fixed by Dev B while investigating: `usePagination` captured a pin while the list was shorter than the viewport and walked the panel off the newest reply; it now pins only when live geometry says the list is away from the bottom. |
+| BUG-7 | AC-T9-3 | S2 | web-desktop | no | Dev B (DEV-B-22) | 1. Open a thread, send two replies of your own from `thread-composer-input`. 2. Hover the second reply, click `message-action-delete`, confirm with `delete-confirm`. | The row stays and shows `message-redacted` (as a redacted message does in the room timeline, AC-B9), and the divider/summary count drops by 1. | The **row disappears from `thread-message-list` entirely** — the test's diagnostic reports `row-gone/no-placeholder` where the criterion wants `row-present/redacted`. **Half the criterion is fine and that half is verified separately** (the test asserts the two independently, and only the row assertion fails): the redaction goes through and `thread-replies-divider` does tick from `2 replies` to `1 reply`. So this is purely the panel's render path dropping redacted thread replies instead of rendering the Phase 1 `message-redacted` placeholder the room timeline shows (AC-B9). A P1 ticket, but a row vanishing under the reader's cursor mid-demo is the kind of thing a stakeholder notices, hence S2 rather than S3. | `e2e/results/desktop/threads-AC-T9-in-thread-ed-bd097--and-drops-the-count-by-one-desktop/` | **Fixed** (Dev B, DEV-B-22): read-only tombstone in `useRoomEvents` (the SDK parks the redacted reply in the room live timeline; the panel re-inserts it via `room.findEventById`). AC-T9-3 passes unmodified (row shows `message-redacted`, counts drop by 1), so ruling G-2 keeps its primary text and the fallback wording is not needed. Residual: a reply redacted before the client loaded has no row at all, because the server no longer reports it as part of the thread. |
+
+### PM rulings (2026-10-08; full text in docs/archive/PHASE3_ACCEPTANCE.md "Rulings")
+
+| Ruling | Subject | Decision |
+|---|---|---|
+| G-1 | AC-A4-2 (Phase 1) says `#dev` has three members with carol absent; PRIN-12 seeds a carol-authored thread root in `#dev`, so carol joins it on the next reset | Not a defect. AC-A4-2 derives the expected members from the server (`/joined_members`), as QA already implemented; the criterion text in docs/ACCEPTANCE.md is updated. |
+| G-2 | BUG-7 / AC-T9-3: Synapse strips `m.relates_to` on redaction and drops the reply from `/relations`, so a redacted thread reply cannot be shown as a tombstone without client-side memory | AC-T9-3 becomes "the reply disappears from the panel and the divider/summary counts drop by one" **unless Dev B reports a cheap tombstone** (checking now), in which case the row shows `message-redacted` and the counts still drop. **Outcome**: Dev B shipped a read-only tombstone (BUG-7 fixed); AC-T9-3 passes unmodified, the fallback wording is not needed. Residual: a reply redacted before the client loaded has no row at all. |
+
+### QA-17 regression gate — the `threadSupport: true` flip did not regress Phase 1/2
+
+Run after PRIN-8 landed and after QA-14's main-timeline-only receipt fixtures were in place (the gate
+precondition in docs/archive/PHASE3_PLAN.md "Sequence").
+
+| Project | Result | Verdict |
+|---|---|---|
+| `desktop` (96 tests) | 79 pass / 9 fail / 8 skip, then **87 pass / 1 fail / 8 skip** after triage | No regression from the flip. 8 of the 9 failures were a **transient broken build**: every one is `app-shell` / `current-user` never rendering after login, in one contiguous block (AC-B5-6, AC-B6-1..5, AC-B7-1/2/3), and all 8 pass on re-run — the dev server on 5173 was serving a half-saved edit while Dev B worked. The 9th is AC-A4-2, see G-1. |
+| `mobile` (58 tests) | 57 pass / 1 fail / 0 skip, then **58 pass** after a fixture fix | No regression from the flip. The single failure (AC-V2-5) was a QA-side seed-window defect, listed under "Fixture-side defects". |
+
+Two gate findings that are **not** product defects but do need an owner:
+
+| # | Finding | Owner |
+|---|---|---|
+| G-1 | **AC-A4-2 ("`#dev` has three members and carol is absent") is no longer true of this homeserver, and will not be true again.** Carol joined `#dev` on 2026-10-08 (Phase 3 thread tooling), and **PRIN-12 seeds the `#dev` thread with a carol-authored root**, so carol is a `#dev` member from the next `seed:reset` onwards: the criterion's seeded expectation now contradicts another Phase 3 ticket. QA has made the test derive membership from the server and record the drift with `noteSeedDrift` (the criterion's real content — the panel lists exactly who the server says is joined — still passes), but the **criterion text in docs/ACCEPTANCE.md needs a PM decision**: drop "carol is absent", or seed the `#dev` thread under a member who is already there. | PM / Principal |
+| G-2 | `npm run verify:threads` pointed at a `scripts/verify-thread-shell.mjs` that was not in the tree, so the command failed immediately. **Resolved during Wave 8** — the Principal landed the script; re-checked at the end of this pass. | Principal (closed) |
+
+### Final Wave 8 runs (AC-T11-3)
+
+`npx playwright test --project=desktop` then `--project=mobile`, sequentially, on the dirty
+homeserver, with both thread specs and both smoke step 11s in place.
+
+| Project | Tests | Pass | Fail | Skip | Did not run | Time |
+|---|---|---|---|---|---|---|
+| `desktop` | 141 | **114** | 3 | 13 | 11 | 31.1 min |
+| `mobile` | 74 | **65** | 2 | 7 | 0 | 3.4 min |
+
+**Desktop failures**: BUG-6 (AC-T6-4) and BUG-7 (AC-T9-3), both open and listed above, plus
+**BUG-4** (`smoke.spec.ts` step 1, login 16 083 ms) — and because that spec is `mode: 'serial'`,
+step 1's failure is what produced all **11 "did not run"**, demo step 11 included. Run on its own,
+`npm run test:e2e:smoke` is 7 passed / 5 skipped with step 11a green and step 11b skipped
+(`header-threads` not built), and both screenshot sets are written: `e2e/results/demo/11-*` (5 shots)
+and `e2e/demo-mobile/11-*` (4 shots).
+
+**Mobile failures**: both **intermittent, both pass on re-run, neither is a product defect**, and
+both are now hardened in the specs (see "Fixture-side defects" 7 and 8). The 13 desktop and 7 mobile
+skips are the 8 known fresh-seed skips, 1 manual clipboard criterion, the `not-built` thread UI, and
+the device-only AC-T3-5.
+
+**Re-verified after the hardening**: `e2e/mobile-threads.spec.ts` 8 passed / 6 not-built, and
+`e2e/voice.spec.ts` 18/18 passed.
+
+### Observation: the thread suites make `#general` slower to page back (no defect, one recommendation)
+
+After this pass `#general` holds **1 066 events, 335 of them (31.4 %) thread replies**. Thread
+replies are real events in the room's `/messages` history but are *correctly* absent from the main
+timeline, so backwards pagination has to walk ~1.5x more server events to surface the same number of
+rendered rows. The visible effect is in the Phase 1 suite, not the product: `conversation.spec.ts`
+tests that call `withFullHistory()` went from a few seconds to **36-43 s each**, which is most of why
+the final `desktop` run took 31 minutes against the gate run's 10.
+
+Nothing fails because of it and no criterion is violated — the app still reaches
+`timeline-start` correctly. Two follow-ups worth taking:
+
+1. **QA (next pass):** move the 40-reply pagination fixtures (`theBigThread()` in
+   `e2e/threads.spec.ts`) from `#general` to `#dev`. The criteria do not name a room, and it would
+   keep ~80 events per run out of the room every Phase 1 pagination criterion walks.
+2. **Principal (worth a look, not a bug):** a room where a third of the history is thread replies is
+   now the normal case for this homeserver. Worth confirming that `paginateBack` cannot return a page
+   of *only* thread replies and be mistaken for "no more history" — the tests reach the start banner,
+   so it behaves today, but the margin is narrower than it was.
+
+### Not built yet (as of this QA pass — informational, not defects)
+
+Probed once per run by `requireThreadUi`; these are the entry points that were absent, with the
+criteria that consequently skipped rather than failed.
+
+| Missing | Owner | Criteria skipped |
+|---|---|---|
+| `header-threads` / `header-threads-unread` — the button is not in `channel-header`. `src/features/navigation/components/ThreadList.tsx` **exists** and already uses the registry names (`thread-list[data-variant]`, `thread-list-item-{rootId}`, `-author` / `-snippet` / `-count` / `-time` / `-avatars`, `thread-list-empty`, `thread-list-close`), but nothing mounts it and `ThreadList.module.css` is missing — it is dead code today, so the app still builds; it will not once the header imports it. | Dev A (DEV-A-17) | desktop AC-T2-7, AC-T7-1..8; phone AC-T7-1 / 2 / 4 / 7; desktop demo step 11b; phone demo step 11b |
+| `header-back` / `header-thread-room` on phone | Dev A (DEV-A-18) | phone AC-T8-1, AC-T8-2 |
+
+Built and green at the time of the pass: `message-action-thread` (toolbar and sheet), `thread-panel`
+with the registry composer, `thread-root`, `thread-replies-divider`, `thread-message-list`,
+`thread-typing`, `thread-summary-{rootId}` with `-count` / `-time` / `-avatars`,
+`thread-timeline-start`, `thread-timeline-loading`, `thread-close`, `app-shell[data-thread-open]`.
+
+### Contract divergences for the Principal (not defects; the devs code against the ticket table)
+
+| # | docs/archive/PHASE3_TICKETS.md "Shared API" says | The tree has | Why it matters |
+|---|---|---|---|
+| D-1 | `src/store/thread.ts`, `useThreadStore` with `open: { roomId, rootId } \| null` plus `openThreadRootId` | `src/store/threads.ts`, `useThreadStore` with `openThreadRootId` / `openThreadRoomId` fields and a `useOpenThread()` selector returning `{ roomId, threadRootId }` | Internal only, and QA asserts the DOM contract (`app-shell[data-thread-open]`, `thread-panel[data-root]`) rather than the store, so nothing in the suite depends on it. **Resolved during Wave 8**: docs/ARCHITECTURE.md now has the "Phase 3 deltas (threads)" section AC-T10-4 asks for, which records these renames. Left here as the record of what QA checked. |
+| D-2 | `src/lib/format.ts` exports `formatRelative(ts)` | `src/lib/format.ts` now **does** export it (landed during Wave 8), but `src/features/navigation/relativeTime.ts` still holds the temporary copy *and `ThreadList.tsx` still imports from it* — so there are currently two implementations of the same pinned strings. | The criteria assert the strings themselves (AC-T4-2 pins `just now`, AC-T7-2 the list's time), and Dev B's summary row and Dev A's list items must agree. The remaining step is the one Dev A's own file header asks for: point `ThreadList.tsx` at `@/lib/format.ts` and delete `relativeTime.ts`. **Closed** (Dev A, 2026-10-08): `relativeTime.ts` deleted, `ThreadList.tsx` imports `formatRelative` from `@/lib/format.ts`; one implementation of the pinned strings. |
+| D-3 | — | `src/features/conversation/components/ThreadView.tsx` carried a PRIN-10 skeleton with non-registry ids (`data-root-id`, `thread-message-{id}`, `thread-empty`, `thread-load-more`) | QA asserts the **registry** names only, deliberately, so the suite reports such a divergence instead of hiding it. Dev B's ThreadView now uses the registry ids; recorded so the skeleton ids are not re-introduced. |
+
+## Phase 2 (phone shell, voice notes, Capacitor)
+
+Wave 5 QA pass against the `mobile` Playwright project (`devices['Pixel 7']`, 412x839, touch, fake
+microphone) and `npm run test:android-build`, on a **dirty** homeserver (hours of traffic; every
+Phase 2 test is written to tolerate it).
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-4 | AC-SH-2, docs/archive/PHASE2_PLAN.md phone demo step 1 | S3 | web-desktop | no | Principal | 1. Run the whole `desktop` project (`npm run test:e2e:desktop`, ~14 min) against the current dirty homeserver. 2. Watch the last spec, `smoke.spec.ts` step 1. | Login to painted shell in under 10 s (AC-SH-2); the demo scripts want under 3 s. | **10 609 ms** at the tail of the run — just over the criterion. Re-running step 1 alone on an idle homeserver passes (7.4 s for the whole test, login well inside budget), and the **phone** smoke measures **1 832 ms** on the same homeserver, so this is initial-sync cost on a server that has just absorbed a 14-minute suite, not a layout or code regression. Recorded because login time *is* a demo criterion: if the stakeholder's device pass is run straight after a full suite, step 1 may feel slow. Mitigation for demo day: do not run the suites immediately before the demo, or `npm run seed:reset` first. | `e2e/results/desktop/smoke-demo-script-QA-3-smo-73c29-*/` (trace.zip) | **Open** — environment/perf, no code change proposed. **Worse in Phase 3 and now consequential:** the final Wave 8 `desktop` run measured **16 083 ms** at the tail of a 31-minute suite, and because `smoke.spec.ts` is `mode: 'serial'`, step 1's failure left **all 11 later steps "did not run"** — including the new thread step 11. The cause still looks like initial-sync cost on a hammered homeserver rather than a thread regression: the `mobile` smoke's step 1 measured **1 832 ms** on the same homeserver when it ran first, and step 11 passes in 2.1 s when `smoke.spec.ts` is run on its own (`npm run test:e2e:smoke`). Two things follow for demo day: do not run the suites immediately before the demo (or `npm run seed:reset` first), and judge the demo steps from a standalone smoke run, not from the tail of a full-project run. |
+| — | — | — | — | — | — | *No product defect found in the emulated phone pass.* **52** Phase 2 acceptance criteria green in **58 tests** — `voice.spec.ts` (18 tests / 23 criteria), `mobile-nav.spec.ts` (30 / 29), `mobile-smoke.spec.ts` (10 phone-demo steps) — plus **6** more (AC-C1-1..4, AC-C3-1/2) in the 20 checks of `npm run test:android-build`: **58 criteria in all**. The six failures on the first run were all QA-side and are listed under "Fixture-side defects" below. | | | `e2e/demo-mobile/` (10 phone demo screenshots) | — |
+
+### Flake pass (QA P2)
+
+`--repeat-each=3` of both phone suites on the dirty homeserver:
+
+| Suite | Result |
+|---|---|
+| `mobile-nav.spec.ts` (AC-M5-2 excluded — it creates a room per run and `rc_room_creation` is still 1/min) | **87/87**, three runs, no flake. The two tight spec budgets held every time: AC-M2-1's 300 ms drawer open and AC-M1-3's 500 ms layout flip. |
+| `voice.spec.ts` | **53/54** on the first pass, then **54/54** on a repeat and **4/4** on AC-V5-2 alone — 1 failure in 112 executions, never reproduced. |
+
+The single failure was AC-V5-2 reporting that a voice note had reached `#dev` after
+`recording-cancel`. The most likely window was QA-side: the test used to `page.unroute()` the injected
+500 straight after cancelling, so a retry still in flight would have been served by the **real** media
+repo and the note would have landed after the criterion said it was discarded. The `unroute` is gone —
+the 500 now stays installed for the rest of the test, so the assertion judges the product rather than
+the teardown. **If this reappears**, it is a genuine DEV-B-13 defect ("`recording-cancel` does not
+abort an upload retry already in flight") and deserves an S2 row; capture
+`e2e/results/mobile/voice-AC-V5-2-*/trace.zip` before the next run overwrites it.
+
+### Contract note for the Principal (not a bug, needs one line in the registry)
+
+`voice-waveform`'s `data-samples` is **the number of bars drawn**, not the number of waveform
+samples the event carried. For a note with no waveform (`[]`, AC-V4-3) `VoiceMessage.tsx` draws
+`FLAT_BARS = 40` placeholder bars and reports `data-samples="40"`. AC-V3-1 ("`data-samples` =
+waveform length") and the registry row ("one bar per waveform sample") agree with each other only
+when a waveform exists. `e2e/voice.spec.ts` therefore asserts `data-samples === waveform.length` for
+AC-V3-1/AC-V4-1 and, for the empty case, asserts that the bars are flat (all the same height) and
+that `data-samples` equals the bar count — which is what the criterion actually promises. Either
+reading is fine; the registry should just say which.
+
+### Phase 2 criteria that cannot be judged here (no emulator, no device) — stakeholder checklist
+
+Every one of these is a **manual, device** row waiting to be filled in; none of them failed, they
+were never run. The suites annotate them as `not run here`.
+
+| Criterion | What the stakeholder has to see | Where |
+|---|---|---|
+| AC-C1-6 | Install the APK, open it: login form within 3 s, no white screen; log in as alice through the LAN proxy; `#general` renders. | phone demo prep |
+| AC-M2-8 | Swipe from the left edge opens the drawer; swipe left closes it; Android **back** closes an open drawer instead of leaving the app. | demo step 2 |
+| AC-M6-4 | With the keyboard open: `composer-input`, mic/send and the newest message visible; closed, the composer sits above the gesture bar. | demo step 5 |
+| AC-M6-5 | Status-bar area dark (`#1e1f22`), no content under it, no pull-to-refresh or overscroll bounce. | demo step 1 |
+| AC-V1-6 (P2) | Record for 120 s: it auto-stops and sends, timer caps at `2:00`. | — |
+| AC-V5-3 | First mic tap shows the Android permission prompt; Allow records, Deny shows `recording-error`; the choice survives a restart. | demo step 6 |
+| AC-C3-* (iOS) | Mac handoff: Xcode build, mic prompt, Ogg/Opus playback on iOS 18.4+. | docs/archive/PHASE2_PLAN.md |
+
+### Waived
+
+**AC-V2-4** — *no longer waived* since the voice-format change (see "Voice format" below): Chromium
+now sends `audio/ogg` and `e2e/voice.spec.ts` asserts it. Original Phase 2 text, for history:
+(`info.mimetype` is `audio/ogg` on Chromium). docs/ARCHITECTURE.md "Phase 2 deltas"
+records the decision to send the native `MediaRecorder` container with no transcoding; Chromium and
+the Android WebView therefore produce `audio/webm`. Verified instead: the mimetype is one of
+`audio/ogg` / `audio/webm` / `audio/mp4` **and** the uploaded bytes really are that container
+(AC-V2-3 magic check — observed `1A 45 DF A3`, WebM/EBML, every run).
+
+### Device report template (fill one block per finding)
+
+```
+Device:            e.g. Pixel 7a
+Android version:   e.g. 15 (API 35)
+WebView version:   Settings > Apps > Android System WebView, or chrome://version inside the WebView
+APK:               android/app/build/outputs/apk/debug/app-debug.apk, built <date>, VITE_HS_URL=<url>
+Demo step:         docs/archive/PHASE2_PLAN.md step N  (or "outside the script")
+Criterion:         AC-M*/AC-V*/AC-C*  (or "none — new finding")
+Steps:             1. ... 2. ... 3. ...
+Expected:          <the "They should see" cell, verbatim>
+Actual:            <what happened; note whether it is reproducible>
+Screenshot:        <attach; phone screenshots go in docs/screenshots/device-*.png>
+Severity:          S1 blocks the demo / S2 wrong but the demo works / S3 cosmetic
+```
+
+Paste the filled block into the **Actual** cell of a new row with `Platform: android-device` (or
+`ios-device`) and `Manual: yes`.
+
+## Phase 1 (desktop)
+
+| BUG | AC ref | Sev | Platform | Manual | Owner | Steps (from fresh seed) | Expected | Actual | Screenshot/trace | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BUG-1 | AC-B5-3, AC-B5-4, AC-B1-1, demo step 5 | S1 | web-desktop | no | Dev B | 1. Log in as alice. 2. Page `#general` back to the beginning. 3. Hover bob's "Lunch today? Thinking tacos." (`general.reacted`). 4. Click `message-action-react`, pick 🎉. 5. Click the new `reaction-🎉` pill to remove it. | The pill is clickable and the reaction is redacted. | Click times out: *"`<span data-testid="message-timestamp">` from `<div data-testid="message-$Yl6…">` subtree intercepts pointer events"*. Root cause: `MessageList.module.css .list` was `display:flex; flex-direction:column`, so every row was a flex item with the default `flex-shrink:1`; combined with `MessageRow.module.css .row { min-height:22px }` (an explicit min-height overrides the automatic minimum size) the flex algorithm shrank **every** row to 22 px while its content stayed 34 px+. Measured: `clientHeight 580 / scrollHeight 978`, all 24 rows `height 22px`, `flex-shrink 1`, content overflowing. Rows therefore painted over each other and the *following* row won hit-testing on pills, quotes and images. | `e2e/results/smoke-demo-script-QA-3-smo-8c4a7-oday-message-then-remove-it-chromium/` (trace.zip + test-failed-1.png) | **Fixed** by Dev B during Wave 2 — `.list` is no longer a flex container and `.row` sets `flex-shrink: 0`. Re-verified: AC-B5-1..B5-6 and demo step 5 pass. |
+| BUG-2 | AC-B3-2 | S2 | web-desktop | no | Dev B | 1. Log in as alice (`#general` opens). 2. Note the top-most rendered row and its viewport `y`. 3. Scroll `message-list` to the top so backwards pagination fires. 4. When the older messages have rendered, measure that same row's viewport `y` again. | DEV-B-3: capture `scrollHeight` before `paginateBack` and restore `scrollTop += delta` after, so the anchor row stays at the same viewport position (criterion allows no jump). | The anchor row moved **~545-582 px** down the viewport — the list kept `scrollTop` while ~30 events were prepended, throwing the reader out of position on every page-in. `timeline-loading` did appear and the older messages did load, so the demo's "scroll to the top" still worked; only the anchoring was missing. | `e2e/results/conversation-DEV-B-3-backw-f00e8-er-messages-without-jumping-chromium/` (trace.zip + test-failed-1.png) | **Fixed** by Dev B during Wave 2. Re-verified: AC-B3-2 passes, anchor drift now ≤ 5 px. |
+| BUG-3 | AC-A6-2, AC-A8-1, demo step 10 | S1 | web-desktop | no | Principal | 1. `npm run test:e2e` (or `npx playwright test e2e/navigation.spec.ts e2e/smoke.spec.ts`) — the failure needs a *loaded* homeserver, it does not reproduce running one test alone (`-g "AC-A6-2" --repeat-each=3` is 3/3 green). 2. Watch the create-channel / create-space criteria. | `create-channel-dialog` closes, the new room appears in `channel-list` with its `data-name`, selected, topic in the header. | The dialog closes (so `createChannel`/`createSpace` resolved server-side and the room exists) but the item **never appears in `channel-list`** within 15-20 s: *"element(s) not found"*. Intermittent and it moves between criteria — one run failed AC-A6-2 + step 10, the next passed AC-A6-2 and failed AC-A8-1 + step 10. Always a *newly created* room, never a seeded one, so the suspicion is the freshly-created room not reaching `useRoomStore.channelsBySpace` (`waitForRoom` / `recomputeRooms` missing the sync that carries it) rather than the sidebar render. Blocks demo step 10, hence S1. `expectChannelListed()` in `e2e/navigation.spec.ts` now records what the sidebar actually held, which separates "room never arrived" from "arrived without its name". | `e2e/results/navigation-DEV-A-6-creat-*-chromium/` and `e2e/results/smoke-*-step-10-*/` (trace.zip); look for the `diagnostic` annotation in the HTML report | **Fixed** (Principal). Two layers: (a) Synapse's separate `rc_room_creation` limiter (default burst 10, then 1/min per user) had not been relaxed, so after hours of test runs `createRoom` returned 429 and the dialog showed an error; (b) the store selected the new room from the first `/sync` batch (create + join only) before `m.space.parent` arrived in the next batch, so the selection flipped to Home. Fix: `retryOnRateLimit` honouring `retry_after_ms` (30 s budget) around `createChannel`/`createSpace`/`createDm`/`inviteUser`/`joinRoom` in `src/lib/matrix/actions.ts`; a selection invariant plus pending selection in `src/store/rooms.ts`; `rc_room_creation: 1000/1000` in `homeserver/homeserver.yaml`, `scripts/hs.mjs` and `homeserver/wsl/configure.sh` (applies on the next homeserver restart; until then alice's room creation is still ~1/min after a burst of 10). Re-verified: AC-A6 / AC-A8 / AC-A1 groups 9/9 pass. |
 
 ## Not bugs — criteria that cannot be judged on a dirty homeserver
 
@@ -633,6 +638,7 @@ seed-sensitive.
 | Criterion | Why | Who checks it |
 |---|---|---|
 | AC-T3-5 | Android hardware back must close an open thread **before** closing drawers or leaving the app. `@capacitor/app` `backButton` events are not dispatched in Chromium, so the order can only be seen on a device. The handler order is in `src/app/Shell.tsx` (thread, then sheets/drawers, then `minimizeApp`) and reviewable, but not testable here. | Stakeholder, on the APK, same pass as AC-M6 / AC-V7 |
+
 ## Fixture-side defects found and fixed in this suite (no dev action)
 
 Recorded so the same trap is not re-introduced.

@@ -1,6 +1,6 @@
 # codec read receipts - Demo Handoff
 
-The Phase 1-6 client (docs/DEMO.md through docs/PHASE6_PLAN.md), now with Element-style "sent / seen by": a check on your newest message until someone reads it, small avatars under the row each person has read up to, a Seen by / Not seen yet list per message, and a **Send read receipts** switch. Final test numbers: docs/STATUS.md "Read receipts".
+The Phase 1-6 client (docs/archive/DEMO.md through docs/archive/PHASE6_PLAN.md), now with Element-style "sent / seen by": a check on your newest message until someone reads it, small avatars under the row each person has read up to, a Seen by / Not seen yet list per message, and a **Send read receipts** switch. Final test numbers: docs/STATUS.md "Read receipts".
 
 ## 1. The three things to know
 1. **"Sent" means the server has it.** Matrix has no separate "delivered" state: a hollow circle while the message is on its way, a check once the homeserver accepted it, the usual red failed state if not. The check only ever sits on your **newest** message that nobody has read yet; the moment someone reads it, their avatar takes its place.

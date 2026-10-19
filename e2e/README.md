@@ -1,7 +1,7 @@
 # e2e
 
-QA owns this folder (see `docs/TICKETS.md` QA-1, `docs/PHASE2_TICKETS.md` QA-8..13 and
-`docs/PHASE3_TICKETS.md` QA-14..18). Specs are `*.spec.ts`, helpers live in `fixtures/`.
+QA owns this folder (see `docs/archive/TICKETS.md` QA-1, `docs/archive/PHASE2_TICKETS.md` QA-8..13 and
+`docs/archive/PHASE3_TICKETS.md` QA-14..18). Specs are `*.spec.ts`, helpers live in `fixtures/`.
 
 ## Which specs CI runs
 
@@ -28,10 +28,10 @@ until it is. `node scripts/select-e2e.mjs origin/master` prints what your branch
 | `conversation-timeline.spec.ts` | desktop | AC-B1 (timeline rendering, grouping), AC-B3 (backwards pagination), AC-B7 (typing indicator, read receipts) |
 | `conversation-compose.spec.ts` | desktop | AC-B2 (composer), AC-B6 (replies), AC-B8 (upload), AC-B9 (edit/delete), AC-B10 (mentions) |
 | `conversation-messages.spec.ts` | desktop | AC-B4 (rich bodies, images, sanitising), AC-B5 (reactions) |
-| `smoke.spec.ts` | desktop | the `docs/PLAN.md` demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` thread walk-through as step 11; serial, one screenshot per sub-step into `results/demo/` |
+| `smoke.spec.ts` | desktop | the `docs/archive/PLAN.md` demo script steps 1-10, plus the `docs/archive/PHASE3_PLAN.md` thread walk-through as step 11; serial, one screenshot per sub-step into `results/demo/` |
 | `voice.spec.ts` | mobile | AC-V1 .. AC-V6 recording/playback, with every sent event re-read through the API and the uploaded bytes checked by their container magic |
 | `mobile-nav.spec.ts` | mobile | AC-M1 .. AC-M6 (phone shell, drawers, header, touch targets, bottom sheets, viewport CSS) + the layout half of AC-V6 |
-| `mobile-smoke.spec.ts` | mobile | the `docs/PHASE2_PLAN.md` **phone** demo script steps 1-10, plus the `docs/PHASE3_PLAN.md` phone thread walk-through as step 11; serial, one screenshot per sub-step into `e2e/demo-mobile/` |
+| `mobile-smoke.spec.ts` | mobile | the `docs/archive/PHASE2_PLAN.md` **phone** demo script steps 1-10, plus the `docs/archive/PHASE3_PLAN.md` phone thread walk-through as step 11; serial, one screenshot per sub-step into `e2e/demo-mobile/` |
 | `threads.spec.ts` | desktop | AC-T1 .. AC-T9: the thread wire contract, main-timeline hygiene, panel geometry, the summary row, Reply in thread, ThreadView, the Threads list, in-thread edits/reactions/delete/media |
 | `mobile-threads.spec.ts` | mobile | AC-T3-4, AC-T4-6, AC-T5-2, AC-T7-1/2/4/7, AC-T8-1..3, and the AC-V6-1 composer rules applied to `thread-composer-*` |
 | `e2ee-core-boot.spec.ts` | desktop | Phase 5 AC-E1 (crypto boot, reload, logout wipe), the members-panel layout regression, AC-E6 (encrypted by default) |
@@ -271,7 +271,7 @@ AC-B4-2, AC-B6-2/AC-B6-3, AC-B6-4.
   one. `notifiesUser` (behind `unreadFor`) also drops `rel_type: "m.thread"` events, because
   `/messages` still returns thread replies in the room chunk while the app's badge counts main only.
 - **`sendThreadReply(roomId, rootId, body, { latest })`** posts the exact contract content from
-  `docs/PHASE3_ACCEPTANCE.md` (`rel_type: "m.thread"`, `event_id` = the root, `is_falling_back: true`,
+  `docs/archive/PHASE3_ACCEPTANCE.md` (`rel_type: "m.thread"`, `event_id` = the root, `is_falling_back: true`,
   `m.in_reply_to` = the newest reply else the root). **Pass `latest` explicitly when sending a run of
   replies** — the previous call's return value — or each reply costs a `/relations` round trip, which
   is three times the work for the 40-reply pagination cases. `seedThread({ roomId, replies })` builds

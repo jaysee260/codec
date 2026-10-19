@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * No-browser check of the Phase 5 core (docs/PHASE5_ACCEPTANCE.md AC-E7-4):
+ * No-browser check of the Phase 5 core (docs/archive/PHASE5_ACCEPTANCE.md AC-E7-4):
  *   1. attachments.ts round-trips a buffer under Node's WebCrypto (encrypt -> decrypt -> equal; tampering fails);
  *   2. the sample room (`--room`, default #vault:localhost) has the `m.room.encryption` state;
  *   3. the newest sample events there are `m.room.encrypted` with no plaintext;

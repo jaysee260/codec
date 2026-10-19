@@ -1,8 +1,8 @@
 # Read receipts Tickets
 
-Priorities: **P0** = the demo script in docs/RECEIPTS_DEMO.md breaks without it. P1 = demo noticeably better ("+N", truncation, focus polish; cut first in the order given in docs/RECEIPTS_ACCEPTANCE.md "P0 / P1 summary"). P2 = polish. Work top-down inside your column. Estimates are focused hours. Prefixes are `PRIN-R*`, `DEV-A-R*`, `DEV-B-R*`, `QA-R*` (not Phase 7 numbering). Waves A (plan + core), B (features + tests), C (fix + regression); see docs/RECEIPTS_PLAN.md.
+Priorities: **P0** = the demo script in docs/archive/RECEIPTS_DEMO.md breaks without it. P1 = demo noticeably better ("+N", truncation, focus polish; cut first in the order given in docs/archive/RECEIPTS_ACCEPTANCE.md "P0 / P1 summary"). P2 = polish. Work top-down inside your column. Estimates are focused hours. Prefixes are `PRIN-R*`, `DEV-A-R*`, `DEV-B-R*`, `QA-R*` (not Phase 7 numbering). Waves A (plan + core), B (features + tests), C (fix + regression); see docs/archive/RECEIPTS_PLAN.md.
 
-## Ownership map (hard rule, as docs/PHASE6_TICKETS.md)
+## Ownership map (hard rule, as docs/archive/PHASE6_TICKETS.md)
 | Owner | Owns (may create/edit) | Must not edit |
 |---|---|---|
 | Principal | `src/lib/**` (new `src/lib/matrix/receipts.ts`), `src/store/**` (new `src/store/receipts.ts`), `src/app/**` **except** the toggle mount in `UserFooter.tsx`, `scripts/**` (incl. the `receipts` area in `scripts/select-e2e.mjs`), `homeserver/**`, `docs/ARCHITECTURE.md` "Read receipts deltas", unit tests `src/**/*.test.ts` | `src/features/**`, `e2e/**` |
@@ -11,11 +11,11 @@ Priorities: **P0** = the demo script in docs/RECEIPTS_DEMO.md breaks without it.
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md` "Read receipts", the `test:*` script lines in `package.json` | anything else |
 | PM | `docs/RECEIPTS_*.md`, `docs/STATUS.md` "Read receipts" | anything else |
 
-Shared-layer needs go in your report as **Request to <owner>: file, function, shape, why**. Devs build against the Shared API below from day 1; names are **subject to the Principal's final version** (see the placeholder note); behaviour in docs/RECEIPTS_ACCEPTANCE.md is not. Rules this feature: never call `room.hasUserReadEvent` / `getReceiptsForEvent` from a component (only `src/lib/matrix/receipts.ts`); never send a receipt for a `~txn` id; never send `m.read` while the setting is OFF; never write `im.vector.web.settings` without merging the existing content; the viewer never appears in their own avatars or lists; the sender is always "seen"; test messages go in `#dev` / `#vault`, never `#general`; only QA runs Playwright (`PLAYWRIGHT_BROWSERS_PATH=/home/claude/pwb`, `E2E_WORKERS=2`); dev ports: QA 5173, Dev A 5181, Dev B 5182, Principal 5183.
+Shared-layer needs go in your report as **Request to <owner>: file, function, shape, why**. Devs build against the Shared API below from day 1; names are **subject to the Principal's final version** (see the placeholder note); behaviour in docs/archive/RECEIPTS_ACCEPTANCE.md is not. Rules this feature: never call `room.hasUserReadEvent` / `getReceiptsForEvent` from a component (only `src/lib/matrix/receipts.ts`); never send a receipt for a `~txn` id; never send `m.read` while the setting is OFF; never write `im.vector.web.settings` without merging the existing content; the viewer never appears in their own avatars or lists; the sender is always "seen"; test messages go in `#dev` / `#vault`, never `#general`; only QA runs Playwright (`PLAYWRIGHT_BROWSERS_PATH=/home/claude/pwb`, `E2E_WORKERS=2`); dev ports: QA 5173, Dev A 5181, Dev B 5182, Principal 5183.
 
 ## Shared API (Principal exposes; devs consume only)
 
-Final contract (shipped; mirrored in docs/ARCHITECTURE.md "Read receipts deltas", which wins on names; docs/RECEIPTS_ACCEPTANCE.md wins on behaviour).
+Final contract (shipped; mirrored in docs/ARCHITECTURE.md "Read receipts deltas", which wins on names; docs/archive/RECEIPTS_ACCEPTANCE.md wins on behaviour).
 Differences from the brief: `getSendStatus(event, myUserId)` (needs my id), `getSeenBy(holder, event | eventId, myUserId)` takes the
 receipt holder from `getReceiptHolder(room, threadRootId?)`, `SeenBy` gains `notSeenCount`, `useLatestOwnSentId(source, displayedEvents)`
 takes the rows too (or use `useReadPointsResult` for both values in one memo), `Reader.avatarUrl` is already an http URL (32 px),
@@ -62,7 +62,7 @@ __matrixPoc.receipts = { ...receipts.ts, store, getReadPoints(roomId, threadRoot
   getSendReadReceipts(), setSendReadReceipts(on), markRead(roomId, eventId?, threadRootId?) }
 ```
 
-Rules the core implements (settled; see docs/RECEIPTS_PLAN.md and the Advisor risk list):
+Rules the core implements (settled; see docs/archive/RECEIPTS_PLAN.md and the Advisor risk list):
 - **Holders are never mixed.** Main rows read the `Room`'s receipts (`thread_id: 'main'` + unthreaded), thread rows the
   `Thread`'s (`thread_id: <root>`). A read point is `holder.getEventReadUpTo(userId)` (synthetic receipts included); it is
   `null` when the receipt's event is not loaded (older than the window, or a thread whose `/relations` fetch has not
@@ -168,4 +168,4 @@ Rules the core implements (settled; see docs/RECEIPTS_PLAN.md and the Advisor ri
 **QA-R3 Phone + runs + log** - Pixel 7: tap on avatars opens the sheet, backdrop closes, 44 px targets, long-press action sheet "Seen by", toggle reachable; full `desktop` and `mobile` at the end of Wave B and after Wave C fixes; docs/BUGS.md "Read receipts" with spec commands and the severity rule (S1: a public `m.read` while OFF, or a viewer shown as having read something they did not; S2: avatars on the wrong row, status stuck at `sending`, list jumps; S3: cosmetic).
 
 ## P0 set (the demo script works with exactly these)
-PRIN-R1..R3 · DEV-A-R1..R4 · DEV-B-R1..R3 · QA-R1..R3. Total **35 h** (Principal 9 h, A 9 h, B 6 h, QA 11 h; the PM's docs are outside the estimate). Dev B can wire placeholders against the Shared API table until Dev A's `index.ts` exports exist; QA can write the API-side fixtures and the AC-R7 request assertions before any UI lands. P1 (AC-R2-4 "+N" e2e and unit, R3-5/6, R2-7, R6-4, R8-3, R9-3, R7-5): about 4 h across owners, cut in the order listed in docs/RECEIPTS_ACCEPTANCE.md.
+PRIN-R1..R3 · DEV-A-R1..R4 · DEV-B-R1..R3 · QA-R1..R3. Total **35 h** (Principal 9 h, A 9 h, B 6 h, QA 11 h; the PM's docs are outside the estimate). Dev B can wire placeholders against the Shared API table until Dev A's `index.ts` exports exist; QA can write the API-side fixtures and the AC-R7 request assertions before any UI lands. P1 (AC-R2-4 "+N" e2e and unit, R3-5/6, R2-7, R6-4, R8-3, R9-3, R7-5): about 4 h across owners, cut in the order listed in docs/archive/RECEIPTS_ACCEPTANCE.md.

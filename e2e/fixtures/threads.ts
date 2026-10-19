@@ -1,7 +1,7 @@
 /**
  * Thread UI helpers and the Wave-8 "not built yet" guard (QA-14).
  *
- * Everything here is built from the Phase 3 testid registry in docs/PHASE3_ACCEPTANCE.md and from
+ * Everything here is built from the Phase 3 testid registry in docs/archive/PHASE3_ACCEPTANCE.md and from
  * nothing else. In particular the **prefix rule** is load-bearing: inside `thread-panel` the list is
  * `thread-message-list`, the composer `thread-composer-*`, the typing indicator `thread-typing` —
  * but the rows inside it keep `message-{eventId}` and everything inside a row (`message-actions`,
@@ -146,7 +146,7 @@ export async function openThreadFromMessage(page: Page, eventId: string): Promis
   return threadPanel(page);
 }
 
-/** Alias under the docs/PHASE3_TICKETS.md name (QA-14 lists both). */
+/** Alias under the docs/archive/PHASE3_TICKETS.md name (QA-14 lists both). */
 export const openThreadFromRow = openThreadFromMessage;
 
 /** Clicks the summary row under a root and waits for the panel on that root (AC-T4-4). */
@@ -257,7 +257,7 @@ export async function closeThread(page: Page): Promise<void> {
   await expect(threadPanel(page)).toHaveCount(0);
 }
 
-/** Phone close: `header-back` (the only phone close — docs/PHASE3_PLAN.md). */
+/** Phone close: `header-back` (the only phone close — docs/archive/PHASE3_PLAN.md). */
 export async function closeThreadOnPhone(page: Page): Promise<void> {
   await page.getByTestId('header-back').tap();
   await expect(threadPanel(page)).toHaveCount(0);

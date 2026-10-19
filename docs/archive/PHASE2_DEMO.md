@@ -1,6 +1,6 @@
 # Codec on a phone - Demo Handoff (Phase 2)
 
-The Phase 1 web client (docs/DEMO.md), now in a phone layout with voice notes, wrapped as an Android app. Everything runs on this PC; the phone only needs the same Wi-Fi. Details and troubleshooting: docs/MOBILE.md.
+The Phase 1 web client (docs/archive/DEMO.md), now in a phone layout with voice notes, wrapped as an Android app. Everything runs on this PC; the phone only needs the same Wi-Fi. Details and troubleshooting: docs/MOBILE.md.
 
 ## 1. Start everything (this PC, `C:\Users\jcgon\Development\matrix-poc`)
 | Step | Command | Notes |

@@ -2,7 +2,7 @@
  * Which composer (if any) currently owns the GIF picker (Dev B, Phase 4).
  *
  * The picker is a **singleton overlay**: its test ids (`gif-picker`, `gif-search`, `gif-grid`, ...) are
- * never prefixed (docs/PHASE4_ACCEPTANCE.md "Prefix rule"), so at most one may be in the DOM at a time
+ * never prefixed (docs/archive/PHASE4_ACCEPTANCE.md "Prefix rule"), so at most one may be in the DOM at a time
  * even though two composers are mounted while the thread panel is open. That is enforced here rather
  * than inside the composer: the store holds a single `{ key, initialQuery }`, and each `Composer`
  * renders `GifPickerMount` only while `open.key === sourceKey(source)`. Opening it from the thread

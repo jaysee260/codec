@@ -443,7 +443,7 @@ test.describe('AC-T8 the phone header while a thread is open', () => {
     await longPressThread(page, rootId);
     await expect(
       page.getByTestId('thread-close'),
-      'header-back is the only close on phone (docs/PHASE3_PLAN.md)',
+      'header-back is the only close on phone (docs/archive/PHASE3_PLAN.md)',
     ).toHaveCount(0);
   });
 });

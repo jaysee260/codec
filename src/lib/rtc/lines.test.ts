@@ -1,5 +1,5 @@
 /**
- * Phase 7 Wave 2: the `dev.matrixpoc.call` contract (docs/PHASE7_ACCEPTANCE.md "Wire shapes", AC-R3-7 / AC-R7),
+ * Phase 7 Wave 2: the `dev.matrixpoc.call` contract (docs/archive/PHASE7_ACCEPTANCE.md "Wire shapes", AC-R3-7 / AC-R7),
  * the "started" row of a drop-in call (opening membership) and the room-list preview.
  */
 import { describe, test } from 'node:test';

@@ -94,7 +94,7 @@ export interface ThreadOptions {
   threadRoot?: string;
 }
 
-/** `m.relates_to` of a thread reply as sent on the wire (docs/ARCHITECTURE.md "Reply shape"). */
+/** `m.relates_to` of a thread reply as sent on the wire (docs/CORE_API.md "Threads", "Wire shapes"). */
 export interface ThreadRelationContent {
   rel_type: 'm.thread';
   event_id: string;
@@ -143,7 +143,7 @@ export async function ensureThread(roomId: string, rootId: string): Promise<Thre
 /**
  * Build the spec relation for a message sent into a thread. `m.in_reply_to` is the newest *sent* reply the
  * SDK knows (never a local echo), else the root - always the fallback (`is_falling_back: true`): quote replies
- * inside threads are out of scope for the POC (docs/PHASE3_ACCEPTANCE.md AC-T2-3).
+ * inside threads are out of scope for the POC (docs/archive/PHASE3_ACCEPTANCE.md AC-T2-3).
  */
 function threadRelation(room: Room | null | undefined, rootId: string): ThreadRelationContent {
   const thread = room?.getThread(rootId);
@@ -411,7 +411,7 @@ export interface VoiceMessageOptions extends ThreadOptions {
 
 /**
  * Upload a recorded blob and send it as a Matrix voice message. The content is exactly the contract in
- * docs/PHASE2_ACCEPTANCE.md ("Voice message event"), i.e. Element's `createVoiceMessageContent` shape:
+ * docs/archive/PHASE2_ACCEPTANCE.md ("Voice message event"), i.e. Element's `createVoiceMessageContent` shape:
  *
  *   msgtype m.audio, body "Voice message", url, info { duration, mimetype, size },
  *   org.matrix.msc1767.text "Voice message", org.matrix.msc1767.file { url, name, mimetype, size },
@@ -774,7 +774,7 @@ export function canRedactEvent(roomId: string, event: MatrixEvent): boolean {
 /** Only the original sender can edit a message. */
 export function canEditEvent(event: MatrixEvent): boolean {
   const me = getClientOrNull()?.getUserId();
-  // Phase 4: GIF messages are not editable (docs/PHASE4_ACCEPTANCE.md; `message-action-edit` hidden on GIF rows).
+  // Phase 4: GIF messages are not editable (docs/archive/PHASE4_ACCEPTANCE.md; `message-action-edit` hidden on GIF rows).
   // Phase 5: nor are events still encrypted / undecryptable (`getType()` is the clear type once decrypted).
   return (
     !!me &&

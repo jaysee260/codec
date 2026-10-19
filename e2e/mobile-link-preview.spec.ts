@@ -1,5 +1,5 @@
 /**
- * QA-32: phone link preview suite (Pixel 7, `mobile` project): AC-L4-5, AC-L3-1/2, AC-L5-1 (docs/PHASE6_ACCEPTANCE.md).
+ * QA-32: phone link preview suite (Pixel 7, `mobile` project): AC-L4-5, AC-L3-1/2, AC-L5-1 (docs/archive/PHASE6_ACCEPTANCE.md).
  *
  * Same contract as link-preview.spec.ts: #dev / #vault only, unique `?t=` fixture URLs, real Synapse round trip
  * (the test Synapse whitelists loopback and fetches public/preview-fixtures/ from the page's own Vite), the

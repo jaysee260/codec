@@ -4,11 +4,11 @@
  *
  * ## Why the mock expectations are *derived*, not hard-coded
  * The fixture catalogue (ids, titles, dimensions) moved three times while this suite was being
- * written: docs/PHASE4_ACCEPTANCE.md and `src/lib/gif/mock-fixtures.ts` were realigned by the PM and
+ * written: docs/archive/PHASE4_ACCEPTANCE.md and `src/lib/gif/mock-fixtures.ts` were realigned by the PM and
  * the Principal in the same hour, and the two still disagree on individual titles. Hard-coding
  * either one produces a suite that fails on the next realignment for no product reason, so the
  * catalogue is **imported** from `src/lib/gif/mock-fixtures.ts` (the acceptance doc and
- * docs/PHASE4_TICKETS.md both name it the single source of truth and explicitly bless QA importing
+ * docs/archive/PHASE4_TICKETS.md both name it the single source of truth and explicitly bless QA importing
  * it) and every mock expectation — trending order, which ids a query matches, the event body — is
  * computed from it by {@link mockSearch}. What the suite still hard-asserts is everything that is a
  * *contract* rather than data: the registry test ids, the `dev.matrixpoc.gif` wire shape, the Klipy
@@ -48,7 +48,7 @@ export const MOCK_EMPTY_QUERY: string = MOCK_EMPTY_QUERIES[0] ?? 'nothing-here';
 
 /* ------------------------------------------------------------------ contract constants */
 
-/** The namespaced content key carrying the structured GIF (docs/PHASE4_ACCEPTANCE.md). */
+/** The namespaced content key carrying the structured GIF (docs/archive/PHASE4_ACCEPTANCE.md). */
 export const GIF_FIELD = 'dev.matrixpoc.gif';
 
 /** localStorage keys the app reads (`src/lib/gif/config.ts`); hard-coded here on purpose. */
@@ -148,7 +148,7 @@ export function expectedMockGif(id: string, origin: string): Record<string, unkn
     url,
     w: gif.w,
     h: gif.h,
-    // The mock's preview *is* the gif, so these mirror url/w/h (docs/PHASE4_ACCEPTANCE.md).
+    // The mock's preview *is* the gif, so these mirror url/w/h (docs/archive/PHASE4_ACCEPTANCE.md).
     previewUrl: url,
     previewW: gif.w,
     previewH: gif.h,
@@ -164,7 +164,7 @@ export function expectedMockBody(id: string, origin: string): string {
 }
 
 /**
- * Compares the imported catalogue with docs/PHASE4_ACCEPTANCE.md's table and returns a human note
+ * Compares the imported catalogue with docs/archive/PHASE4_ACCEPTANCE.md's table and returns a human note
  * when they disagree, so the drift is annotated instead of failing a product test.
  */
 export function catalogueDrift(): string | undefined {

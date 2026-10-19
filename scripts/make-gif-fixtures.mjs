@@ -9,7 +9,7 @@
  *   npm run gif:fixtures          # (re)writes public/gif-fixtures/*.gif + *.png and prints a size table
  *
  * The catalogue (ids, titles, dimensions, frame counts) lives in `src/lib/gif/mock-fixtures.ts` and is the
- * contract QA and Dev A code against (docs/ARCHITECTURE.md "Mock GIF fixtures"); this script only renders it.
+ * contract QA and Dev A code against (docs/CORE_API.md "Mock fixture contract"); this script only renders it.
  */
 import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';

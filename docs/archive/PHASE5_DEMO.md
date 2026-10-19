@@ -1,6 +1,6 @@
 # codec end-to-end encryption - Demo Handoff (Phase 5)
 
-The Phase 1-4 client (docs/DEMO.md, docs/PHASE2_DEMO.md, docs/PHASE3_DEMO.md, docs/PHASE4_DEMO.md), now encrypted: the Rust engine Element uses (`matrix-js-sdk` `initRustCrypto`, WebAssembly) runs in codec, keys live in the browser's IndexedDB per session, and new channels and DMs are encrypted by default. Final test numbers: docs/STATUS.md "Phase 5".
+The Phase 1-4 client (docs/archive/DEMO.md, docs/archive/PHASE2_DEMO.md, docs/archive/PHASE3_DEMO.md, docs/archive/PHASE4_DEMO.md), now encrypted: the Rust engine Element uses (`matrix-js-sdk` `initRustCrypto`, WebAssembly) runs in codec, keys live in the browser's IndexedDB per session, and new channels and DMs are encrypted by default. Final test numbers: docs/STATUS.md "Phase 5".
 
 ## 1. The three things to know
 1. **Every login is a new session** (device). A new session cannot read messages sent before it existed until it is **verified**: an emoji check against another session that is online, which also hands over the backup key, so old messages restore on their own. The **recovery key** (or passphrase) is only needed when there is no other session to verify with; entering it verifies the session and restores history in one step. Codec shows one banner at a time telling you which you need. Logging out wipes the session's keys; the next login starts over.
@@ -25,7 +25,7 @@ The Phase 1-4 client (docs/DEMO.md, docs/PHASE2_DEMO.md, docs/PHASE3_DEMO.md, do
 5. Optional, new-account check: create a throwaway Keycloak user, sign in, click **Set up**, finish the sign-in popup, save the key it shows. This is the one flow (SSO cross-signing setup) nobody could test locally.
 
 ## 4. Local walkthrough
-The full desktop script (11 steps, three browser windows) is in docs/PHASE5_PLAN.md "Desktop demo script"; `e2e/smoke.spec.ts` step 13 replays it. Shortest version: log in as **alice**, click **Set up** on the banner, copy the key; open `#vault` (lock in the header), send a message; in an incognito window log in as alice again: the message shows as "Unlock with your recovery key...", verify with emoji from the first window and watch the row turn into text without a reload (the recovery key is only needed when no other window is open).
+The full desktop script (11 steps, three browser windows) is in docs/archive/PHASE5_PLAN.md "Desktop demo script"; `e2e/smoke.spec.ts` step 13 replays it. Shortest version: log in as **alice**, click **Set up** on the banner, copy the key; open `#vault` (lock in the header), send a message; in an incognito window log in as alice again: the message shows as "Unlock with your recovery key...", verify with emoji from the first window and watch the row turn into text without a reload (the recovery key is only needed when no other window is open).
 
 ## 5. Scripts
 | Command | What it does |

@@ -2,9 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool.ts';
 
 /**
- * QA owns this file (docs/TICKETS.md QA-1, docs/PHASE2_TICKETS.md QA-8).
+ * QA owns this file (docs/archive/TICKETS.md QA-1, docs/archive/PHASE2_TICKETS.md QA-8).
  *
- * ## Parallel runs (issue #2, docs/PERF_PLAN.md)
+ * ## Parallel runs (issue #2, docs/archive/PERF_PLAN.md)
  *
  * The suite runs on N workers (`E2E_WORKERS`; default in `e2e/fixtures/pool.ts`), one Synapse + one Vite per worker:
  * worker i (`TEST_PARALLEL_INDEX`) uses http://localhost:${8008+i} and http://localhost:${5173+i}. `globalSetup`
@@ -23,7 +23,7 @@ import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool
  * | `desktop` | Desktop Chrome 1280x720 | Phase 1 (`shell`, `navigation`, `conversation-*`, `smoke`) + Phase 3 `threads` + Phase 4 `gif` | `e2e/results/desktop` |
  * | `mobile`  | `devices['Pixel 7']` (412x839, touch, isMobile) | Phase 2 (`voice`, `mobile-nav`, `mobile-smoke`) + Phase 3 `mobile-threads` + Phase 4 `mobile-gif` + voice format `voice-compat`, `ogg-remux` | `e2e/results/mobile` |
  *
- * Voice format (docs/VOICE_FORMAT_PLAN.md): `voice-compat.spec.ts` (old-iPhone simulation, native vs
+ * Voice format (docs/archive/VOICE_FORMAT_PLAN.md): `voice-compat.spec.ts` (old-iPhone simulation, native vs
  * fallback playback) and `ogg-remux.spec.ts` (the Node-side WebM -> Ogg remuxer; no page, so it costs
  * no browser) are listed in **both** regexes like `mobile-threads`: they run in `mobile` only, so
  * `--project=mobile` covers the whole voice feature and neither runs twice.

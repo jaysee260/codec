@@ -8,7 +8,7 @@
  *
  * `getGifProvider()` memoises per (provider, key, base) and re-reads localStorage on every call, so
  * `localStorage.setItem(...)` followed by the next picker open is enough; `setGifApiKey()` / `setGifProviderOverride()`
- * are the typed setters. `searchGifs` / `trendingGifs` are the one-liners docs/PHASE4_ACCEPTANCE.md names.
+ * are the typed setters. `searchGifs` / `trendingGifs` are the one-liners docs/archive/PHASE4_ACCEPTANCE.md names.
  */
 import { GIF_API_KEY_STORAGE_KEY, GIF_CUSTOMER_ID_STORAGE_KEY, GIF_PROVIDER_STORAGE_KEY, KLIPY_DEFAULT_BASE } from './config.ts';
 import { createKlipyProvider } from './klipy.ts';

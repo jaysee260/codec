@@ -1,6 +1,6 @@
 # Read receipts plan: "sent / seen by"
 
-Phases 1-6 shipped the client, phone layout, voice, threads, GIFs, E2EE and link previews. Today a sent message looks the same whether the server has it or not, and nothing shows who has read what. This feature adds the Element behaviour JC asked for ("it shows when a message is delivered and who has seen and who has not seen it"): a **sent** check on my newest message, small **read avatars** under the row each person has read up to, and a **Seen by / Not seen yet** list per message, with a **Send read receipts** setting for people who do not want to be seen. Scope source: the orchestrator's receipts brief (stakeholder: JC). Tickets: docs/RECEIPTS_TICKETS.md. Criteria and testids: docs/RECEIPTS_ACCEPTANCE.md. Demo: docs/RECEIPTS_DEMO.md. Status: docs/STATUS.md "Read receipts". File names are `RECEIPTS_*`, not `PHASE7_*` (another open PR may take that number).
+Phases 1-6 shipped the client, phone layout, voice, threads, GIFs, E2EE and link previews. Today a sent message looks the same whether the server has it or not, and nothing shows who has read what. This feature adds the Element behaviour JC asked for ("it shows when a message is delivered and who has seen and who has not seen it"): a **sent** check on my newest message, small **read avatars** under the row each person has read up to, and a **Seen by / Not seen yet** list per message, with a **Send read receipts** setting for people who do not want to be seen. Scope source: the orchestrator's receipts brief (stakeholder: JC). Tickets: docs/archive/RECEIPTS_TICKETS.md. Criteria and testids: docs/archive/RECEIPTS_ACCEPTANCE.md. Demo: docs/archive/RECEIPTS_DEMO.md. Status: docs/STATUS.md "Read receipts". File names are `RECEIPTS_*`, not `PHASE7_*` (another open PR may take that number).
 
 ## Goals
 1. **I know my message landed**: a sending indicator while the local echo is pending, a sent check once the homeserver accepted it, and the existing failed UI when it did not; identical in plain and encrypted rooms.
@@ -36,9 +36,9 @@ Typing indicator changes · a per-room receipt setting · receipts for DMs only 
 ## Waves
 | Wave | Who | Output |
 |---|---|---|
-| A: plan + core | PM + Principal | This plan, acceptance, tickets, demo; PRIN-R1 (`receipts.ts` + hooks + bridge counter + dev hook), PRIN-R2 (private receipts setting + `sendReadReceipt`), PRIN-R3 (select-e2e area, ARCHITECTURE deltas, unit tests). The Shared API in docs/RECEIPTS_TICKETS.md is final before devs start. |
+| A: plan + core | PM + Principal | This plan, acceptance, tickets, demo; PRIN-R1 (`receipts.ts` + hooks + bridge counter + dev hook), PRIN-R2 (private receipts setting + `sendReadReceipt`), PRIN-R3 (select-e2e area, ARCHITECTURE deltas, unit tests). The Shared API in docs/archive/RECEIPTS_TICKETS.md is final before devs start. |
 | B: features + tests | Dev A, Dev B, QA in parallel | DEV-A-R1..R4 components + toggle mount, DEV-B-R1..R3 wiring, QA-R1..R3 fixtures + specs; P1 after P0. |
-| C: fix + regression | All | Review findings and bugs with a regression test each (JC's rule), demo dry run with two browsers (docs/RECEIPTS_DEMO.md), `desktop` and `mobile` regression runs, docs/STATUS.md final. |
+| C: fix + regression | All | Review findings and bugs with a regression test each (JC's rule), demo dry run with two browsers (docs/archive/RECEIPTS_DEMO.md), `desktop` and `mobile` regression runs, docs/STATUS.md final. |
 
 ## Risks and mitigations
 | Risk | Impact | Mitigation |

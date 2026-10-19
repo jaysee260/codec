@@ -1,8 +1,8 @@
 # Phase 2 Tickets
 
-Priorities: **P0** = the phone demo script (docs/PHASE2_PLAN.md) breaks without it. P1 = demo noticeably better. P2 = polish / stretch. Work top-down inside your column. Estimates are focused hours. Ticket numbers continue from Phase 1 so every ID in docs/STATUS.md stays unique (Dev A resumes at 11, Dev B at 12, QA at 8; PRIN-* is new).
+Priorities: **P0** = the phone demo script (docs/archive/PHASE2_PLAN.md) breaks without it. P1 = demo noticeably better. P2 = polish / stretch. Work top-down inside your column. Estimates are focused hours. Ticket numbers continue from Phase 1 so every ID in docs/STATUS.md stays unique (Dev A resumes at 11, Dev B at 12, QA at 8; PRIN-* is new).
 
-## Ownership map (hard rule, extends docs/TICKETS.md)
+## Ownership map (hard rule, extends docs/archive/TICKETS.md)
 | Owner | Owns (may create/edit) | Must not edit |
 |---|---|---|
 | Principal | `src/app/**`, `src/store/**`, `src/lib/**` (incl. new `src/lib/audio/**`, `src/lib/native.ts`), `src/styles/**`, `index.html`, `vite.config.ts`, `capacitor.config.ts`, `android/**`, `ios/**`, `scripts/**`, `package.json`, `.env.example`, `docs/MOBILE.md`, `docs/ARCHITECTURE.md` | - |
@@ -26,7 +26,7 @@ Shared-layer needs go in your report as **Request to Principal: file, function, 
 | | `decodeToPcm(blob)` | `(Blob) => Promise<AudioBuffer>` (Web Audio `decodeAudioData`) |
 | | `computeWaveform(src, samples = 100)` | `(AudioBuffer \| Float32Array, number) => number[]` ints 0..1024 from peak amplitude per bucket, normalised so the loudest bucket is 1024 |
 | | `baseMimetype(mime)` | `'audio/webm;codecs=opus' -> 'audio/webm'` |
-| `src/lib/matrix/actions.ts` | `sendVoiceMessage(roomId, blob, meta)` | `meta: { durationMs: number, waveform: number[], mimetype: string } => Promise<eventId>`; uploads, then sends the exact content in docs/PHASE2_ACCEPTANCE.md |
+| `src/lib/matrix/actions.ts` | `sendVoiceMessage(roomId, blob, meta)` | `meta: { durationMs: number, waveform: number[], mimetype: string } => Promise<eventId>`; uploads, then sends the exact content in docs/archive/PHASE2_ACCEPTANCE.md |
 | `src/lib/matrix/utils.ts` | `getVoiceMessage(event)` | `=> { mxc: string, url: string (http via mxcToHttp), durationMs: number, waveform: number[], mimetype: string, size?: number, isVoice: boolean } \| null`; non-null for any non-redacted `m.audio` with a `url`; `waveform` `[]` when absent |
 | | `previewText` | `[voice message]` for voice, `[audio] <body>` for other `m.audio` |
 | `src/app/theme.css` | CSS variables | `--safe-top/--safe-right/--safe-bottom/--safe-left` (`env(safe-area-inset-*, 0px)`), `--tap-target: 44px`, `--phone-header-h: 56px`, `--vvh` (visual viewport height in px, kept current by the shell) |

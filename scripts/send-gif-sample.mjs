@@ -2,7 +2,7 @@
 /**
  * Post a contract GIF message through the client-server API (Phase 4, PRIN-16; demo prep "a GIF bob sent";
  * QA fixture). Builds the content with the client's own `buildGifContent` (src/lib/gif/message.ts) from the
- * mock catalogue, so the event is byte-for-byte what the picker sends (docs/PHASE4_ACCEPTANCE.md AC-G10-1).
+ * mock catalogue, so the event is byte-for-byte what the picker sends (docs/archive/PHASE4_ACCEPTANCE.md AC-G10-1).
  *
  *   npm run gif:sample                                   # bob -> #dev:localhost, mock-7 (Thumbs up)
  *   node scripts/send-gif-sample.mjs --id mock-3 --room '#general:localhost' --as alice   # demo room (team rule: scripts default to #dev)

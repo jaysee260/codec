@@ -1,7 +1,7 @@
 /**
  * Test-id prefixing for the thread UI (Dev B, Phase 3).
  *
- * **Prefix rule** (docs/PHASE3_ACCEPTANCE.md "Test ID registry"): the thread panel mounts a second
+ * **Prefix rule** (docs/archive/PHASE3_ACCEPTANCE.md "Test ID registry"): the thread panel mounts a second
  * `MessageList` and a second `Composer` on the same page, so inside `thread-panel` every
  * `composer-*`, `message-list` and `timeline-*` id is renamed with a `thread-` prefix. Row-level ids
  * (`message-{eventId}`, `message-body`, `reaction-*`, `voice-message`, ...) deliberately stay exactly

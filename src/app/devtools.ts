@@ -5,7 +5,7 @@
  *                          actions, utils, openThread, closeThread, getThreadSummary, getThreadModel, gif, preview, voice,
  *                          receipts, ... }
  *
- *   __matrixPoc.voice = { forceRemuxFailure, encodeToOggOpus }   voice-format QA (docs/VOICE_FORMAT_PLAN.md):
+ *   __matrixPoc.voice = { forceRemuxFailure, encodeToOggOpus }   voice-format QA (docs/archive/VOICE_FORMAT_PLAN.md):
  *     `forceRemuxFailure = true` makes voice sends (while true) skip the WebM -> Ogg remux as if it threw, so the
  *     original recording is sent with its own mimetype (AC-F9); `encodeToOggOpus(blob, mime?)` is the send
  *     seam itself (AC-F10).
@@ -82,7 +82,7 @@ export function installDevHooks(): void {
       },
       encodeToOggOpus,
     },
-    // Phase 5 (docs/PHASE5_ACCEPTANCE.md): `__matrixPoc.security` = the security module plus
+    // Phase 5 (docs/archive/PHASE5_ACCEPTANCE.md): `__matrixPoc.security` = the security module plus
     // `{ store, getCryptoApi, getOwnDeviceStatus, cryptoDatabasePrefix, importRoomKeys(json), exportRoomKeys() }`;
     // `__matrixPoc.crypto` is the same object. `attachments` is the whole module (`encryptAttachment`, ...).
     securityStore: useSecurityStore,
@@ -93,18 +93,18 @@ export function installDevHooks(): void {
     getCryptoError,
     // Phase 6: the whole preview module (`__matrixPoc.preview.getLinkPreview(url)`, `getPreviewUrls(ev)`, `clearLinkPreviewCache()`, ...)
     preview,
-    // Alias used by docs/PHASE6_ACCEPTANCE.md: same module plus `clearPreviewCache()`.
+    // Alias used by docs/archive/PHASE6_ACCEPTANCE.md: same module plus `clearPreviewCache()`.
     previews: { ...preview, clearPreviewCache: preview.clearLinkPreviewCache },
     // Phase 7: `__matrixPoc.calls.store` = useCallStore (`getState().startCall(roomId, { ring: true })`, `acceptCall`, ...),
     // `canCall(roomId)`, `enableCallsInRoom(roomId)`, `stats()` (receiver bytes per remote participant of the active call),
     // and `rtc` = the whole `@/lib/rtc` barrel (e2e/calls-core.spec.ts drives the call layer through this until the UI lands).
     calls: callsHook,
-    // Phase 7 Wave 2 (docs/PHASE7_ACCEPTANCE.md "Shell and core"): `__matrixPoc.call` = the store (`getState()`, `subscribe`)
+    // Phase 7 Wave 2 (docs/archive/PHASE7_ACCEPTANCE.md "Shell and core"): `__matrixPoc.call` = the store (`getState()`, `subscribe`)
     // + `canCall`, `ringPolicy`, `getCallLine`, `describeCallEvent`, `CALL_RING_MAX_MEMBERS`, `rtc` ({ isMicrophoneEnabled(),
     // isE2EEEnabled(), setSpeakerphone (assignable: QA stubs it), room }), `ringtone` ({ canPlay(), lastPlayedAt }), `native`.
     call: callHook,
     rtc,
-    // Read receipts (docs/RECEIPTS_ACCEPTANCE.md): QA drives the reading side through these.
+    // Read receipts (docs/archive/RECEIPTS_ACCEPTANCE.md): QA drives the reading side through these.
     receipts: receiptsHook,
   };
 }

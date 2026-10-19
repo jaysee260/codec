@@ -1,6 +1,6 @@
 # Acceptance Criteria and Test ID Contract
 
-Every criterion is testable by Playwright against the seed in `docs/SEED_DATA.md`, logged in as alice unless stated. Numbering `AC-<ticket>-<n>`. Tickets in `docs/TICKETS.md` reference these.
+Every criterion is testable by Playwright against the seed in `docs/SEED_DATA.md`, logged in as alice unless stated. Numbering `AC-<ticket>-<n>`. Tickets in `docs/archive/TICKETS.md` reference these.
 
 ## Test ID conventions
 1. Attribute is `data-testid`; Playwright uses `page.getByTestId(...)` (exact match).
@@ -94,7 +94,7 @@ Every criterion is testable by Playwright against the seed in `docs/SEED_DATA.md
 | ID | Given / When / Then |
 |---|---|
 | AC-A4-1 | Given `general` open, then `member-list` lists `member-item-@alice:localhost`, bob, carol, dave with display names, and `member-count` reads `4`. |
-| AC-A4-2 | Given `dev` open, then `member-list` and `member-count` match the room's joined members as read from the server (`/joined_members`), whatever the seed version (originally alice, bob, dave with carol absent; since the Phase 3 seed, PRIN-12, carol joins `#dev` as the seeded thread-root author). PM ruling G-1, docs/PHASE3_ACCEPTANCE.md. |
+| AC-A4-2 | Given `dev` open, then `member-list` and `member-count` match the room's joined members as read from the server (`/joined_members`), whatever the seed version (originally alice, bob, dave with carol absent; since the Phase 3 seed, PRIN-12, carol joins `#dev` as the seeded thread-root author). PM ruling G-1, docs/archive/PHASE3_ACCEPTANCE.md. |
 | AC-A4-3 | When I click `member-toggle`, then `member-list` hides; click again shows it. |
 | AC-A4-4 | Given a user is invited but not joined, then they appear under `member-section-invited`. |
 
@@ -112,7 +112,7 @@ Every criterion is testable by Playwright against the seed in `docs/SEED_DATA.md
 |---|---|
 | AC-A6-1 | Given Gaming selected, when I click `channel-add`, then `create-channel-dialog` opens with focus in `create-channel-name`. |
 | AC-A6-2 | When I enter `memes`, topic `Only the dankest`, and submit, then the dialog closes, `channel-list` contains `memes`, and it is selected with topic shown. |
-| AC-A6-3 | Given the new channel, when bob syncs (API: room hierarchy of Gaming), then `memes` is a child of Gaming, public (join rule unchanged) and, since Phase 5, **encrypted by default** (`m.room.encryption` per docs/PHASE5_ACCEPTANCE.md AC-E6-1; "unencrypted" held through Phase 4). |
+| AC-A6-3 | Given the new channel, when bob syncs (API: room hierarchy of Gaming), then `memes` is a child of Gaming, public (join rule unchanged) and, since Phase 5, **encrypted by default** (`m.room.encryption` per docs/archive/PHASE5_ACCEPTANCE.md AC-E6-1; "unencrypted" held through Phase 4). |
 | AC-A6-4 | When I submit an empty name, then `create-channel-submit` is disabled. |
 
 ### DEV-A-7 Invite user

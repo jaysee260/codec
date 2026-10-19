@@ -228,10 +228,10 @@ export function useDecryptedMediaUrl(file: EncryptedFile | null | undefined, mim
   return state;
 }
 
-/** docs/PHASE5_TICKETS.md name for `useDecryptedMediaUrl`. */
+/** docs/archive/PHASE5_TICKETS.md name for `useDecryptedMediaUrl`. */
 export const useMediaObjectUrl = useDecryptedMediaUrl;
 
-// Phase 2 (docs/PHASE2_TICKETS.md Shared API): layout hooks live in ./layout.ts and are re-exported here.
+// Phase 2 (docs/archive/PHASE2_TICKETS.md Shared API): layout hooks live in ./layout.ts and are re-exported here.
 export { useIsPhone, useViewport, type Viewport } from './layout.ts';
 
 // Phase 5: security hooks live in ./security.ts and are re-exported here.

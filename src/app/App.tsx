@@ -27,7 +27,7 @@ export function App() {
     void initNative({
       onKeyboard: (height) => useLayoutStore.getState().setKeyboardHeight(height),
       // Android back: registered feature handlers first (Phase 4: the GIF sheet), then an open thread, else an open
-      // drawer; otherwise initNative minimises the app (docs/PHASE3_TICKETS.md PRIN-10: thread -> sheets/drawers -> minimizeApp).
+      // drawer; otherwise initNative minimises the app (docs/archive/PHASE3_TICKETS.md PRIN-10: thread -> sheets/drawers -> minimizeApp).
       onBackButton: () => runBackHandlers() || useThreadStore.getState().closeThread() || useLayoutStore.getState().closeDrawers(),
     });
     void useSessionStore.getState().restore();
