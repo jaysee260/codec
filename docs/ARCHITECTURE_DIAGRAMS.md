@@ -14,6 +14,7 @@ module, `docs/ARCHITECTURE.md` stays the source of truth; this page is the map.
 8. [Encryption and device trust](#8-encryption-and-device-trust)
 9. [Link previews](#9-link-previews)
 10. [Screen layout](#10-screen-layout)
+11. [Where everything runs (704.chat)](#11-where-everything-runs-704chat)
 
 ## 1. The big picture
 
@@ -37,6 +38,7 @@ flowchart LR
   SSO["SSO provider<br/>Keycloak"]
   Klipy["Klipy<br/>GIF search and images"]
   Embeds["YouTube (nocookie) / Spotify<br/>players"]
+  RTC["Call server<br/>LiveKit + lk-jwt-service"]
 
   App -- "sync, send, rooms, keys" --> HS
   SW -- "authenticated media" --> HS
@@ -45,7 +47,12 @@ flowchart LR
   SSO -. "login token" .-> HS
   App -- "GIF search; GIF images<br/>(encrypted rooms: after a click)" --> Klipy
   App -. "only after a click" .-> Embeds
+  App -- "call ticket, then encrypted call audio" --> RTC
+  RTC -. "checks the Matrix login" .-> HS
 ```
+
+Voice calls (Phase 7) add a call server. Codec finds it in the homeserver's well-known file, asks it for a call
+ticket, and sends audio there already encrypted, so the call server only forwards it.
 
 ## 2. Layers inside the app
 
@@ -318,3 +325,69 @@ flowchart LR
 
 On phones the Android back button closes things in order: an open sheet (like the GIF picker), then an open thread,
 then a drawer, and only then minimises the app.
+
+## 11. Where everything runs (704.chat)
+
+The beta's real deployment on JC's homelab. Web traffic (chat, sign-in, files, call setup) comes in through the
+Cloudflare tunnel, and Nginx Proxy Manager (NPM) sends each name to its box. Cloudflare can't carry live audio, so
+call audio comes straight through the home router to LiveKit. New Codec builds go from GitHub through opsbox, where
+Hubot builds them and copies the files to LXC 203. Boxes marked *planned* are being set up for voice calls (Phase 0
+of `docs/PHASE7_PLAN.md`).
+
+```mermaid
+flowchart LR
+  subgraph Devices["People's devices"]
+    Browser["Browser<br/>Codec web app"]
+    Android["Android phone<br/>Codec app (Capacitor)"]
+  end
+
+  subgraph Internet["Internet"]
+    CF["Cloudflare tunnel<br/>*.704.chat, web traffic only"]
+    Router["Home router (planned forwards)<br/>UDP 50000-50200, TCP 7881"]
+    GH["GitHub<br/>code, PRs, CI"]
+  end
+
+  subgraph Homelab["Homelab"]
+    subgraph SVM["Services VM"]
+      CFD["cloudflared"]
+      NPM["Nginx Proxy Manager<br/>routes each name; serves<br/>the 704.chat well-known file"]
+    end
+    subgraph L203["LXC 203"]
+      Synapse["Synapse<br/>matrix.704.chat"]
+      PG[("Postgres")]
+      Files["nginx: Codec's files<br/>codec.704.chat"]
+      Element["Element web<br/>(to be switched off)"]
+    end
+    subgraph L213["LXC 213 livekit (planned)"]
+      LK["LiveKit<br/>rtc.704.chat"]
+      JWT["lk-jwt-service<br/>call tickets"]
+    end
+    KC["Keycloak<br/>single sign-on"]
+    subgraph Ops["opsbox"]
+      Hubot["Hubot<br/>builds and deploys Codec"]
+    end
+  end
+
+  subgraph Outside["Outside services"]
+    Klipy["Klipy GIFs"]
+    Embeds["YouTube / Spotify"]
+  end
+
+  Browser -- "HTTPS" --> CF
+  Android -- "HTTPS" --> CF
+  CF --> CFD --> NPM
+  NPM -- "matrix." --> Synapse
+  NPM -- "codec." --> Files
+  NPM -- "rtc." --> JWT
+  NPM -- "rtc." --> LK
+  NPM -- "sign-in" --> KC
+  Synapse --- PG
+  JWT -- "checks the Matrix login" --> Synapse
+  Browser == "encrypted call audio" ==> Router
+  Android == "encrypted call audio" ==> Router
+  Router == "straight in, skips Cloudflare" ==> LK
+  GH -. "master" .-> Hubot
+  Hubot -. "deploy" .-> Files
+  Browser -. "GIFs, players after a click" .-> Klipy
+  Browser -.-> Embeds
+```
