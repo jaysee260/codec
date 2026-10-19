@@ -1,0 +1,70 @@
+/* Read avatars strip (DEV-A-R2). Fixed 22 px layout height everywhere (AC-R9-3). */
+.strip {
+  --receipt-ring: var(--bg-chat);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: fit-content;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.strip:hover,
+.active {
+  background: var(--bg-hover);
+  --receipt-ring: var(--bg-hover);
+}
+.strip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Phone: 44 px tap target, still 22 px of layout (the extra 22 px overlaps the gap around the row). */
+.phone {
+  height: var(--tap-target);
+  margin-top: -11px;
+  margin-bottom: -11px;
+  padding: 0 8px;
+}
+.phone:hover {
+  background: transparent;
+  --receipt-ring: var(--bg-chat);
+}
+
+.stack {
+  display: inline-flex; /* newest reader leftmost and on top (z-index set inline) */
+}
+
+.avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--receipt-ring);
+  transition: transform 0.12s ease-out;
+}
+.avatar {
+  position: relative;
+}
+.avatar + .avatar {
+  margin-left: -5px;
+}
+
+.more {
+  color: var(--text-normal);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  min-width: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar {
+    transition: none;
+  }
+}

@@ -47,6 +47,8 @@ until it is. `node scripts/select-e2e.mjs origin/master` prints what your branch
 | `call-dm.spec.ts` | desktop | Phase 7 AC-R3-4..6, R4-1/2/4/5, R5, R6-1/2/4/5/8, R7 (DM calls through the UI; dave is the callee in the encrypted `dm-alice-dave`) |
 | `call-room.spec.ts` | desktop | Phase 7 AC-R3-1/2, R4-3/6, R6-6/7, R8 (#vault, a 7-member drop-in room, bridge ghosts) |
 | `mobile-call.spec.ts` | mobile | Phase 7 AC-R5-6, R6-4 phone, R8-3, R9-1 |
+| `receipts.spec.ts` | desktop | Read receipts AC-R1 (send status), AC-R2 (avatars, hidden events, +N, #vault/UTD), AC-R3/R4 (Seen by list and action), AC-R6 (threads), AC-R7 (private receipts setting), AC-R8, AC-R9, AC-R10-2 (helpers: `fixtures/receipts.ts`) |
+| `mobile-receipts.spec.ts` | mobile | Read receipts AC-R5 (bottom sheet, long-press Seen by, 44 px), AC-R7-1, AC-R8-2 on phone |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
 
 Each project has its **own** `outputDir`, so `npm run test:e2e:mobile` cannot wipe the desktop run's
@@ -100,6 +102,7 @@ npm run test:e2e:smoke        # the desktop demo script only
 npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
 npm run test:e2e:link-preview # Phase 6 link preview specs, both projects (helpers: fixtures/link-preview.ts)
 npm run test:e2e:calls        # Phase 7 call specs, desktop (calls-core, call-dm, call-room); test:e2e:calls:mobile = mobile-call
+npm run test:e2e:receipts     # read receipt specs, both projects (helpers: fixtures/receipts.ts)
 npm run test:e2e:e2ee         # Phase 5 E2EE specs, desktop (helpers: fixtures/e2ee.ts, fixtures/e2ee-api.ts)
 npm run test:e2e:fresh        # rebuild the seed snapshot, then both projects (WSL1: seed:reset instead)
 npm run test:e2e:fixtures     # regenerates test-image.png / test-file.txt / test-voice.wav

@@ -11,6 +11,8 @@
  * Thread models (threads.ts):      ThreadEvent.New / Update / Delete. The CLIENT does not re-emit these
  *                                  (only the Room does), so they are subscribed per Room: every room at
  *                                  bind time plus ClientEvent.Room for rooms that arrive later (Phase 3)
+ * Receipts (receipts.ts):          Room.receipt, Room.localEchoUpdated, ThreadEvent.* -> receiptVersion[roomId];
+ *                                  accountData im.vector.web.settings -> settingsVersion
  * Typing (timeline.ts):            RoomMember.typing (reads the m.typing event's user_ids directly,
  *                                  so users whose member event is not loaded yet still count)
  */
@@ -45,7 +47,9 @@ import {
   threadKey,
 } from './timeline.ts';
 import { bumpThreadsVersion } from './threads.ts';
+import { bumpReceiptSettingsVersion, bumpReceiptVersion } from './receipts.ts';
 import { noteEncryptedRelation, resetEncryptedRelations } from '@/lib/matrix/utils.ts';
+import { RECEIPT_SETTINGS_EVENT_TYPE } from '@/lib/matrix/receipts-core.ts';
 
 const ROOMS_DEBOUNCE_MS = 50;
 const TIMELINE_DEBOUNCE_MS = 30;
@@ -96,6 +100,18 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
     }
   }, TIMELINE_DEBOUNCE_MS);
   const threadsVersion = debounce(bumpThreadsVersion, TIMELINE_DEBOUNCE_MS);
+  // Read receipts: the SDK mutates receipt structures and event statuses in place, so the snapshots do not
+  // change; `receiptVersion[roomId]` is what the receipt hooks memoise on. One commit per burst.
+  const pendingReceipts = new Set<string>();
+  const receipts = debounce(() => {
+    const ids = [...pendingReceipts];
+    pendingReceipts.clear();
+    bumpReceiptVersion(ids);
+  }, TIMELINE_DEBOUNCE_MS);
+  const scheduleReceipts = (roomId: string): void => {
+    pendingReceipts.add(roomId);
+    receipts.call();
+  };
   const scheduleTimeline = (roomId: string): void => {
     pendingTimelines.add(roomId);
     timelines.call();
@@ -121,10 +137,12 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
     const onThreadNew = (thread: Thread): void => {
       scheduleThread(room.roomId, thread.id);
       scheduleTimeline(room.roomId); // the root's summary row lives in the main timeline
+      scheduleReceipts(room.roomId); // a new Thread takes over the threaded receipts the room cached for it
     };
     const onThreadUpdate = (thread: Thread): void => {
       scheduleThread(room.roomId, thread.id);
       scheduleTimeline(room.roomId);
+      scheduleReceipts(room.roomId);
     };
     const onThreadDelete = (thread: Thread): void => {
       scheduleThread(room.roomId, thread.id);
@@ -172,6 +190,11 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
   };
   const onAccountData = (event: MatrixEvent): void => {
     if (event.getType() === EventType.Direct) scheduleRooms();
+    if (event.getType() === RECEIPT_SETTINGS_EVENT_TYPE) bumpReceiptSettingsVersion(); // "Send read receipts" (any device)
+  };
+  const onReceipt = (_event: MatrixEvent, room: Room): void => {
+    scheduleRooms(); // unread counts
+    scheduleReceipts(room.roomId); // read avatars / seen-by lists
   };
   const onTimeline = (
     event: MatrixEvent,
@@ -223,6 +246,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
       scheduleThread(room.roomId, thread.id);
     }
     scheduleTimeline(room.roomId);
+    scheduleReceipts(room.roomId); // send status flips (ENCRYPTING -> SENDING -> SENT -> null) and the ~txn -> $id swap
   };
   const onTyping = (event: MatrixEvent, member: RoomMember): void => {
     const me = client.getUserId();
@@ -254,7 +278,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
   client.on(ClientEvent.AccountData, onAccountData);
   client.on(RoomEvent.Name, scheduleRooms);
   client.on(RoomEvent.MyMembership, scheduleRooms);
-  client.on(RoomEvent.Receipt, scheduleRooms);
+  client.on(RoomEvent.Receipt, onReceipt);
   client.on(RoomEvent.Tags, scheduleRooms);
   client.on(RoomStateEvent.Events, scheduleRooms);
   client.on(RoomStateEvent.Members, scheduleRooms);
@@ -278,6 +302,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
       rooms.cancel();
       timelines.cancel();
       threadsVersion.cancel();
+      receipts.cancel();
       for (const off of roomListeners.values()) off();
       roomListeners.clear();
       client.off(ClientEvent.Sync, onSync);
@@ -287,7 +312,7 @@ export function bindClient(client: MatrixClient, opts: BridgeOptions = {}): void
       client.off(ClientEvent.AccountData, onAccountData);
       client.off(RoomEvent.Name, scheduleRooms);
       client.off(RoomEvent.MyMembership, scheduleRooms);
-      client.off(RoomEvent.Receipt, scheduleRooms);
+      client.off(RoomEvent.Receipt, onReceipt);
       client.off(RoomEvent.Tags, scheduleRooms);
       client.off(RoomStateEvent.Events, scheduleRooms);
       client.off(RoomStateEvent.Members, scheduleRooms);

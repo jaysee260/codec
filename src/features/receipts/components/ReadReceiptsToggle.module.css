@@ -1,0 +1,84 @@
+/* "Send read receipts" switch row above the user pill (DEV-A-R4). */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 12px;
+  flex-shrink: 0;
+  background: var(--bg-rail);
+  border-top: 1px solid var(--border);
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+.row:hover {
+  background: var(--bg-hover);
+}
+.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.row[aria-busy='true'] {
+  cursor: progress;
+}
+
+.phone {
+  min-height: var(--tap-target);
+  padding: 4px 16px;
+}
+
+.icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+.hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.track {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--offline);
+  transition: background 0.15s ease-out;
+}
+.thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease-out;
+}
+.on {
+  background: var(--success);
+}
+.on .thumb {
+  transform: translateX(14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track,
+  .thumb {
+    transition: none;
+  }
+}

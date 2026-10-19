@@ -28,16 +28,35 @@
  *
  * Phase 6: `LinkPreviews` renders the link cards under the body, before the reactions (DEV-B-32).
  *
+ * Read receipts (DEV-B-R1 / R2): the list computes `useReadPointsResult` once and hands each row its
+ * `readers` and whether it is the single `isLatestOwnSent` row. The row renders one right-aligned receipt
+ * strip under everything else (after reactions and the thread summary, Element's position): my send status
+ * (`sending` while the echo is pending, the `sent` check only on the latest-own-sent row, `failed` on rows
+ * without the header's "failed to send" tag) and/or Dev A's `ReadAvatars`. The strip has a fixed height
+ * whatever it holds, so the check being replaced by avatars never changes the row's height (AC-R9-1), and
+ * the strip exists from the first frame of a send (`sending`), so sending -> sent -> read is height-stable.
+ * The thread root inside the panel shows none of it (its avatars are on its main-timeline row) but keeps the
+ * "Seen by" action, which opens the *main* timeline's list for it (the root is a main-timeline event).
+ *
  * Rows are deliberately NOT memoised: the SDK mutates events in place for edits, redactions and
  * reaction aggregation, so the whole list re-renders on the store's `version` bump.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { EventStatus, type MatrixEvent } from 'matrix-js-sdk';
 import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { canEditEvent, canRedactEvent, getReactions, sendReaction } from '@/lib/matrix/actions.ts';
 import { avatarUrlOf, displayNameOf, getDisplayBody, isPendingEvent } from '@/lib/matrix/utils.ts';
 import { colorFor, formatFullTime, formatTime, initialsOf } from '@/lib/format.ts';
-import { sourceKey, useIsPhone, useThreadStore, useThreadSummary, type TimelineSource } from '@/store/hooks.ts';
+import {
+  sourceKey,
+  useIsPhone,
+  useSendStatus,
+  useThreadStore,
+  useThreadSummary,
+  type Reader,
+  type TimelineSource,
+} from '@/store/hooks.ts';
+import { openSeenBy, ReadAvatars, SendStatus, useSeenByStore } from '@/features/receipts';
 import { withToast } from '@/store/toast.ts';
 import { useConversationUi } from '../hooks/useConversationUi.ts';
 import { useLongPress } from '../hooks/useLongPress.ts';
@@ -61,9 +80,21 @@ export interface MessageRowProps {
   flash: boolean;
   /** Render as the thread panel's root message (`thread-root`) instead of a timeline row. */
   asThreadRoot?: boolean;
+  /** Read receipts: the users whose latest read point is this row (`readPoints.get(id)` from the list). */
+  readers?: readonly Reader[];
+  /** This row is the list's `latestOwnSentId`: the one own message that shows the "sent" check. */
+  isLatestOwnSent?: boolean;
 }
 
-export function MessageRow({ source, event, groupStart, flash, asThreadRoot = false }: MessageRowProps) {
+export function MessageRow({
+  source,
+  event,
+  groupStart,
+  flash,
+  asThreadRoot = false,
+  readers,
+  isLatestOwnSent = false,
+}: MessageRowProps) {
   const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -93,6 +124,34 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
   const canDelete = !pending && !body.isRedacted && canRedactEvent(roomId, event);
   // Non-null only for a thread root with at least one reply, and never inside the panel.
   const threadSummary = useThreadSummary(inThread ? null : event);
+
+  // Read receipts. `status` is null for other people's rows. The thread root in the panel shows nothing.
+  const status = useSendStatus(event);
+  const showStatus =
+    !asThreadRoot &&
+    (status === 'sending' ||
+      (status === 'sent' && isLatestOwnSent) ||
+      // A group-start row already has the "failed to send" tag in its header (wrapped there instead).
+      (status === 'failed' && !groupStart));
+  const shownReaders = asThreadRoot ? undefined : readers;
+  const hasReceiptStrip = showStatus || (shownReaders?.length ?? 0) > 0;
+  // "Seen by" for the thread root asks the main timeline: the root is a main event and its readers are there.
+  const seenBySource = useMemo<TimelineSource>(
+    () => (asThreadRoot ? { roomId } : source),
+    [asThreadRoot, roomId, source],
+  );
+  const canSeenBy = !body.isRedacted && !!eventId && !eventId.startsWith('~');
+  // While this row's list is open from the toolbar button, keep the toolbar shown: it is the popover's anchor.
+  const seenByOpen = useSeenByStore(
+    (s) =>
+      !!s.open &&
+      s.open.eventId === eventId &&
+      s.open.source.roomId === seenBySource.roomId &&
+      (s.open.source.threadRootId ?? null) === (seenBySource.threadRootId ?? null),
+  );
+  const seenBy = (trigger: HTMLElement | null): void => {
+    openSeenBy({ source: seenBySource, eventId, trigger });
+  };
 
   // The picker only ever adds: re-picking an emoji I already used is a no-op (the pill toggles it off),
   // which keeps "pick 🎉 -> count 1, mine" true however many times the flow runs on one seed.
@@ -128,7 +187,7 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
       data-sender={sender}
       data-event-id={eventId}
       data-group-start={groupStart ? 'true' : 'false'}
-      data-active={pickerAnchor || confirmDelete || sheetOpen ? 'true' : undefined}
+      data-active={pickerAnchor || confirmDelete || sheetOpen || seenByOpen ? 'true' : undefined}
       data-flash={flash ? 'true' : undefined}
       {...longPress.handlers}
     >
@@ -159,7 +218,14 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
             <span className={styles.time} data-testid="message-timestamp" title={formatFullTime(event.getTs())}>
               {formatTime(event.getTs())}
             </span>
-            {failed && <span className={styles.failedTag}>failed to send</span>}
+            {failed &&
+              (asThreadRoot ? (
+                <span className={styles.failedTag}>failed to send</span>
+              ) : (
+                <SendStatus status="failed">
+                  <span className={styles.failedTag}>failed to send</span>
+                </SendStatus>
+              ))}
           </div>
         )}
         <MessageBody roomId={roomId} body={body} />
@@ -167,6 +233,18 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
         <LinkPreviews roomId={roomId} event={event} body={body} />
         <ReactionRow roomId={roomId} eventId={eventId} reactions={reactions} onAdd={setPickerAnchor} />
         {threadSummary && <ThreadSummary roomId={roomId} summary={threadSummary} />}
+        {hasReceiptStrip && (
+          <div className={styles.receipts} data-receipt-strip="">
+            {shownReaders && shownReaders.length > 0 && (
+              <ReadAvatars source={source} eventId={eventId} readers={shownReaders} />
+            )}
+            {showStatus && (
+              <SendStatus status={status}>
+                {status === 'failed' ? <span className={styles.failedTag}>failed to send</span> : null}
+              </SendStatus>
+            )}
+          </div>
+        )}
       </div>
 
       {!pending && !isPhone && (
@@ -178,6 +256,7 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
           onThread={inThread ? undefined : () => openThread(eventId, roomId)}
           onEdit={() => startEdit(uiKey, eventId)}
           onDelete={() => setConfirmDelete(true)}
+          onSeenBy={canSeenBy ? seenBy : undefined}
         />
       )}
 
@@ -213,6 +292,14 @@ export function MessageRow({ source, event, groupStart, flash, asThreadRoot = fa
             setSheetOpen(false);
             setConfirmDelete(true);
           }}
+          onSeenBy={
+            canSeenBy
+              ? () => {
+                  setSheetOpen(false);
+                  seenBy(null);
+                }
+              : undefined
+          }
         />
       )}
 

@@ -94,3 +94,19 @@ export {
   type LiveSession,
   type RoomCallSummary,
 } from './call.ts';
+export {
+  useReceiptStore,
+  useReceiptVersion,
+  useReadPoints,
+  useReadPointsResult,
+  useLatestOwnSentId,
+  useSendStatus,
+  useSeenBy,
+  useSendReadReceiptsSetting,
+  bumpReceiptVersion,
+  bumpReceiptSettingsVersion,
+  resetReceipts,
+  type ReceiptState,
+  type ReadPointsResult,
+} from './receipts.ts';
+export { type Reader, type SeenBy, type SendStatus } from '@/lib/matrix/receipts.ts';

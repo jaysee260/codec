@@ -31,6 +31,7 @@ import { bindSecurity, resetSecurity, unbindSecurity } from './security.ts';
 import { bindCalls, resetCalls, unbindCalls } from './call.ts';
 import { resetTimelines } from './timeline.ts';
 import { resetThreads } from './threads.ts';
+import { resetReceipts } from './receipts.ts';
 
 export type SessionStatus = 'logged-out' | 'logging-in' | 'syncing' | 'ready' | 'error';
 
@@ -128,6 +129,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     resetRooms();
     resetTimelines();
     resetThreads();
+    resetReceipts();
     resetSecurity();
     clearLinkPreviewCache(); // Phase 6: the next user in this browser must not inherit cached previews
     set({ status: nextStatus, userId: null, displayName: null, avatarUrl: null, error: message, syncState: null, loadingStage: null });
@@ -219,6 +221,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
       resetRooms();
       resetTimelines();
       resetThreads();
+      resetReceipts();
       resetSecurity();
       clearLinkPreviewCache(); // Phase 6: same on explicit logout
       set({ status: 'logged-out', userId: null, displayName: null, avatarUrl: null, error: null, syncState: null, loadingStage: null });
