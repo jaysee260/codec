@@ -1,5 +1,5 @@
 /**
- * QA-15 — desktop thread suite, AC-T1 .. AC-T9 (docs/PHASE3_ACCEPTANCE.md).
+ * QA-15 — desktop thread suite, AC-T1 .. AC-T9 (docs/archive/PHASE3_ACCEPTANCE.md).
  *
  * ## Dirty-seed contract
  * Every test creates **its own** thread root (bob via the API, so alice can use "Reply in thread" on
@@ -159,7 +159,7 @@ function theBigThread(): Promise<{ rootId: string; rootBody: string; replyIds: s
   return bigThread;
 }
 
-/** Field-by-field check of the thread reply contract (docs/PHASE3_ACCEPTANCE.md). */
+/** Field-by-field check of the thread reply contract (docs/archive/PHASE3_ACCEPTANCE.md). */
 function expectThreadRelation(event: MatrixEventJson, rootId: string, inReplyTo: string): void {
   const relation = threadRelationOf(event);
   expect(relation, `${event.event_id} has an m.relates_to`).toBeTruthy();

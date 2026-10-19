@@ -1,5 +1,5 @@
 /**
- * Undecryptable-row reasons (DEV-B-27, docs/PHASE5_ACCEPTANCE.md AC-E2-2 / AC-E2-3).
+ * Undecryptable-row reasons (DEV-B-27, docs/archive/PHASE5_ACCEPTANCE.md AC-E2-2 / AC-E2-3).
  *
  * `data-reason` comes from the SDK's `DecryptionFailureCode` (`getDecryptionState(event).code`), refined by
  * what the security store knows *now*: the code is computed once, when the decryption failed, so a restore that

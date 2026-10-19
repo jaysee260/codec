@@ -43,7 +43,7 @@ export function platform(): NativePlatform {
   return p === 'android' || p === 'ios' ? p : 'web';
 }
 
-/** Same as `platform()` (name used in docs/PHASE2_TICKETS.md). */
+/** Same as `platform()` (name used in docs/archive/PHASE2_TICKETS.md). */
 export const getPlatform = platform;
 
 export interface NativeInitOptions {
@@ -129,7 +129,7 @@ export async function tap(style: 'light' | 'medium' | 'heavy' = 'light'): Promis
   }
 }
 
-/** Light haptic tap, fire-and-forget (name used in docs/PHASE2_TICKETS.md). No-op on the web. */
+/** Light haptic tap, fire-and-forget (name used in docs/archive/PHASE2_TICKETS.md). No-op on the web. */
 export function hapticTap(): void {
   void tap('light');
 }

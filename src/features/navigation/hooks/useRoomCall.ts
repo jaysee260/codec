@@ -4,7 +4,7 @@
  * - `useLiveCallCount(roomId)`: users in a live call in the room (from `useRoomCallSummary`, which mirrors
  *   `useCallStore.liveSessions`), 0 when none. Drives `room-call-indicator[data-count]`.
  * - `useMissedCallPreview(roomId)`: the room's last main-timeline row is a `dev.matrixpoc.call` `missed` line naming
- *   me (docs/PHASE7_ACCEPTANCE.md "Wire shapes"). Re-read on every room-store snapshot (`version`), which the bridge
+ *   me (docs/archive/PHASE7_ACCEPTANCE.md "Wire shapes"). Re-read on every room-store snapshot (`version`), which the bridge
  *   bumps for live events and decryptions, so an encrypted missed line flips the row once it decrypts.
  * - `callNames(roomId, userIds)`: display names for the chip tooltip (AC-R8-4).
  */

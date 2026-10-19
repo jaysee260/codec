@@ -1,6 +1,6 @@
 /**
  * DEV-A-20 / DEV-A-21 GIF picker (`gif-picker`). The Slack-style panel behind `composer-gif` and the
- * `/gif` / `/giphy` commands. Criteria: docs/PHASE4_ACCEPTANCE.md AC-G4 (UI), AC-G5 (keyboard),
+ * `/gif` / `/giphy` commands. Criteria: docs/archive/PHASE4_ACCEPTANCE.md AC-G4 (UI), AC-G5 (keyboard),
  * AC-G9-1/3 (phone sheet).
  *
  * One component, two presentations - the same split as `Dialog` / `ThreadList`:

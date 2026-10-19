@@ -1,6 +1,6 @@
 # Phase 2 Plan: Phone POC (Capacitor) + Voice Notes
 
-Phase 1 shipped the desktop three-column web client (docs/PLAN.md, docs/DEMO.md). Phase 2 wraps the same code in Capacitor so the stakeholder can hold it on a phone, and adds voice notes. Tickets: docs/PHASE2_TICKETS.md. Criteria and testids: docs/PHASE2_ACCEPTANCE.md. Status: docs/STATUS.md "Phase 2".
+Phase 1 shipped the desktop three-column web client (docs/archive/PLAN.md, docs/archive/DEMO.md). Phase 2 wraps the same code in Capacitor so the stakeholder can hold it on a phone, and adds voice notes. Tickets: docs/archive/PHASE2_TICKETS.md. Criteria and testids: docs/archive/PHASE2_ACCEPTANCE.md. Status: docs/STATUS.md "Phase 2".
 
 ## Goals
 1. **Android and iOS phone POCs "to evaluate" the look and feel.** Android debug APK built on this machine; iOS project generated here and finished on a Mac (handoff below).

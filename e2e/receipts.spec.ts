@@ -1,5 +1,5 @@
 /**
- * QA-R2: read receipts, desktop (docs/RECEIPTS_ACCEPTANCE.md AC-R1, R2-1..6, R3-1..4, R4, R6, R7-1..4, R8-1/2, R9-1/2,
+ * QA-R2: read receipts, desktop (docs/archive/RECEIPTS_ACCEPTANCE.md AC-R1, R2-1..6, R3-1..4, R4, R6, R7-1..4, R8-1/2, R9-1/2,
  * R10-2). Phone half: mobile-receipts.spec.ts. Helpers: fixtures/receipts.ts.
  *
  * ## How the reading side is driven (Advisor risk 7)

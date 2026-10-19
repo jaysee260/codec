@@ -1,5 +1,5 @@
 /**
- * Read receipts fixtures (QA-R1; docs/RECEIPTS_ACCEPTANCE.md, docs/ARCHITECTURE.md "Read receipts deltas").
+ * Read receipts fixtures (QA-R1; docs/archive/RECEIPTS_ACCEPTANCE.md, docs/CORE_API.md "Read receipts").
  *
  * Three layers, same split as the Phase 5 helpers:
  *  - **API** (plain `fetch`, no app code): `readAs` / `readPrivateAs` post receipts as any user, `syncReceipts` /
@@ -28,7 +28,7 @@ export const SETTINGS_KEY = 'sendReadReceipts';
 /** Advisor risk 7: receipt round trips poll for 15 s. */
 export const RECEIPT_TIMEOUT = 15_000;
 
-/** Testids by owner (docs/RECEIPTS_ACCEPTANCE.md "Test ID registry"), for `requireUi` / `uiHalf`. */
+/** Testids by owner (docs/archive/RECEIPTS_ACCEPTANCE.md "Test ID registry"), for `requireUi` / `uiHalf`. */
 export const UI = {
   status: ['receipt-status'],
   avatars: ['receipt-avatars', 'receipt-avatar'],
@@ -80,7 +80,7 @@ export async function postReceipt(who: Who, type: ReceiptType, roomId: string, e
   await call('POST', `/rooms/${encodeURIComponent(roomId)}/receipt/${type}/${encodeURIComponent(eventId)}`, token, threadId ? { thread_id: threadId } : {});
 }
 
-/** "X reads E" (docs/RECEIPTS_ACCEPTANCE.md): a public `m.read`, threaded when `threadId` is the root. */
+/** "X reads E" (docs/archive/RECEIPTS_ACCEPTANCE.md): a public `m.read`, threaded when `threadId` is the root. */
 export function readAs(who: Who, roomId: string, eventId: string, threadId?: string): Promise<void> {
   return postReceipt(who, 'm.read', roomId, eventId, threadId);
 }

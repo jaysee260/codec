@@ -1,5 +1,5 @@
 /**
- * Phase 7 QA-37: calls on the phone (`mobile` project, Pixel 7; AC-R8-3 at 393 px). docs/PHASE7_ACCEPTANCE.md
+ * Phase 7 QA-37: calls on the phone (`mobile` project, Pixel 7; AC-R8-3 at 393 px). docs/archive/PHASE7_ACCEPTANCE.md
  * AC-R5-6, AC-R6-4 (phone), AC-R8-3, AC-R9-1. Android back (AC-R5-6 / R9-2) is device-only: docs/BUGS.md "Phase 7".
  *
  * alice is the phone (`page`, taps only); dave is a desktop second context or an API caller (`ringAlice`: a fake

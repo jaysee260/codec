@@ -1,5 +1,5 @@
 /**
- * "Old iPhone" simulation for Chromium (docs/VOICE_FORMAT_PLAN.md AC-F5..F7, F11): a browser that can
+ * "Old iPhone" simulation for Chromium (docs/archive/VOICE_FORMAT_PLAN.md AC-F5..F7, F11): a browser that can
  * play neither Ogg nor WebM natively (iOS Safari < 18.4), but plays WAV/MP4/AAC. Install it with
  * {@link simulateOldIphone} **before** the first navigation (it is an init script).
  *

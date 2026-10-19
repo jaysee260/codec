@@ -56,7 +56,7 @@ export interface LayoutState {
   toggleMembers(): void;
   /** Close whichever drawer is open (backdrop tap, Escape, Android back). Returns true if one was open. */
   closeDrawers(): boolean;
-  /** Same as `closeDrawers()` (name used in docs/PHASE2_TICKETS.md). */
+  /** Same as `closeDrawers()` (name used in docs/archive/PHASE2_TICKETS.md). */
   closeAll(): boolean;
   /** Internal: matchMedia listeners (and tests) call this. */
   setIsPhone(isPhone: boolean): void;
@@ -167,7 +167,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
 }));
 
-/** `() => boolean` selector over the layout store (docs/PHASE2_TICKETS.md Shared API). */
+/** `() => boolean` selector over the layout store (docs/archive/PHASE2_TICKETS.md Shared API). */
 export function useIsPhone(): boolean {
   return useLayoutStore((s) => s.isPhone);
 }
@@ -184,7 +184,7 @@ export interface Viewport {
   keyboardHeight: number;
 }
 
-/** `{ isPhone, width, height, keyboardOpen, ... }` from the visual viewport (docs/PHASE2_TICKETS.md Shared API). */
+/** `{ isPhone, width, height, keyboardOpen, ... }` from the visual viewport (docs/archive/PHASE2_TICKETS.md Shared API). */
 export function useViewport(): Viewport {
   const isPhone = useLayoutStore((s) => s.isPhone);
   const width = useLayoutStore((s) => s.viewportWidth);

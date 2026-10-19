@@ -1,7 +1,7 @@
 /**
  * QA-3 — the smoke test *is* the demo script.
  *
- * One serial spec that walks docs/PLAN.md "Demo script (~2 minutes)" steps 1-10 in order as alice,
+ * One serial spec that walks docs/archive/PLAN.md "Demo script (~2 minutes)" steps 1-10 in order as alice,
  * asserting the "They should see" column of each row, with bob driven through the raw-HTTP helper
  * for the live typing/incoming-message step. A full-page screenshot is written for every step even
  * when the step passes: the set in `e2e/results/demo/` is the stakeholder pre-read.
@@ -136,7 +136,7 @@ test.describe('demo script (QA-3 smoke)', () => {
     const started = Date.now();
     await loginAs(page, 'alice');
     const elapsed = Date.now() - started;
-    annotate('timing', `login -> shell painted in ${elapsed} ms (docs/PLAN.md wants < 3000 ms)`);
+    annotate('timing', `login -> shell painted in ${elapsed} ms (docs/archive/PLAN.md wants < 3000 ms)`);
     expect(elapsed, 'AC-SH-2 budget').toBeLessThan(10_000);
 
     const rail = page.getByTestId('space-rail');
@@ -403,7 +403,7 @@ test.describe('demo script (QA-3 smoke)', () => {
   });
 
   /**
-   * Step 11 is the Phase 3 thread walk-through (QA-17, AC-T11-1): docs/PHASE3_PLAN.md "Desktop demo
+   * Step 11 is the Phase 3 thread walk-through (QA-17, AC-T11-1): docs/archive/PHASE3_PLAN.md "Desktop demo
    * script" rows 2-7, with bob's `npm run thread:sample` replaced by `sendThreadReply` so the step
    * needs no terminal. Screenshots land in `e2e/results/demo/11-*`, one per demo sub-step.
    *
@@ -702,7 +702,7 @@ test.describe('demo script (QA-3 smoke)', () => {
 /* ================================================================== step 13: Phase 5 desktop demo (QA-28, AC-E8-2) */
 
 /**
- * docs/PHASE5_PLAN.md "Desktop demo script" rows 1-11, one screenshot per row into `e2e/results/demo/13-*`.
+ * docs/archive/PHASE5_PLAN.md "Desktop demo script" rows 1-11, one screenshot per row into `e2e/results/demo/13-*`.
  * Window 1 / window 3 = the "alice" of the script, window 2 = the "bob". Played by two **throwaway accounts**
  * (owner + peer) in their own space with an encrypted `vault` room: row 2 sets up cross-signing for good, which
  * must never happen to the shared seeded alice. At most two contexts are open (window 2 closes before window 3).
@@ -802,7 +802,7 @@ test.describe('step 13 — Phase 5 E2EE demo (rows 1-11)', () => {
     // shows `unlock` for a moment, then nothing). Only unlock by hand when the hint stays `unlock`.
     const settled = await E2.waitForCrypto(w3.page, (st) => st.hint === null && !st.recovery.busy, 'auto-restore after SAS', 15_000).catch(() => null);
     if (settled) {
-      annotate('demo-row-9', 'after SAS the backup key came over with the verification; no manual Unlock was needed (docs/PHASE5_PLAN.md rows 8-9 expect one)');
+      annotate('demo-row-9', 'after SAS the backup key came over with the verification; no manual Unlock was needed (docs/archive/PHASE5_PLAN.md rows 8-9 expect one)');
     } else {
       await E2.unlockWith(w3.page, key);
       await E2.closeDialog(w3.page, 'recovery-dialog');
@@ -858,7 +858,7 @@ test.describe('step 13 — Phase 5 E2EE demo (rows 1-11)', () => {
 /* ================================================================== step 14: Phase 7 desktop demo (QA-37, AC-R10-3) */
 
 /**
- * docs/PHASE7_PLAN.md "Desktop demo script" rows 1-7, one screenshot per sub-step into `e2e/results/demo/14-*`.
+ * docs/archive/PHASE7_PLAN.md "Desktop demo script" rows 1-7, one screenshot per sub-step into `e2e/results/demo/14-*`.
  * Window 1 = alice (`page` of the test), window 2 = dave in a second context: the seed's only encrypted DM is
  * `dm-alice-dave` (the script's "bob"). The 60 s ring of row 7 is shortened with `setRingTimeoutMs`. Rows 8-9 are
  * covered by call-room.spec.ts / call-dm.spec.ts (AC-R4-2, AC-R6-6, AC-R8).

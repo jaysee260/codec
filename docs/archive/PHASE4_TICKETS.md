@@ -1,8 +1,8 @@
 # Phase 4 Tickets
 
-Priorities: **P0** = a demo script in docs/PHASE4_PLAN.md breaks without it. P1 = demo noticeably better. P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 3 (Principal resumes at 13, Dev A at 20, Dev B at 23, QA at 19).
+Priorities: **P0** = a demo script in docs/archive/PHASE4_PLAN.md breaks without it. P1 = demo noticeably better. P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 3 (Principal resumes at 13, Dev A at 20, Dev B at 23, QA at 19).
 
-## Ownership map (hard rule, as docs/PHASE3_TICKETS.md)
+## Ownership map (hard rule, as docs/archive/PHASE3_TICKETS.md)
 | Owner | Owns (may create/edit) | Must not edit |
 |---|---|---|
 | Principal | `src/app/**`, `src/store/**`, `src/lib/**` (new `src/lib/gif/`), `public/**` (new `public/gif-fixtures/`), `index.html`, `capacitor.config.ts`, `scripts/**`, `package.json`, `.env.example`, `docs/ARCHITECTURE.md`, `docs/MOBILE.md` | - |
@@ -10,10 +10,10 @@ Priorities: **P0** = a demo script in docs/PHASE4_PLAN.md breaks without it. P1 
 | Dev B | `src/features/conversation/**` | anything else |
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:*` script lines in `package.json` | anything else |
 
-Shared-layer needs go in your report as **Request to Principal: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 4 deltas" wins), wire shapes and the mock fixture contract in docs/PHASE4_ACCEPTANCE.md are not. Everyone: one browser context per spec, no parallel Playwright workers on this machine.
+Shared-layer needs go in your report as **Request to Principal: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 4 deltas" wins), wire shapes and the mock fixture contract in docs/archive/PHASE4_ACCEPTANCE.md are not. Everyone: one browser context per spec, no parallel Playwright workers on this machine.
 
 ## Shared API (Principal exposes; devs consume only)
-Realigned 2026-10-09 to the shipped `src/lib/gif/` (the code wins; `src/lib/gif/types.ts` is the reference). The mock fixture contract in docs/PHASE4_ACCEPTANCE.md is unchanged.
+Realigned 2026-10-09 to the shipped `src/lib/gif/` (the code wins; `src/lib/gif/types.ts` is the reference). The mock fixture contract in docs/archive/PHASE4_ACCEPTANCE.md is unchanged.
 
 | Module | Export | Shape / rule |
 |---|---|---|
@@ -46,7 +46,7 @@ Realigned 2026-10-09 to the shipped `src/lib/gif/` (the code wins; `src/lib/gif/
 
 **PRIN-13 Core + mock** - `src/lib/gif/{types,config,index}.ts` and `providers/mock.ts` per the table (resolver order, cache, abort). `scripts/make-gif-fixtures.mjs`: pure-Node GIF89a encoder (global palette, 2 frames, NETSCAPE loop extension, LZW; no ffmpeg on this machine) plus a PNG still (reuse the CRC/zlib approach of `e2e/fixtures/make-test-assets.mjs`), byte-stable, writing `public/gif-fixtures/` per the fixture contract; `gif:fixtures` in `package.json`. Mock search/trending/`__empty__`/`__error__`/paging rules exactly as the contract; `window.__poc.gif` in `devtools.ts`. Verify with a probe: `/gif-fixtures/mock-1.gif` starts with `GIF89a`, two image descriptors, Chrome animates it. AC: AC-G1-1..3.
 
-**PRIN-14 Klipy provider** - `providers/klipy.ts`: URL = `https://api.klipy.com/api/v1/${key}/gifs/{search|trending}` with `q`, `page`, `per_page`, `content_filter`, `locale`; map items per AC-G2-2 (`String(item.id)`, `hd`->`md`->`sm` gif for `url`, `sm` webp->mp4->gif for the preview, `sm.jpg` still), `hasNext` from `data.has_next`; non-2xx and `result: false` -> `GifProviderError(status)`; `signal` passed to `fetch`. No key is committed anywhere; the fake key in QA's tests is `e2e-fake-key`. Reference: the Advisor's findings in docs/PHASE4_PLAN.md "Klipy API facts" (no live probe is possible without a key; keep the mapping in one function so the stakeholder's first live run can fix it fast). AC: AC-G2-1..4 (AC-G2-4's debounce half is Dev A's).
+**PRIN-14 Klipy provider** - `providers/klipy.ts`: URL = `https://api.klipy.com/api/v1/${key}/gifs/{search|trending}` with `q`, `page`, `per_page`, `content_filter`, `locale`; map items per AC-G2-2 (`String(item.id)`, `hd`->`md`->`sm` gif for `url`, `sm` webp->mp4->gif for the preview, `sm.jpg` still), `hasNext` from `data.has_next`; non-2xx and `result: false` -> `GifProviderError(status)`; `signal` passed to `fetch`. No key is committed anywhere; the fake key in QA's tests is `e2e-fake-key`. Reference: the Advisor's findings in docs/archive/PHASE4_PLAN.md "Klipy API facts" (no live probe is possible without a key; keep the mapping in one function so the stakeholder's first live run can fix it fast). AC: AC-G2-1..4 (AC-G2-4's debounce half is Dev A's).
 
 **PRIN-15 Send + read + hosts** - `actions.ts` `sendGif` (contract body and field, `threadRoot`); `utils.ts` `getGifContent` with the allow list, `canEditEvent` false for GIF events, `previewText` -> `[gif] <title>`; `layout.ts` `registerBackHandler` wired into the Shell's back order; check `index.html` / `capacitor.config.ts` / `src/lib/format.ts` so a `static.klipy.com` `<img>` is never blocked (add a CSP `img-src` entry only if a CSP exists); confirm on the Android WebView once (AC-G3-5, manual). Verify with a probe: send via `sendGif` under `mock`, fetch the event back, compare field by field; send a forged field via API and confirm `getGifContent` is `null`. AC: AC-G3-1..5.
 

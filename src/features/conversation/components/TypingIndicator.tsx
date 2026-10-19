@@ -4,7 +4,7 @@
  *
  * Phase 3: typing is **room-scoped** in Matrix (there is no thread-scoped typing in the spec or in
  * Synapse), so the thread panel renders this same room-wide list under the id `thread-typing`
- * (AC-T6-7, docs/PHASE3_PLAN.md "Typing"). The id is renamed rather than prefixed, hence the prop.
+ * (AC-T6-7, docs/archive/PHASE3_PLAN.md "Typing"). The id is renamed rather than prefixed, hence the prop.
  */
 import { useTyping, type TimelineSource } from '@/store/hooks.ts';
 import styles from './TypingIndicator.module.css';

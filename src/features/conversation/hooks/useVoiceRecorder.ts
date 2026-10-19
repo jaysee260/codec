@@ -11,7 +11,7 @@
  *                                                  MP4/AAC and anything it cannot remux come back unchanged
  *   sendVoiceMessage(roomId, blob, meta)           upload + the MSC1767/MSC3245 event
  *
- * States (docs/PHASE2_ACCEPTANCE.md test-id registry):
+ * States (docs/archive/PHASE2_ACCEPTANCE.md test-id registry):
  *   idle        nothing happening; the composer shows `composer-mic`
  *   requesting  waiting for getUserMedia (the permission prompt on a device)
  *   recording   `composer-recording` with the timer and the live level
@@ -22,7 +22,7 @@
  *               to keep working, so the composer renders `recording-error` as a banner above the input and
  *               stamps `composer-mic[data-state="denied"]`.
  *
- * Lifecycle rules (docs/ARCHITECTURE.md "Release the mic"): every exit path stops the handle and closes the
+ * Lifecycle rules (docs/GOTCHAS.md "Release the mic"): every exit path stops the handle and closes the
  * level meter - cancel, send, unmount and room change (the Composer is keyed by room, so a room switch
  * unmounts this hook: AC-V1-5). A `cancel()` that lands while getUserMedia is still pending cancels the
  * handle as soon as it resolves (`generation`), so a late grant cannot leave the mic open.

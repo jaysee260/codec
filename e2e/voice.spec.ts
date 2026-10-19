@@ -15,7 +15,7 @@
  *  - **AC-V1-6** (P2) the 120 s auto-stop: two minutes of wall clock per run.
  *  - **AC-V3-7** bar colouring is a visual criterion; the mobile smoke writes the screenshot.
  *
- * ## Voice format (docs/VOICE_FORMAT_PLAN.md)
+ * ## Voice format (docs/archive/VOICE_FORMAT_PLAN.md)
  *  - **AC-V2-4** "`info.mimetype` is `audio/ogg` on Chromium" is no longer waived: Chromium's WebM/Opus
  *    recording is losslessly remuxed to Ogg/Opus before upload (AC-F1/F2/F3), so the AC-V2 test below
  *    asserts `audio/ogg`, `Voice message.ogg`, `OggS` bytes and a valid CRC on every page. Playback on
@@ -44,7 +44,7 @@ import { computed, denyMicrophone, expectTapTarget, openNavDrawer, tapRoom } fro
 const ALICE = userId('alice');
 const BOB = userId('bob');
 
-/** `info.mimetype` values the contract allows (docs/PHASE2_ACCEPTANCE.md AC-V2-2). */
+/** `info.mimetype` values the contract allows (docs/archive/PHASE2_ACCEPTANCE.md AC-V2-2). */
 const ALLOWED_MIMETYPES = ['audio/ogg', 'audio/webm', 'audio/mp4'];
 
 const R: Record<'acme' | 'general' | 'dev' | 'random', string> = {

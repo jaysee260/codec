@@ -1,5 +1,5 @@
 /**
- * Read receipts store + hooks (docs/ARCHITECTURE.md "Read receipts deltas"). Re-exported from `./hooks.ts` and
+ * Read receipts store + hooks (docs/CORE_API.md "Read receipts"). Re-exported from `./hooks.ts` and
  * `@/store`.
  *
  * The SDK mutates receipts in place (`Room` / `Thread` receipt structures), so nothing in the timeline snapshot

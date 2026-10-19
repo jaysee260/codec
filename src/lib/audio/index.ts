@@ -3,7 +3,7 @@
  * playback bubble; nothing here touches React or the Matrix client. Sending/parsing the Matrix event is
  * `sendVoiceMessage` (src/lib/matrix/actions.ts) and `getVoiceMessage` (src/lib/matrix/utils.ts).
  *
- * Shared API (docs/PHASE2_TICKETS.md) - encode.ts:
+ * Shared API (docs/archive/PHASE2_TICKETS.md) - encode.ts:
  *   pickVoiceMimeType(): string                       '' when MediaRecorder is missing
  *   encodeToOggOpus(blob): Promise<{ blob, mimetype }> WebM/Opus -> Ogg/Opus remux (lossless); Ogg/MP4 pass through
  *   decodeToPcm(blob): Promise<AudioBuffer>           rejects when undecodable
@@ -16,7 +16,7 @@
  *   computeWaveformFromBlob(blob), getAudioDuration(blob)   the brief's blob-based helpers
  *   sanitizeWaveform(unknown)                         clamp/resample other clients' waveforms
  *
- * Format (voice-notes-format, see docs/VOICE_FORMAT_PLAN.md) - ogg.ts / wav.ts / softdecode.ts:
+ * Format (voice-notes-format, see docs/archive/VOICE_FORMAT_PLAN.md) - ogg.ts / wav.ts / softdecode.ts:
  *   remuxWebmOpusToOgg(bytes): Uint8Array             pure TS, Node-safe; throws WebmOpusError when not Opus-in-WebM
  *   isWebmBytes(bytes) / isOggBytes(bytes)            magic sniffing; opusPacketSamples(packet) 48 kHz samples from TOC
  *   parseOggPages(bytes) / oggCrc32(bytes)            verification helpers (page headers, CRC check)

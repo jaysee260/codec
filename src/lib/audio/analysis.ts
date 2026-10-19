@@ -75,7 +75,7 @@ export async function decodeAudio(blob: Blob): Promise<AudioBuffer | null> {
 }
 
 export interface WaveformOptions {
-  /** Scale so the loudest bucket is exactly 1024 (docs/PHASE2_TICKETS.md). Default true. Silence stays all-zero. */
+  /** Scale so the loudest bucket is exactly 1024 (docs/archive/PHASE2_TICKETS.md). Default true. Silence stays all-zero. */
   normalize?: boolean;
 }
 

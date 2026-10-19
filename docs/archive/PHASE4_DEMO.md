@@ -1,6 +1,6 @@
 # Codec GIF picker - Demo Handoff (Phase 4)
 
-The Phase 1-3 client (docs/DEMO.md, docs/PHASE2_DEMO.md, docs/PHASE3_DEMO.md), now with a Slack-style GIF picker: `/gif <query>`, `/giphy <query>`, or the **GIF** button beside the paperclip, on desktop and phone. GIFs come from Klipy (Tenor shut down in June 2026; Giphy's API is paid). Final test numbers: docs/STATUS.md "Phase 4".
+The Phase 1-3 client (docs/archive/DEMO.md, docs/archive/PHASE2_DEMO.md, docs/archive/PHASE3_DEMO.md), now with a Slack-style GIF picker: `/gif <query>`, `/giphy <query>`, or the **GIF** button beside the paperclip, on desktop and phone. GIFs come from Klipy (Tenor shut down in June 2026; Giphy's API is paid). Final test numbers: docs/STATUS.md "Phase 4".
 
 ## 1. The one decision to know about
 Klipy's integration terms forbid storing, mirroring, re-hosting or proxying its media, so picked GIFs are **hot-linked**: the message is an `m.text` whose body is `<title> <url>` plus a `dev.matrixpoc.gif` field this client renders inline (animated, `GIF` badge, paused off screen, click-to-play under reduced motion). Element and other clients show the title and the link, and should unfurl it now that URL previews are enabled on the homeserver (not yet verified from here). Nothing is uploaded to Synapse. Details: docs/ARCHITECTURE.md "Phase 4 deltas".
@@ -21,7 +21,7 @@ Klipy's integration terms forbid storing, mirroring, re-hosting or proxying its 
 5. Manual checks nobody here could do (listed in docs/BUGS.md "Phase 4"): a real Klipy search, the Android WebView loading a `static.klipy.com` image, hardware back closing the sheet, and Element showing the title + link + preview card.
 
 ## 4. Walkthrough
-Desktop and phone scripts are in docs/PHASE4_PLAN.md ("Desktop demo script", "Phone demo script"). Shortest version: log in as **alice** / **password123**, type `/gif tacos`, Enter, ArrowRight twice, Enter: the picker opens pre-searched, the third tile is picked, a `Sending GIF...` chip shows, and the GIF lands animated with a badge. `npm run gif:sample -- --room "#general:localhost"` posts one as bob live.
+Desktop and phone scripts are in docs/archive/PHASE4_PLAN.md ("Desktop demo script", "Phone demo script"). Shortest version: log in as **alice** / **password123**, type `/gif tacos`, Enter, ArrowRight twice, Enter: the picker opens pre-searched, the third tile is picked, a `Sending GIF...` chip shows, and the GIF lands animated with a badge. `npm run gif:sample -- --room "#general:localhost"` posts one as bob live.
 
 ## 5. Scripts
 | Command | What it does |

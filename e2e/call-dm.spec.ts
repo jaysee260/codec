@@ -1,5 +1,5 @@
 /**
- * Phase 7 QA-35: a voice call in a DM, through the UI (desktop). docs/PHASE7_ACCEPTANCE.md AC-R3-4..6, AC-R4-1/2/4/5,
+ * Phase 7 QA-35: a voice call in a DM, through the UI (desktop). docs/archive/PHASE7_ACCEPTANCE.md AC-R3-4..6, AC-R4-1/2/4/5,
  * AC-R5, AC-R6-1/2/4/5, AC-R7 (+ AC-R6-8 for "No answer" / "Busy").
  *
  * Who: alice in `page`, the callee **dave** in a second context: `dm-alice-dave` is the seed's only encrypted DM

@@ -9,7 +9,7 @@
  * The HTML pages next to them (`article.html`, `square.html`, `title-only.html`, `empty.html`, `long.html`) are
  * hand-written and reference the images by root-relative path, so they work on any Vite port (Synapse rebases
  * og:image against the page URL). The test Synapse can fetch them because the committed homeserver.yaml
- * whitelists 127.0.0.1 for url previews (docs/ARCHITECTURE.md "Phase 6 deltas").
+ * whitelists 127.0.0.1 for url previews (docs/GOTCHAS.md "Link previews: the test homeserver").
  */
 import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';

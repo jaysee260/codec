@@ -1,5 +1,5 @@
 /**
- * Read receipts over the SDK (docs/RECEIPTS_PLAN.md, docs/ARCHITECTURE.md "Read receipts deltas"). Pure parts
+ * Read receipts over the SDK (docs/archive/RECEIPTS_PLAN.md, docs/CORE_API.md "Read receipts"). Pure parts
  * live in `receipts-core.ts` (re-exported here). React hooks are in `src/store/receipts.ts`.
  *
  * Holders: the main timeline's receipts live on the `Room`, a thread's on its `Thread` (both extend the SDK's

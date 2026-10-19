@@ -1,6 +1,6 @@
 /**
  * QA (voice format): the WebM/Opus -> Ogg/Opus remuxer, in Node, no browser page.
- * docs/VOICE_FORMAT_PLAN.md decision 1 / AC-F1..F3 ("lossless remux, no re-encoding"). Runs in the
+ * docs/archive/VOICE_FORMAT_PLAN.md decision 1 / AC-F1..F3 ("lossless remux, no re-encoding"). Runs in the
  * `mobile` project only (playwright.config.ts) so `--project=mobile` covers the whole voice feature.
  *
  * Input: real Chromium MediaRecorder recordings of the fake-mic tone (`e2e/fixtures/chromium-1s.webm`,

@@ -2,8 +2,8 @@
  * Phase 7 (QA-34) helpers for the voice-call specs: `calls-core.spec.ts` (Principal), `call-dm.spec.ts`,
  * `call-room.spec.ts` (desktop) and `mobile-call.spec.ts` (phone).
  *
- * Contract sources, in order of precedence: the shipped code + docs/ARCHITECTURE.md "Phase 7 deltas", then
- * docs/PHASE7_ACCEPTANCE.md (testid registry, wire shapes, the orchestrator's 2026-10-18 ruling on chat lines).
+ * Contract sources, in order of precedence: the shipped code + docs/CORE_API.md "Voice calls", then
+ * docs/archive/PHASE7_ACCEPTANCE.md (testid registry, wire shapes, the orchestrator's 2026-10-18 ruling on chat lines).
  * Where they differ the helper accepts both and says so:
  *  - the dev hook is `window.__matrixPoc.calls` (shipped); `__matrixPoc.call` (registry) is accepted as a fallback;
  *  - `canCall(roomId)` returns `{ ok, reason }` (shipped) or `{ allowed, reason }` (registry): use `callAllowed()`;
@@ -312,7 +312,7 @@ export function membershipContent(user: string, device: string, livekitServiceUr
 /**
  * QA-34 `ringAlice`: rings through the API as `from` (default dave, the other member of the encrypted DM). Sends a
  * call membership for a fake device first (the ring watcher drops a ring whose caller has no membership: "caller
- * gone"), then the Codec ring content from docs/PHASE7_ACCEPTANCE.md "Wire shapes", referencing that membership.
+ * gone"), then the Codec ring content from docs/archive/PHASE7_ACCEPTANCE.md "Wire shapes", referencing that membership.
  * Plaintext on the wire (the API cannot encrypt; the watcher reads plaintext events in encrypted rooms too).
  */
 export async function ringAlice(

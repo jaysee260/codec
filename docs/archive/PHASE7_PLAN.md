@@ -1,6 +1,6 @@
 # Phase 7 Plan: voice calls (product "voice Phase 1", the MVP)
 
-Phases 1-6 shipped the client, phone layout and APK, voice notes, threads, GIFs, E2EE and link previews. Phase 7 adds **encrypted voice calls**: ring someone from a DM, start or join a voice call in a room, on web and in the Android app while Codec is open. Source: `matrix-poc/voice-calls/PLAN.md` (agreed by PM, Principal and Advisor; **Codec is the only client this phase**). Tickets: docs/PHASE7_TICKETS.md. Criteria, testids and the manual 704.chat checklist: docs/PHASE7_ACCEPTANCE.md. Status: docs/STATUS.md "Phase 7". Homelab server work (LiveKit, ports, Synapse upgrade) is the product plan's Phase 0, done by JC via Hubot, not a ticket here.
+Phases 1-6 shipped the client, phone layout and APK, voice notes, threads, GIFs, E2EE and link previews. Phase 7 adds **encrypted voice calls**: ring someone from a DM, start or join a voice call in a room, on web and in the Android app while Codec is open. Source: `matrix-poc/voice-calls/PLAN.md` (agreed by PM, Principal and Advisor; **Codec is the only client this phase**). Tickets: docs/archive/PHASE7_TICKETS.md. Criteria, testids and the manual 704.chat checklist: docs/archive/PHASE7_ACCEPTANCE.md. Status: docs/STATUS.md "Phase 7". Homelab server work (LiveKit, ports, Synapse upgrade) is the product plan's Phase 0, done by JC via Hubot, not a ticket here.
 
 ## Goals
 1. **Call from a DM, talk, hang up**: tap the phone icon, the other person's open Codec rings, Accept, both hear each other, "Call ended, 5 min" in the chat.
@@ -18,7 +18,7 @@ Phases 1-6 shipped the client, phone layout and APK, voice notes, threads, GIFs,
 | Multi-device | Rings every device of the callee; answering (or declining) on one stops the others. Client logic, not spec (Advisor C3). |
 | In the call | Avatar grid, green outline on the speaker, crossed mic on muted people, timer, lock, connection warning; controls Mute, Speaker/earpiece (phone), Leave. Leaving the screen keeps the call going behind a slim **in-call bar**. One active call at a time; joining another leaves the first. |
 | Ending | Leave ends your part; a 1:1 call ends for both when either leaves; a room call stays up until empty. |
-| Chat lines | Grey lines "X started a voice call" / "Call ended, 12 min" / "X declined" / "Missed call from X" (red tint, **Call back**). A missed call is the room's last-message preview with an unread badge. "Started" is read from the ring (or the first membership of a drop-in call), "declined" from the standard decline event (`org.matrix.msc4310.rtc.decline`, busy flagged with `io.codec.decline_reason`), "ended" and "missed" from one Codec event `dev.matrixpoc.call` (orchestrator ruling; contract in docs/PHASE7_ACCEPTANCE.md). History lives in the room, so every device shows the same lines. |
+| Chat lines | Grey lines "X started a voice call" / "Call ended, 12 min" / "X declined" / "Missed call from X" (red tint, **Call back**). A missed call is the room's last-message preview with an unread badge. "Started" is read from the ring (or the first membership of a drop-in call), "declined" from the standard decline event (`org.matrix.msc4310.rtc.decline`, busy flagged with `io.codec.decline_reason`), "ended" and "missed" from one Codec event `dev.matrixpoc.call` (orchestrator ruling; contract in docs/archive/PHASE7_ACCEPTANCE.md). History lives in the room, so every device shows the same lines. |
 | Encryption | Media keys only through the Phase 5 crypto; calls are **refused in unencrypted rooms** (button disabled, "Calls need an encrypted room"), no silent fallback (Advisor C5). Media keys reach every known device, verified or not (Advisor Q2); a participant whose keys have not arrived within 5 s shows "No call keys from X yet" instead of silence. The lock means "media is E2EE to the SFU", not "all devices verified". |
 | Mic | Requested only on start/accept; released on leave. Denied = a clear message with a "how to allow" hint, nothing half-started. |
 | Signal bridge (**default**) | Calls never cross the bridge. DM whose only other member is a bridge ghost: phone icon **hidden**. Bridged group: calls work, chip reads **Codec members only**. Detection from the `m.bridge` state event / `@signal_*` ghosts (not built yet; P1 helper, the bridge lands after this phase). |
@@ -53,7 +53,7 @@ Prep: `npm run hs:up` (now also starts LiveKit + jwt), `npm run dev`, window 1 a
 | 8 | Window 1: open `#vault` (encrypted, 3 members), phone icon | Everyone is rung (<= 5 members); window 2 accepts; the header in both shows "Join voice (2)" for anyone else and the sidebar row has a speaker icon with `2`. Leave from one side: the other stays in the call until they leave. |
 | 9 | Window 1: open `#general` (unencrypted) | The phone icon is disabled, tooltip "Calls need an encrypted room". |
 
-Phone script (Android, real device): docs/PHASE7_ACCEPTANCE.md "Manual 704.chat checklist" steps 1-6 double as the phone demo.
+Phone script (Android, real device): docs/archive/PHASE7_ACCEPTANCE.md "Manual 704.chat checklist" steps 1-6 double as the phone demo.
 
 ## Sequence
 | Wave | Who | Output |

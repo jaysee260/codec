@@ -1,5 +1,5 @@
 /**
- * QA-R3: read receipts, phone (Pixel 7; docs/RECEIPTS_ACCEPTANCE.md AC-R5, AC-R7-1, AC-R8-2). Desktop half:
+ * QA-R3: read receipts, phone (Pixel 7; docs/archive/RECEIPTS_ACCEPTANCE.md AC-R5, AC-R7-1, AC-R8-2). Desktop half:
  * receipts.spec.ts. Same contract: readers via the API (fixtures/receipts.ts), 15 s polls, a fresh message per
  * test in #dev, tap (never click), `settleAnimations` before geometry. Listed in both regexes of
  * playwright.config.ts like mobile-link-preview, so it runs in `mobile` only.

@@ -1,5 +1,5 @@
 /**
- * QA-31: desktop link preview suite, AC-L1 .. AC-L9 (docs/PHASE6_ACCEPTANCE.md). Phone half: mobile-link-preview.spec.ts.
+ * QA-31: desktop link preview suite, AC-L1 .. AC-L9 (docs/archive/PHASE6_ACCEPTANCE.md). Phone half: mobile-link-preview.spec.ts.
  *
  * ## Real server vs stub
  * The test Synapse whitelists loopback for url previews and fetches the OpenGraph fixture pages the page's own Vite

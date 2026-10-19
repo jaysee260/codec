@@ -1,5 +1,5 @@
 /**
- * QA (voice format): every voice note plays for every listener — docs/VOICE_FORMAT_PLAN.md AC-F4..F11.
+ * QA (voice format): every voice note plays for every listener — docs/archive/VOICE_FORMAT_PLAN.md AC-F4..F11.
  * `mobile` project only (`devices['Pixel 7']`, fake microphone; playwright.config.ts).
  *
  *  - **native** (plain Chromium): an Ogg note and an old WebM note play through `<audio>` with

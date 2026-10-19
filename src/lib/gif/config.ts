@@ -1,5 +1,5 @@
 /**
- * GIF constants (Phase 4; docs/PHASE4_PLAN.md "Product decisions"). Pure module.
+ * GIF constants (Phase 4; docs/archive/PHASE4_PLAN.md "Product decisions"). Pure module.
  */
 import type { KlipyContentFilter } from './klipy.ts';
 

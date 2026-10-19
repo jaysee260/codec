@@ -11,7 +11,7 @@
  * Dev A / Dev B are `uiHalf` / `requireUi` and say "waiting on Dev A/B" until their testids are in `src/`.
  * alice's account cross-signing state is NOT touched here (that is e2ee-security.spec.ts, on throwaway users).
  *
- * Part boot (AC-E1, layout regression, AC-E6) of the former `e2ee-core.spec.ts`, split (issue #2, docs/PERF_PLAN.md) so the two
+ * Part boot (AC-E1, layout regression, AC-E6) of the former `e2ee-core.spec.ts`, split (issue #2, docs/archive/PERF_PLAN.md) so the two
  * halves can run on different Playwright workers; tests moved verbatim. Other half: `e2ee-core-timeline.spec.ts`.
  */
 import { expect, test, type Page } from '@playwright/test';

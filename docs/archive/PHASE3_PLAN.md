@@ -1,6 +1,6 @@
 # Phase 3 Plan: Threads
 
-Phases 1-2 shipped the desktop client, the phone layout, the Android APK and voice notes (docs/PHASE2_PLAN.md). Phase 3 adds threads "like Slack, Discord and Element". Tickets: docs/PHASE3_TICKETS.md. Criteria and testids: docs/PHASE3_ACCEPTANCE.md. Status: docs/STATUS.md "Phase 3".
+Phases 1-2 shipped the desktop client, the phone layout, the Android APK and voice notes (docs/archive/PHASE2_PLAN.md). Phase 3 adds threads "like Slack, Discord and Element". Tickets: docs/archive/PHASE3_TICKETS.md. Criteria and testids: docs/archive/PHASE3_ACCEPTANCE.md. Status: docs/STATUS.md "Phase 3".
 
 ## Goals
 1. **Reply in a thread from any message**, desktop and phone, with the replies kept out of the channel timeline.

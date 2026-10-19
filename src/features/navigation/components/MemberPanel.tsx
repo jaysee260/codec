@@ -10,7 +10,7 @@
  * Phone (DEV-A-13): the shell mounts this inside `member-drawer`, whose visibility is
  * `useLayoutStore.membersOpen` - a *different* flag. The desktop toggle must therefore not gate the
  * phone render, or the drawer would open empty for anyone who had closed the inline panel
- * (docs/ARCHITECTURE.md "Member drawer content"). On phone the panel also fills the drawer width and
+ * (docs/archive/DECISIONS.md "Member drawer content"). On phone the panel also fills the drawer width and
  * gets a sticky title row naming the room, since there is no channel header behind it.
  *
  * testids: member-list, member-count, member-section-online, member-section-invited,

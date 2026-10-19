@@ -8,7 +8,7 @@
  *   thread-panel[data-root]
  *     header            `thread-title` "Thread", the room name, `thread-close` (desktop only: on
  *                       phone `header-back` in the channel header is the single close, per
- *                       docs/PHASE3_PLAN.md "Phone close")
+ *                       docs/archive/PHASE3_PLAN.md "Phone close")
  *     thread-root       the root message, rendered by the normal `MessageRow` in root mode, so it
  *                       gets the real avatar/author/body/reactions and can be edited, reacted to and
  *                       deleted like any other row - but not re-threaded or quote-replied (AC-T5-3)
@@ -108,7 +108,7 @@ export function ThreadView({ roomId, rootId }: { roomId: string; rootId: string 
        * Desktop only. On phone the panel is full-screen under `channel-header`, which Dev A turns into
        * the thread's own header while a thread is open (`header-back`, the title "Thread",
        * `header-thread-room`, DEV-A-18) - a second title bar here would just be a duplicate, and
-       * `header-back` is by decision the single close on phone (docs/PHASE3_PLAN.md "Phone close").
+       * `header-back` is by decision the single close on phone (docs/archive/PHASE3_PLAN.md "Phone close").
        */}
       {!isPhone && (
         <header className={styles.header}>

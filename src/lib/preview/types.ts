@@ -2,7 +2,7 @@
  * Link preview types (Phase 6). Pure module: no React, no Matrix SDK, no `import.meta.env`, so Node scripts and
  * e2e helpers can import it with type stripping (like `src/lib/gif/types.ts`).
  *
- * Contract: docs/PHASE6_ACCEPTANCE.md (PM); API: docs/ARCHITECTURE.md "Phase 6 deltas (link previews)".
+ * Contract: docs/archive/PHASE6_ACCEPTANCE.md (PM); API: docs/CORE_API.md "Link previews".
  */
 
 /** The og:image of a preview. `mxc` is always an `mxc://` URI (the homeserver re-hosts the image): render it with `mxcToHttp`. */

@@ -3,7 +3,7 @@
  * `model.test.ts`), so nothing here imports React, the store or the SDK at runtime.
  */
 
-/** `call-screen[data-state]` values (docs/PHASE7_ACCEPTANCE.md registry). */
+/** `call-screen[data-state]` values (docs/archive/PHASE7_ACCEPTANCE.md registry). */
 export type ScreenState = 'calling' | 'connecting' | 'connected' | 'reconnecting' | 'no-answer' | 'busy' | 'ended';
 
 /** The part of the store's `ActiveCall` snapshot the screen state depends on. */

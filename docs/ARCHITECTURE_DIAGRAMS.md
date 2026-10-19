@@ -1,8 +1,30 @@
 # Architecture diagrams
 
-A visual tour of the Codec web client. Each diagram has a few lines on what it shows. The diagrams are
-[Mermaid](https://mermaid.js.org/), so GitHub renders them and you edit them as text. For the exact API of each
-module, `docs/ARCHITECTURE.md` stays the source of truth; this page is the map.
+Codec is a chat app for a small group of friends running their own Matrix server. These pictures show how it works.
+Each one has a few plain lines above it saying what it shows and below it saying what to take away.
+
+**Which picture answers your question?**
+
+| You are wondering about | Look at |
+|---|---|
+| What talks to what | 1 |
+| Where a piece of code belongs, what may import what | 2 |
+| Login, loading screen, "Session expired" | 3 and 4 |
+| A message not showing up, or showing late | 5 |
+| Sending, local echo, "sending" vs "sent" | 6 |
+| Images not loading, voice notes | 7 |
+| A thread, replies missing from the channel | 8 |
+| "Unable to decrypt", the security banner, recovery keys | 9 |
+| Link cards and "Show preview" | 10 |
+| A voice call from ring to "Call ended" | 11 |
+| Phone layout, drawers, the Android back button | 12 |
+| The beta at 704.chat: which box runs what | 13 |
+
+The diagrams are [Mermaid](https://mermaid.js.org/). GitHub renders them; in VS Code install a Mermaid preview
+extension, or paste one into [mermaid.live](https://mermaid.live). Solid arrows are the normal path, dotted arrows
+happen only sometimes (after a click, on an error), and thick arrows carry call audio.
+
+When a diagram and the text disagree, `docs/ARCHITECTURE.md` and `docs/CORE_API.md` win.
 
 1. [The big picture](#1-the-big-picture)
 2. [Layers inside the app](#2-layers-inside-the-app)
@@ -11,10 +33,12 @@ module, `docs/ARCHITECTURE.md` stays the source of truth; this page is the map.
 5. [How a message reaches the screen](#5-how-a-message-reaches-the-screen)
 6. [Sending a message](#6-sending-a-message)
 7. [Images, files and voice notes](#7-images-files-and-voice-notes)
-8. [Encryption and device trust](#8-encryption-and-device-trust)
-9. [Link previews](#9-link-previews)
-10. [Screen layout](#10-screen-layout)
-11. [Where everything runs (704.chat)](#11-where-everything-runs-704chat)
+8. [Threads](#8-threads)
+9. [Encryption and device trust](#9-encryption-and-device-trust)
+10. [Link previews](#10-link-previews)
+11. [A voice call](#11-a-voice-call)
+12. [Screen layout and the back button](#12-screen-layout-and-the-back-button)
+13. [Where everything runs (704.chat)](#13-where-everything-runs-704chat)
 
 ## 1. The big picture
 
@@ -42,23 +66,27 @@ flowchart LR
 
   App -- "sync, send, rooms, keys" --> HS
   SW -- "authenticated media" --> HS
-  App -- "link previews (server fetches the page)" --> HS
+  App -- "link previews" --> HS
   App -. "SSO redirect" .-> SSO
   SSO -. "login token" .-> HS
-  App -- "GIF search; GIF images<br/>(encrypted rooms: after a click)" --> Klipy
+  App -- "GIF search and images" --> Klipy
   App -. "only after a click" .-> Embeds
   App -- "call ticket, then encrypted call audio" --> RTC
   RTC -. "checks the Matrix login" .-> HS
 ```
 
-Voice calls (Phase 7) add a call server. Codec finds it in the homeserver's well-known file, asks it for a call
-ticket, and sends audio there already encrypted, so the call server only forwards it.
+The *media service worker* is a small script the browser runs next to the page. It adds the sign-in token to image
+requests, because an `<img>` tag cannot do that itself. Link previews are fetched by the homeserver, not the browser,
+so the linked site never sees the user's address. In encrypted rooms GIF images and previews load only after a click.
+
+Voice calls add a call server. Codec finds it in the homeserver's well-known file, asks it for a call ticket, and sends
+audio there already encrypted, so the call server only forwards it.
 
 ## 2. Layers inside the app
 
-Code is split into four layers, and imports only go downwards. Feature screens never send anything through
-matrix-js-sdk themselves (they only use its types and enums); they read state through store hooks and change things
-through the action functions in `src/lib/matrix`.
+Code is split into four layers, and imports only go downwards. An arrow means "may import from". Feature screens never
+send anything through matrix-js-sdk themselves (they only use its types and enums); they read state through store hooks
+and change things through the action functions in `src/lib/matrix`.
 
 ```mermaid
 flowchart TB
@@ -101,7 +129,7 @@ flowchart TB
   SDK -- "events" --> Bridge
 ```
 
-Who owns what (Principal, Dev A, Dev B, QA) is in the Ownership table of `docs/ARCHITECTURE.md`.
+Who owns which folder is in `docs/ARCHITECTURE.md`, "Who works on what".
 
 ## 3. Signing in and starting up
 
@@ -166,7 +194,7 @@ stateDiagram-v2
   syncing --> error: new sign-in fails to start
   ready --> logged_out: log out
   ready --> error: token revoked by the server
-  ready --> ready: connection drops and returns<br/>("Reconnecting..." in the user footer)
+  ready --> ready: connection drops and returns, footer says Reconnecting
 ```
 
 Logging out, or losing the token, also stops the client, wipes this device's encryption store, and clears the room,
@@ -196,9 +224,7 @@ flowchart LR
 
 Scrolling up asks the SDK for older messages (`paginateBack`); the results come back through the same path.
 
-Thread replies never appear in the channel: the SDK splits them into a timeline per thread, only the root stays in
-the channel, and a summary row sits under it. Opening a thread shows it in a side panel (a right column on desktop,
-full screen on phones). Scrolling up in a thread loads older replies the same way.
+Thread replies take a separate path; diagram 8 shows it.
 
 ## 6. Sending a message
 
@@ -256,7 +282,29 @@ flowchart TB
 Opening a full image or downloading a file also goes through a token-carrying fetch and a local `blob:` URL, since
 those are page navigations the service worker cannot see. Voice notes play from a `blob:` URL too, so seeking works.
 
-## 8. Encryption and device trust
+## 8. Threads
+
+A reply "in thread" never shows in the channel. The SDK keeps one timeline per thread; only the root stays in the
+channel, with a summary row under it. Opening a thread shows a side panel on desktop (in place of the member list) or
+a full-screen layer on phones. Scrolling up inside a thread loads older replies the same way as in a channel.
+
+```mermaid
+flowchart LR
+  HS["Homeserver /sync"] --> SDK["matrix-js-sdk"]
+  SDK -- "plain message" --> Main["Room timeline<br/>(the channel)"]
+  SDK -- "reply with m.thread relation" --> T["Thread timeline<br/>(one per root)"]
+  Main --> Root["Root message row<br/>+ summary: 3 replies, bob and carol, 5 min ago"]
+  T --> Panel["Thread panel<br/>replies oldest first"]
+  Root -- "click" --> Panel
+  Comp["Composer in the panel"] -- "sendText(..., { threadRoot })" --> SDK
+  SDK -. "local echo (v43 needs the bridge's help)" .-> T
+```
+
+Three facts worth keeping in mind: threads never nest (a reply to a reply still belongs to the root); a thread has its
+own unread count, cleared only by reading the thread; and typing indicators are room-wide, because Matrix has none for
+threads.
+
+## 9. Encryption and device trust
 
 Encryption runs in matrix-js-sdk's Rust engine. Each sign-in is a new device, with its keys kept in this browser's
 IndexedDB. The security store watches the engine and tells the banner what to ask for: set up encryption, verify
@@ -283,7 +331,7 @@ flowchart TB
 Messages the device has no key for show an "unable to decrypt" row that says why (for example "Sent before you
 joined" or "Restoring from backup..."). When there is a fix, the row offers an Unlock or Verify button.
 
-## 9. Link previews
+## 10. Link previews
 
 Previews are fetched by the homeserver, not the browser, so the user's IP never reaches the linked site. In an
 encrypted room, asking the server for a preview would reveal the link, so nothing is requested until the user clicks
@@ -304,7 +352,40 @@ flowchart TB
   Emb -- "yes" --> Play["Player loads on click"]
 ```
 
-## 10. Screen layout
+## 11. A voice call
+
+Alice presses the call button in an encrypted DM. Bob's device rings, he accepts, both connect to the call server with
+their own encryption keys, and when the last person leaves a "Call ended, 12 min" line lands in the chat. The four grey
+chat lines (started, declined, ended, missed) are Matrix events, so every device renders the same history.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Alice (Codec)
+  participant HS as Homeserver
+  participant B as Bob (Codec)
+  participant LK as Call server (LiveKit)
+
+  A->>HS: join the call session (membership state event)
+  A->>HS: ring (notification event, 60 s lifetime)
+  HS-->>B: membership + ring
+  Note over B: incoming card, ringtone
+  B->>HS: join the call session
+  A->>LK: call ticket, then connect
+  B->>LK: call ticket, then connect
+  A-->>B: audio keys as encrypted to-device messages (and back)
+  A->>LK: encrypted audio
+  LK->>B: forwarded as is
+  Note over A,B: in-call screen: mute, speaker, who is talking
+  B->>HS: leave
+  A->>HS: leave, then post "Call ended" line
+```
+
+If Bob declines, he posts a decline event and Alice's DM call ends. If nobody answers within 60 s, or Alice hangs up
+while still ringing, Alice posts a "missed" line naming who was rung. A ring in another room during a call is declined
+automatically as "busy" and never shown.
+
+## 12. Screen layout and the back button
 
 Wide screens show four columns. Phones (under 768 px wide, or touch screens under 1024 px) show one full-screen
 conversation with the navigation and member list in slide-in drawers. Both layouts mount the same feature
@@ -323,16 +404,30 @@ flowchart LR
   end
 ```
 
-On phones the Android back button closes things in order: an open sheet (like the GIF picker), then an open thread,
-then a drawer, and only then minimises the app.
+On phones the Android back button closes one thing at a time, from the top down, and only minimises the app when
+nothing is open.
 
-## 11. Where everything runs (704.chat)
+```mermaid
+flowchart LR
+  Back(["Back pressed"]) --> S{"A sheet or call card open?"}
+  S -- "yes" --> CloseS["Close it"]
+  S -- "no" --> T{"A thread open?"}
+  T -- "yes" --> CloseT["Close the thread"]
+  T -- "no" --> D{"A drawer open?"}
+  D -- "yes" --> CloseD["Close the drawer"]
+  D -- "no" --> Min["Minimise the app"]
+```
 
-The beta's real deployment on JC's homelab. Web traffic (chat, sign-in, files, call setup) comes in through the
-Cloudflare tunnel, and Nginx Proxy Manager (NPM) sends each name to its box. Cloudflare can't carry live audio, so
-call audio comes straight through the home router to LiveKit. New Codec builds go from GitHub through opsbox, where
-Hubot builds them and copies the files to LXC 203. Boxes marked *planned* are being set up for voice calls (Phase 0
-of `docs/PHASE7_PLAN.md`).
+## 13. Where everything runs (704.chat)
+
+The beta's real deployment on JC's homelab, as of 2026-10-19. Web traffic (chat, sign-in, files, call setup) comes in
+through the Cloudflare tunnel, and Nginx Proxy Manager sends each name to its box. Cloudflare can't carry live audio,
+so call audio comes straight through the home router to LiveKit. New Codec builds go from GitHub through opsbox, where
+Hubot builds them and copies the files to LXC 203.
+
+Names in the picture: an *LXC* is a Linux container on the Proxmox server; *opsbox* is the admin machine; *Hubot* is the
+ops assistant that deploys; *Nginx Proxy Manager* is the reverse proxy (not the npm package manager). Boxes marked
+*planned* are being set up for voice calls (`docs/archive/PHASE7_PLAN.md`, Phase 0).
 
 ```mermaid
 flowchart LR
@@ -350,7 +445,7 @@ flowchart LR
   subgraph Homelab["Homelab"]
     subgraph SVM["Services VM"]
       CFD["cloudflared"]
-      NPM["Nginx Proxy Manager<br/>routes each name; serves<br/>the 704.chat well-known file"]
+      NPM["Nginx Proxy Manager<br/>routes each name, serves<br/>the well-known file"]
     end
     subgraph L203["LXC 203"]
       Synapse["Synapse<br/>matrix.704.chat"]

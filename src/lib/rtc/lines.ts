@@ -1,6 +1,6 @@
 /**
  * Phase 7 (Wave 2): the chat lines of a call, as one encrypted Codec room event, `dev.matrixpoc.call`
- * (docs/PHASE7_ACCEPTANCE.md "Wire shapes"; orchestrator ruling Wave 2). Pure, Node-loadable, unit-tested.
+ * (docs/archive/PHASE7_ACCEPTANCE.md "Wire shapes"; orchestrator ruling Wave 2). Pure, Node-loadable, unit-tested.
  *
  *   { kind: 'ended' | 'missed', call_id, duration_ms?, participants? }
  *

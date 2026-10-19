@@ -1,7 +1,7 @@
 /**
  * Login helpers (QA-1). Every test logs in fresh: Playwright gives each test its own browser
  * context, so localStorage starts empty and navigation lands on the store's default selection
- * (first space alphabetically = Acme HQ, first channel = #general — docs/ARCHITECTURE.md Deltas).
+ * (first space alphabetically = Acme HQ, first channel = #general — docs/ARCHITECTURE.md "Rooms, spaces and DMs").
  */
 import { expect, test, type Page } from '@playwright/test';
 import { noteServerUse } from './run-log.ts';

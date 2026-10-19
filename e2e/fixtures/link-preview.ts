@@ -1,5 +1,5 @@
 /**
- * QA-30: link preview helpers (Phase 6, docs/PHASE6_ACCEPTANCE.md AC-L1..L10).
+ * QA-30: link preview helpers (Phase 6, docs/archive/PHASE6_ACCEPTANCE.md AC-L1..L10).
  *
  * - `fixtureUrl(page, name)`: `http://localhost:<the page's own Vite port>/preview-fixtures/<name>`. The test Synapse
  *   whitelists 127.0.0.1/::1 for url previews (homeserver/homeserver.yaml), and each pool worker has its own Vite, so
@@ -243,7 +243,7 @@ export async function clearHidden(page: Page): Promise<void> {
   await previewHook(page, 'clearLinkPreviewCache');
 }
 
-/** Name used by docs/PHASE6_ACCEPTANCE.md / the PM. */
+/** Name used by docs/archive/PHASE6_ACCEPTANCE.md / the PM. */
 export const resetPreviews = clearHidden;
 
 export async function hiddenStore(page: Page): Promise<string[]> {

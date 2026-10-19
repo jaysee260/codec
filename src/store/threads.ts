@@ -25,7 +25,7 @@ import { useRoomStore } from './rooms.ts';
 import { useLayoutStore } from './layout.ts';
 import { bumpThreadVersion, ensureThreadTimeline, useTimelineStore } from './timeline.ts';
 
-/** Max distinct reply senders reported in `participants` (newest first), per docs/PHASE3_TICKETS.md. */
+/** Max distinct reply senders reported in `participants` (newest first), per docs/archive/PHASE3_TICKETS.md. */
 const MAX_PARTICIPANTS = 5;
 
 /** Server-side aggregation of `m.thread` on a root event (`unsigned.m.relations.m.thread`). */
@@ -55,11 +55,11 @@ export interface ThreadSummary {
   hasUnread: boolean;
   /** The root event when loaded (same object as `root`). */
   rootEvent?: MatrixEvent;
-  /** Alias of `rootEvent` (docs/PHASE3_TICKETS.md `ThreadInfo.root`). */
+  /** Alias of `rootEvent` (docs/archive/PHASE3_TICKETS.md `ThreadInfo.root`). */
   root?: MatrixEvent;
 }
 
-/** docs/PHASE3_TICKETS.md name for the thread-list item; same shape as `ThreadSummary`. */
+/** docs/archive/PHASE3_TICKETS.md name for the thread-list item; same shape as `ThreadSummary`. */
 export type ThreadInfo = ThreadSummary;
 
 export interface ThreadState {
@@ -110,7 +110,7 @@ export function resetThreads(): void {
   useThreadStore.setState((s) => ({ open: null, openThreadRootId: null, openThreadRoomId: null, version: s.version + 1 }));
 }
 
-/** Selector: root id of the open thread, or null (docs/PHASE3_TICKETS.md). */
+/** Selector: root id of the open thread, or null (docs/archive/PHASE3_TICKETS.md). */
 export function useOpenThreadRootId(): string | null {
   return useThreadStore((s) => s.openThreadRootId);
 }

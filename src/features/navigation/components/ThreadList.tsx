@@ -1,7 +1,7 @@
 /**
  * DEV-A-17 Threads list: the per-room thread index behind `header-threads`.
  *
- * One component, two presentations (docs/PHASE3_ACCEPTANCE.md `thread-list[data-variant]`):
+ * One component, two presentations (docs/archive/PHASE3_ACCEPTANCE.md `thread-list[data-variant]`):
  *  - desktop `popover`: anchored under the button, right-aligned, 380 px wide.
  *  - phone `sheet`: a bottom sheet with the same geometry as `Dialog`'s sheet variant (full width,
  *    flush with the viewport bottom + `--safe-bottom`, grab handle, slide-up).
@@ -20,7 +20,7 @@
  * Data: `useRoomThreads(roomId)` (`src/store/threads.ts`), which runs `GET /rooms/{id}/threads` on
  * mount - and this component is only mounted while the list is open, so every open refreshes - then
  * reads `room.getThreads()` live on `threadVersion`. Redacted roots are filtered here: the hook does
- * not drop them (docs/PHASE3_PLAN.md "the list hides redacted roots").
+ * not drop them (docs/archive/PHASE3_PLAN.md "the list hides redacted roots").
  *
  * Times and the `N replies` wording come from `@/lib/format.ts` (`formatRelative`) and the local
  * `replyCountText` below - the pinned strings Dev B's summary row uses too (docs/BUGS.md D-2).
@@ -53,7 +53,7 @@ const MAX_AVATARS = 3;
 
 /**
  * `1 reply` / `N replies` for `thread-list-item-count` (AC-T7-2) - the strings pinned in
- * docs/PHASE3_PLAN.md. Dev B inlines the same two words for `thread-replies-divider` /
+ * docs/archive/PHASE3_PLAN.md. Dev B inlines the same two words for `thread-replies-divider` /
  * `thread-summary-count`; `@/lib/format.ts` is the Principal's file and only `formatRelative` was
  * asked for there (docs/BUGS.md D-2), so each owner keeps this one-liner rather than importing
  * across a feature boundary.

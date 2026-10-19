@@ -9,7 +9,7 @@
  *    tile is near the viewport (`rootMargin`), so scrolling away stops the decode (and pauses a
  *    `<video>`) instead of merely hiding it. Unmounting rather than toggling `src` is deliberate: a
  *    GIF keeps animating behind `display: none`.
- * 2. **`prefers-reduced-motion`** (docs/PHASE4_PLAN.md "Rendering"): nothing animates unprompted. The
+ * 2. **`prefers-reduced-motion`** (docs/archive/PHASE4_PLAN.md "Rendering"): nothing animates unprompted. The
  *    tile shows a static plate with the title and only mounts the preview while hovered, focused or
  *    keyboard-selected.
  * 3. **mp4 previews** (AC-G4-8). Klipy can answer `sm.mp4` instead of `sm.webp`. React sets `muted`

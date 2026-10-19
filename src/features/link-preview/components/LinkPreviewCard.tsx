@@ -5,7 +5,7 @@
  *   import { LinkPreviewCard } from '@/features/link-preview';
  *   <LinkPreviewCard key={url} eventId={event.getId()!} url={url} auto={shouldAutoPreview(roomId, event)} ts={event.getTs()} />
  *
- * Props (docs/PHASE6_TICKETS.md "Shared API"):
+ * Props (docs/archive/PHASE6_TICKETS.md "Shared API"):
  *   eventId   the message's event id (hide key is `eventId|url`)
  *   url       one URL exactly as `extractPreviewUrls` / `getPreviewUrls` returned it (normalised, hash stripped)
  *   auto      true = plain room: fetch on mount. false = encrypted room: render "Show preview" and fetch only

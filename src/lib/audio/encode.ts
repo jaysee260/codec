@@ -1,8 +1,8 @@
 /**
- * Voice-note encoding surface exactly as listed in docs/PHASE2_TICKETS.md "Shared API" (what Dev B codes
+ * Voice-note encoding surface exactly as listed in docs/archive/PHASE2_TICKETS.md "Shared API" (what Dev B codes
  * against). Thin wrappers over recording.ts / analysis.ts / mime.ts.
  *
- * Format decision (orchestrator; docs/VOICE_FORMAT_PLAN.md, docs/ARCHITECTURE.md "Phase 2 deltas"): no re-encoding,
+ * Format decision (orchestrator; docs/archive/VOICE_FORMAT_PLAN.md, docs/archive/DECISIONS.md "Mobile and voice notes"): no re-encoding,
  * but WebM/Opus is losslessly REMUXED to Ogg/Opus in pure TS (ogg.ts) before upload so every listener gets a
  * container with a software-decode fallback (softdecode.ts):
  *   Android WebView / desktop Chromium   audio/webm;codecs=opus  -> remux  -> audio/ogg

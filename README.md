@@ -4,20 +4,21 @@ Codec is a chat app for a small group of friends running their own Matrix server
 like Discord: spaces down the left, channels and DMs next to them, messages in the middle. It talks to
 a regular Matrix homeserver (Synapse), so nothing about it is locked to one server.
 
-The goal is private, end-to-end encrypted chat on hardware you own. Encryption is being built right
-now and isn't on this branch yet, so for the moment treat messages as readable by the server.
+The goal is private, end-to-end encrypted chat on hardware you own. New channels and DMs are encrypted by
+default, and a recovery key unlocks your message history on a new device.
 
 ## What works today
 
 - Spaces, channels, DMs, a member list
-- Replies, reactions, file and image uploads
+- Replies, reactions, file and image uploads, link preview cards
 - Threads, opened in a side panel like Discord
-- Voice notes
+- Voice notes and encrypted voice calls (one to one and in channels)
 - A GIF picker
+- Read receipts: "sent", then the avatars of who has seen your message
 - A phone layout, plus Android and iOS builds
 - Logging in with a password or through your server's SSO page
 
-No voice or video calls.
+No video calls yet.
 
 ## Running it on your machine
 
@@ -33,7 +34,8 @@ npm run dev       # opens the app on http://localhost:5173
 Log in as `alice` with password `password123`. There are also `bob`, `carol` and `dave`, same password.
 `docs/SEED_DATA.md` lists what the seed creates.
 
-To run the tests: `npm run test:e2e`.
+To run the tests: `npm run test:e2e`. It starts its own homeservers and takes a few minutes; `npm run test:e2e:smoke`
+is the quick version. Every other command is listed in `docs/RUNBOOK.md`.
 
 When you're done, `npm run hs:down` stops the server. `npm run seed:reset` wipes it and starts the
 test data over.
@@ -69,10 +71,10 @@ including iOS, is in `docs/MOBILE.md`.
 ## Finding your way around the code
 
 - `src/lib/` and `src/store/` hold the Matrix connection and app state
-- `src/features/` has the screens: navigation, conversation, GIFs
+- `src/features/` has the screens: navigation, conversation, GIFs, link previews, security, calls, receipts
 - `e2e/` is the Playwright test suite
 - `homeserver/`, `seed/` and `scripts/` are for running the local server and test data
-- `docs/` has the plans and notes from each phase
+- `docs/` has the guides, with an index in `docs/README.md`
 
-Read `docs/ARCHITECTURE.md` before changing anything in `src/lib/` or `src/store/`. The rest of the app
-depends on it. For a quick visual overview first, see `docs/ARCHITECTURE_DIAGRAMS.md`.
+Start with `docs/ARCHITECTURE_DIAGRAMS.md` for the pictures, then `docs/ARCHITECTURE.md` for how the app is built.
+Read the latter before changing anything in `src/lib/` or `src/store/`; the rest of the app depends on it.

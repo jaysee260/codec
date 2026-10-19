@@ -19,7 +19,7 @@
  *  - `{ roomId, threadRootId }` - the thread panel's composer: every id is prefixed
  *    (`thread-composer-input`, `thread-composer-send`, `thread-composer-mic`, ...), the placeholder
  *    reads `Replying in thread`, and text, files and voice notes all carry `threadRoot` so the core
- *    builds the contract `m.relates_to` (docs/PHASE3_ACCEPTANCE.md "Thread reply event"). Quote
+ *    builds the contract `m.relates_to` (docs/archive/PHASE3_ACCEPTANCE.md "Thread reply event"). Quote
  *    replies are out of scope inside a thread, so `replyTo` is never set there and can never collide
  *    with `threadRoot` (which `sendText` rejects).
  *

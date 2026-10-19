@@ -1,8 +1,8 @@
 # Phase 5 Tickets
 
-Priorities: **P0** = the desktop demo script in docs/PHASE5_PLAN.md breaks without it. P1 = demo noticeably better. P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 4 (Principal resumes at 17, Dev A at 24, Dev B at 27, QA at 24). Waves 13-15.
+Priorities: **P0** = the desktop demo script in docs/archive/PHASE5_PLAN.md breaks without it. P1 = demo noticeably better. P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 4 (Principal resumes at 17, Dev A at 24, Dev B at 27, QA at 24). Waves 13-15.
 
-## Ownership map (hard rule, as docs/PHASE4_TICKETS.md)
+## Ownership map (hard rule, as docs/archive/PHASE4_TICKETS.md)
 | Owner | Owns (may create/edit) | Must not edit |
 |---|---|---|
 | Principal | `src/lib/**` (new `src/lib/matrix/attachments.ts`), `src/store/**` (new `src/store/security.ts`), `src/app/**`, `public/**`, `scripts/**`, `seed/**`, `package.json`, `vite.config.ts`, `docs/ARCHITECTURE.md`, `docs/MOBILE.md` | - |
@@ -10,10 +10,10 @@ Priorities: **P0** = the desktop demo script in docs/PHASE5_PLAN.md breaks witho
 | Dev B | `src/features/conversation/**` | anything else |
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:*` script lines in `package.json` | anything else |
 
-Shared-layer needs go in your report as **Request to Principal: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 5 deltas" wins); wire shapes and behaviour in docs/PHASE5_ACCEPTANCE.md are not. Rules this phase: never `initRustCrypto` outside `client.ts`; never read `event.getContent()` of an `m.room.encrypted` event for display (use `getDisplayBody` / `getDecryptionState`); never build a media URL from `file.url` (use the media helpers); two browser contexts max; never `seed:reset`.
+Shared-layer needs go in your report as **Request to Principal: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 5 deltas" wins); wire shapes and behaviour in docs/archive/PHASE5_ACCEPTANCE.md are not. Rules this phase: never `initRustCrypto` outside `client.ts`; never read `event.getContent()` of an `m.room.encrypted` event for display (use `getDisplayBody` / `getDecryptionState`); never build a media URL from `file.url` (use the media helpers); two browser contexts max; never `seed:reset`.
 
 ## Shared API (Principal exposes; devs consume only)
-Realigned 2026-10-17 to the Principal's in-progress core (`src/lib/matrix/crypto.ts`, `security.ts`, `attachments.ts`, `src/store/security.ts`; the code and docs/ARCHITECTURE.md "Phase 5 deltas" win on names). Behaviour and wire shapes are docs/PHASE5_ACCEPTANCE.md's.
+Realigned 2026-10-17 to the Principal's in-progress core (`src/lib/matrix/crypto.ts`, `security.ts`, `attachments.ts`, `src/store/security.ts`; the code and docs/ARCHITECTURE.md "Phase 5 deltas" win on names). Behaviour and wire shapes are docs/archive/PHASE5_ACCEPTANCE.md's.
 
 | Module | Export | Shape / rule |
 |---|---|---|

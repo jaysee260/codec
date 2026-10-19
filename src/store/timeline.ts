@@ -36,7 +36,7 @@ export function threadKey(roomId: string, threadRootId: string): string {
 
 /**
  * Key for per-source UI state (drafts, reply/edit targets, scroll anchors): the thread root id for a thread
- * source, else the room id (docs/PHASE3_TICKETS.md Shared API). Event ids are globally unique, so no room prefix.
+ * source, else the room id (docs/archive/PHASE3_TICKETS.md Shared API). Event ids are globally unique, so no room prefix.
  */
 export function sourceKey(source: TimelineSource): string {
   return source.threadRootId ?? source.roomId;

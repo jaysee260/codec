@@ -15,7 +15,7 @@
  *   voice-waveform  one bar per waveform sample (data-samples); bars left of the playhead are accent
  *   voice-error     "Can't play this voice message" + a download link
  *
- * Duration rules (docs/ARCHITECTURE.md "Mobile / voice gotchas"): the event's `durationMs` is the
+ * Duration rules (docs/GOTCHAS.md "Phones and voice notes"): the event's `durationMs` is the
  * truth. `<audio>.duration` is `Infinity` for MediaRecorder WebM blobs, so it is only consulted when
  * the event carries no duration at all (other clients' plain audio files) and only when finite.
  *
@@ -30,7 +30,7 @@
  * the user taps play, not at mount.
  *
  * Fallback for listeners who can't play the note's container (WebM/Ogg on iOS < 18.4,
- * docs/VOICE_FORMAT_PLAN.md): when `canPlayNatively(container)` is false (container = the downloaded
+ * docs/archive/VOICE_FORMAT_PLAN.md): when `canPlayNatively(container)` is false (container = the downloaded
  * blob's type, else the event's mimetype), the downloaded bytes go through `decodeToWavBlob`
  * (lazy-loaded Opus decoder -> 16-bit WAV) and the WAV's object URL is played through the same
  * `<audio>`, so seeking, the scrubber, duration and one-at-a-time all behave the same. If native

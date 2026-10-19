@@ -1,6 +1,6 @@
 /**
  * Klipy GIF provider (Phase 4). Facts verified against docs.klipy.com (`llms-full.txt`, 2026-10-09) and live curl,
- * independently by the Advisor agent; recorded in docs/ARCHITECTURE.md "Klipy facts".
+ * independently by the Advisor agent; recorded in docs/CORE_API.md "Klipy facts relied on".
  *
  *   GET https://api.klipy.com/api/v1/{app_key}/gifs/search?q=&page=&per_page=&content_filter=[&locale=&customer_id=]
  *   GET https://api.klipy.com/api/v1/{app_key}/gifs/trending?page=&per_page=&content_filter=[&locale=&customer_id=]

@@ -4,7 +4,7 @@
  * accessibility tree, not tabbable, `toBeVisible()` false) and slide in over 250 ms when opened.
  *
  * Props: `side` left|right, `open`, `label` (aria), `testId` (`nav-drawer` / `member-drawer`),
- * `data-open="true|false"` is stamped for tests (docs/PHASE2_ACCEPTANCE.md).
+ * `data-open="true|false"` is stamped for tests (docs/archive/PHASE2_ACCEPTANCE.md).
  */
 import type { ReactNode } from 'react';
 import styles from './Drawer.module.css';

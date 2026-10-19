@@ -1,8 +1,8 @@
 # Phase 3 Tickets
 
-Priorities: **P0** = a demo script in docs/PHASE3_PLAN.md breaks without it. P1 = demo noticeably better. P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 2 (Principal resumes at 8, Dev A at 17, Dev B at 18, QA at 14).
+Priorities: **P0** = a demo script in docs/archive/PHASE3_PLAN.md breaks without it. P1 = demo noticeably better. P2 = polish. Work top-down inside your column. Estimates are focused hours. Numbering continues from Phase 2 (Principal resumes at 8, Dev A at 17, Dev B at 18, QA at 14).
 
-## Ownership map (hard rule, as docs/PHASE2_TICKETS.md)
+## Ownership map (hard rule, as docs/archive/PHASE2_TICKETS.md)
 | Owner | Owns (may create/edit) | Must not edit |
 |---|---|---|
 | Principal | `src/app/**`, `src/store/**` (new `src/store/thread.ts`), `src/lib/**`, `seed/**`, `scripts/**`, `package.json`, `docs/ARCHITECTURE.md` | - |
@@ -10,7 +10,7 @@ Priorities: **P0** = a demo script in docs/PHASE3_PLAN.md breaks without it. P1 
 | Dev B | `src/features/conversation/**` (incl. its `index.ts` export of `ThreadView`) | anything else |
 | QA | `e2e/**`, `playwright.config.ts`, `docs/BUGS.md`, the `test:*` script lines in `package.json` | anything else |
 
-Shared-layer needs go in your report as **Request to Principal: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 3 deltas" wins), wire shapes in docs/PHASE3_ACCEPTANCE.md are not.
+Shared-layer needs go in your report as **Request to Principal: file, function, shape, why**. Devs build against the table below from day 1; names are **subject to the Principal's ARCHITECTURE deltas** (docs/ARCHITECTURE.md "Phase 3 deltas" wins), wire shapes in docs/archive/PHASE3_ACCEPTANCE.md are not.
 
 ## Shared API (Principal exposes; devs consume only)
 | Module | Export | Shape / rule |

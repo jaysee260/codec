@@ -1,5 +1,5 @@
 /*
- * Shared design tokens (docs/PLAN.md "Look and feel"). Features use ONLY these variables.
+ * Shared design tokens (docs/archive/PLAN.md "Look and feel"). Features use ONLY these variables.
  * Single dark theme on purpose: the POC is a Discord clone, there is no light mode.
  */
 :root {

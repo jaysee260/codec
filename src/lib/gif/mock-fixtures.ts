@@ -1,5 +1,5 @@
 /**
- * Catalogue of the mock provider's fixtures (Phase 4) = the contract in docs/PHASE4_ACCEPTANCE.md "Mock provider
+ * Catalogue of the mock provider's fixtures (Phase 4) = the contract in docs/archive/PHASE4_ACCEPTANCE.md "Mock provider
  * fixture contract". Single source of truth for ids, titles and dimensions: `scripts/make-gif-fixtures.mjs`
  * renders exactly these into `public/gif-fixtures/<id>.gif` (animated GIF89a, 2-3 frames, <= 3 KB) and
  * `<id>.png` (first frame still); `mock.ts` serves them. QA and Dev A code against this table.

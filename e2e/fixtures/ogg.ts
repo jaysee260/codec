@@ -1,5 +1,5 @@
 /**
- * Independent Ogg / WebM readers for the voice-format specs (docs/VOICE_FORMAT_PLAN.md AC-F1/F2, the
+ * Independent Ogg / WebM readers for the voice-format specs (docs/archive/VOICE_FORMAT_PLAN.md AC-F1/F2, the
  * remux spec). Deliberately written from RFC 3533 / RFC 7845 / the Matroska spec and **not** shared
  * with `src/lib/audio/ogg.ts`: a bug in the remuxer must not be able to make its own check pass.
  *

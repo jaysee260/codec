@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Post a voice message to a room through the client-server API (Phase 2, PRIN-5 verification; QA fixture;
- * demo prep: "a voice note bob sent"). Builds exactly the event shape in docs/PHASE2_ACCEPTANCE.md.
+ * demo prep: "a voice note bob sent"). Builds exactly the event shape in docs/archive/PHASE2_ACCEPTANCE.md.
  *
  *   npm run voice:sample                                 # bob -> #dev:localhost, 2.5 s generated WAV
  *   node scripts/send-voice-sample.mjs --as alice --room "#general:localhost" --seconds 4

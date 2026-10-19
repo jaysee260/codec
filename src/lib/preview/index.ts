@@ -10,7 +10,7 @@
  *   mxcToHttp(preview.image.mxc, w, h)                          // og:image is an mxc URI; never render a raw URL
  *
  * Pure (Node-loadable, no React/SDK): types, extract, embed, normalize, cache, hidden. SDK-bound: fetch, policy.
- * React: hooks. Docs: docs/ARCHITECTURE.md "Phase 6 deltas (link previews)".
+ * React: hooks. Docs: docs/CORE_API.md "Link previews".
  */
 export type {
   LinkPreview,

@@ -4,7 +4,7 @@
  *
  *   const s = useGifSearch(query);   // '' -> trending, anything else -> search
  *
- * Behaviour the acceptance criteria pin down (docs/PHASE4_ACCEPTANCE.md):
+ * Behaviour the acceptance criteria pin down (docs/archive/PHASE4_ACCEPTANCE.md):
  *  - **Debounce 300 ms** (AC-G2-4): a query typed in bursts fires one request. The *first* run of a
  *    mount is immediate, so `initialQuery` (`/gif tacos`, Enter) searches without a 300 ms stall.
  *  - **Abort** (AC-G2-4): the in-flight request is aborted when the query changes or the picker
@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { gifProviderName, searchGifs, trendingGifs, GifProviderError, type GifPage, type GifProviderName, type GifResult } from '@/lib/gif';
 
-/** Debounce for keystrokes (docs/PHASE4_PLAN.md: >= 300 ms, the Klipy Test key allows 100 req/hour). */
+/** Debounce for keystrokes (docs/archive/PHASE4_PLAN.md: >= 300 ms, the Klipy Test key allows 100 req/hour). */
 export const GIF_SEARCH_DEBOUNCE_MS = 300;
 /** Results requested per page (Klipy clamps to 8..50; the mock ignores it). */
 export const GIF_PAGE_SIZE = 24;

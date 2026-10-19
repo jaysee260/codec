@@ -6,7 +6,7 @@
  *   await sendGif(roomId, page.results[0], { threadRoot });  // src/lib/matrix/actions.ts
  *   getDisplayBody(event).gif / getGifContent(event)         // src/lib/matrix/utils.ts -> GifMessage | null
  *
- * Docs: docs/ARCHITECTURE.md "GIFs (Phase 4)"; contract: docs/PHASE4_ACCEPTANCE.md.
+ * Docs: docs/CORE_API.md "GIFs"; contract: docs/archive/PHASE4_ACCEPTANCE.md.
  */
 export type { GifResult, GifPage, GifProvider, GifProviderName, GifQueryOptions, GifRating, GifPreviewMimetype, GifMessage } from './types.ts';
 export { GifProviderError } from './types.ts';

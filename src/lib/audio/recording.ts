@@ -1,7 +1,7 @@
 /**
  * Microphone recording with MediaRecorder (Phase 2, PRIN-5).
  *
- * Format decision (orchestrator, docs/VOICE_FORMAT_PLAN.md / docs/ARCHITECTURE.md "Phase 2 deltas"): record in
+ * Format decision (orchestrator, docs/archive/VOICE_FORMAT_PLAN.md / docs/archive/DECISIONS.md "Mobile and voice notes"): record in
  * whatever the platform offers; `encodeToOggOpus` (encode.ts) then remuxes WebM/Opus to Ogg/Opus losslessly
  * (no re-encoding) and leaves the rest alone, so `info.mimetype` is:
  *   Android WebView / desktop Chromium  audio/webm;codecs=opus   -> remuxed -> info.mimetype audio/ogg

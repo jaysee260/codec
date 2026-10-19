@@ -3,7 +3,7 @@
  * `npm run gif:fixtures`), served same-origin. Used whenever no Klipy key is configured (or when
  * localStorage `matrix-poc.gifProvider` = 'mock'), so the whole feature works offline and in tests.
  *
- * Contract (docs/PHASE4_ACCEPTANCE.md): `trending` returns all 8 in catalogue order; `search` is a case-insensitive
+ * Contract (docs/archive/PHASE4_ACCEPTANCE.md): `trending` returns all 8 in catalogue order; `search` is a case-insensitive
  * title substring match in the same order (empty query = everything); `nothing-here` / `__empty__` -> `[]`; `__error__`
  * rejects with `GifProviderError('network', 'mock: simulated failure')`; `page > 1` -> `[]`; `nextPage` null / `hasNext` false; resolves
  * within 50 ms (next microtask unless `delayMs` is set). `previewUrl` = the gif, `stillUrl` = the png.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Post encrypted sample messages into an encrypted room as bob (Phase 5, PRIN-22; docs/PHASE5_ACCEPTANCE.md
+ * Post encrypted sample messages into an encrypted room as bob (Phase 5, PRIN-22; docs/archive/PHASE5_ACCEPTANCE.md
  * AC-E7-2). A Node matrix-js-sdk client with the Rust crypto engine (in-memory store) sends `--count` texts
  * ("vault sample 1..N") and one encrypted image (e2e/fixtures/test-image.png, encrypted with the client's own
  * attachments.ts), asserts every event is `m.room.encrypted` on the wire, merges this device's room keys into

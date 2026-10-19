@@ -1,6 +1,6 @@
 # Phase 2 Acceptance Criteria and Test ID Contract
 
-Extends docs/ACCEPTANCE.md (its conventions, registry and criteria stay in force). Numbering `AC-<group>-<n>`: **AC-C\*** Capacitor/build, **AC-M\*** phone shell/navigation, **AC-V\*** voice notes. Each group names the tickets it belongs to (docs/PHASE2_TICKETS.md). Unless stated, "phone" = the Playwright `mobile` project (Pixel 7 descriptor: 412x839 CSS px, touch, `isMobile`), logged in as alice, dirty seed allowed. "desktop" = the existing `chromium` project. Criteria marked **manual (device)** cannot be automated here (no emulator) and are checked by the stakeholder or on the Mac; QA lists them in the mobile smoke report as "not run here".
+Extends docs/ACCEPTANCE.md (its conventions, registry and criteria stay in force). Numbering `AC-<group>-<n>`: **AC-C\*** Capacitor/build, **AC-M\*** phone shell/navigation, **AC-V\*** voice notes. Each group names the tickets it belongs to (docs/archive/PHASE2_TICKETS.md). Unless stated, "phone" = the Playwright `mobile` project (Pixel 7 descriptor: 412x839 CSS px, touch, `isMobile`), logged in as alice, dirty seed allowed. "desktop" = the existing `chromium` project. Criteria marked **manual (device)** cannot be automated here (no emulator) and are checked by the stakeholder or on the Mac; QA lists them in the mobile smoke report as "not run here".
 
 ## Voice message event (the contract Dev B, Principal and QA code against)
 `sendVoiceMessage` sends exactly this `m.room.message` content; `getVoiceMessage` parses it (and tolerates other clients' variants).
@@ -82,7 +82,7 @@ Conventions as docs/ACCEPTANCE.md. **Dropped from the brief's example list** (sa
 |---|---|
 | AC-C3-1 | `ios/App/App/Info.plist` contains a non-empty `NSMicrophoneUsageDescription` and `NSAppTransportSecurity` with `NSAllowsArbitraryLoads` true. |
 | AC-C3-2 | On Windows, `npx cap copy ios` exits 0 and `ios/App/App/public/index.html` exists (full `cap sync ios` needs CocoaPods: Mac). |
-| AC-C3-3 | docs/MOBILE.md "iOS on a Mac" matches the handoff steps in docs/PHASE2_PLAN.md (review). |
+| AC-C3-3 | docs/MOBILE.md "iOS on a Mac" matches the handoff steps in docs/archive/PHASE2_PLAN.md (review). |
 
 ### AC-M1 Breakpoint and layout store (PRIN-3)
 | ID | Given / When / Then |
@@ -151,7 +151,7 @@ Conventions as docs/ACCEPTANCE.md. **Dropped from the brief's example list** (sa
 | AC-V2-1 | Given ~3 s recorded, when I tap `recording-send`, then the bar passes through `encoding`/`sending`, disappears, and a row with `data-sender="@alice:localhost"` containing `voice-message` appears within 5 s; `composer-input` is back. |
 | AC-V2-2 | Given that row's settled event id, when fetched via API, then the content matches the contract above: `msgtype` `m.audio`, `body` `Voice message`, `url` mxc, `info.mimetype` in {`audio/ogg`,`audio/webm`,`audio/mp4`}, `info.size` > 0, `info.duration` integer within +-700 ms of the held time and equal to `org.matrix.msc1767.audio.duration`, `waveform` length 30..120 of integers 0..1024 with at least one > 0, `org.matrix.msc3245.voice` = `{}`, `org.matrix.msc1767.file.url` = `url`, `.mimetype` = `info.mimetype`, `org.matrix.msc1767.text` = `Voice message`. |
 | AC-V2-3 | Given the mxc, when downloaded via `/_matrix/media/v3/download/localhost/{id}`, then byte length = `info.size` and the magic matches the mimetype: `OggS` (ogg), `1A 45 DF A3` (webm), `ftyp` at offset 4 (mp4). |
-| AC-V2-4 | Given Chromium (mobile project), then `info.mimetype` is `audio/ogg` (Tier 1). **Met** by the voice-format change (docs/VOICE_FORMAT_PLAN.md AC-F1/F2: WebM/Opus is remuxed to Ogg/Opus before upload, file name `Voice message.ogg`, bytes `OggS`). The POC-era waiver recorded in docs/STATUS.md no longer applies. |
+| AC-V2-4 | Given Chromium (mobile project), then `info.mimetype` is `audio/ogg` (Tier 1). **Met** by the voice-format change (docs/archive/VOICE_FORMAT_PLAN.md AC-F1/F2: WebM/Opus is remuxed to Ogg/Opus before upload, file name `Voice message.ogg`, bytes `OggS`). The POC-era waiver recorded in docs/STATUS.md no longer applies. |
 | AC-V2-5 | Given the event alice sent, when bob (desktop, chromium project) opens the room, then it renders `voice-message` and AC-V3-2 passes there too (cross-client check, P1). |
 
 ### AC-V3 Playback bubble (DEV-B-14)

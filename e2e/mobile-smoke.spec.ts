@@ -1,7 +1,7 @@
 /**
  * QA-11 — the phone smoke test *is* the phone demo script.
  *
- * One serial spec that walks docs/PHASE2_PLAN.md "Phone demo script" steps 1-10 in order as alice on
+ * One serial spec that walks docs/archive/PHASE2_PLAN.md "Phone demo script" steps 1-10 in order as alice on
  * `devices['Pixel 7']`, asserting the "They should see" column of each row. A **full-page screenshot
  * is written for every step even when it passes** into `e2e/demo-mobile/` — that set is the
  * stakeholder's pre-read of the phone look, so it deliberately lives outside every project
@@ -114,7 +114,7 @@ test.describe('phone demo script (QA-11 mobile smoke)', () => {
 
     bob = await asUser('bob');
 
-    // Demo prep (docs/PHASE2_PLAN.md): a bob voice note in #general so step 8 has something to play.
+    // Demo prep (docs/archive/PHASE2_PLAN.md): a bob voice note in #general so step 8 has something to play.
     const sent = await bob.sendVoice(R.general, {
       file: 'e2e/fixtures/test-voice.wav',
       durationMs: 1500,
@@ -384,7 +384,7 @@ test.describe('phone demo script (QA-11 mobile smoke)', () => {
   });
 
   /**
-   * Step 11 is the Phase 3 phone thread walk-through (QA-17, AC-T11-2): docs/PHASE3_PLAN.md "Phone
+   * Step 11 is the Phase 3 phone thread walk-through (QA-17, AC-T11-2): docs/archive/PHASE3_PLAN.md "Phone
    * demo script" rows 2-6, with bob's `npm run thread:sample` replaced by `sendThreadReply`.
    * Screenshots land in `e2e/demo-mobile/11-*`, one per demo sub-step.
    *

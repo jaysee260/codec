@@ -4,7 +4,7 @@
  * flags from `playwright.config.ts`.
  *
  * Rules kept from Phase 1 (`e2e/fixtures/ui.ts`):
- *  - selectors come from the testid registry in docs/PHASE2_ACCEPTANCE.md only;
+ *  - selectors come from the testid registry in docs/archive/PHASE2_ACCEPTANCE.md only;
  *  - **no `waitForTimeout`**. The one documented exception is `longPress`, which has to *hold* a
  *    synthetic touch for a wall-clock duration — there is nothing to auto-wait for between
  *    `touchStart` and `touchEnd`. It uses a Node-side `sleep`, not `page.waitForTimeout`.

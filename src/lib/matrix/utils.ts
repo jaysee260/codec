@@ -272,7 +272,7 @@ export interface ThreadServerSummary {
 /**
  * `unsigned.m.relations.m.thread` of a root event -> `{ count, latestEvent, participated } | null`. Present on
  * roots from /sync, /messages, /threads and /event; this is what the summary row shows before the SDK `Thread`
- * model has loaded (docs/PHASE3_TICKETS.md Shared API).
+ * model has loaded (docs/archive/PHASE3_TICKETS.md Shared API).
  */
 export function getThreadServerSummary(event: MatrixEvent | null | undefined): ThreadServerSummary | null {
   const bundle = event?.getServerAggregatedRelation<{
