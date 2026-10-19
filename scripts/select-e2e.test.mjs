@@ -97,6 +97,17 @@ describe('select-e2e', () => {
     assert.deepEqual(pick(['playwright.config.ts'], { diff: other }), sorted([...CORE, ...FULL_ONLY]));
   });
 
+  test('a workflow change runs CORE and the harness, unless only comments and concurrency changed', () => {
+    const wf = ['.github/workflows/ci.yml'];
+    const concurrency = () => ({
+      removed: ["  cancel-in-progress: ${{ github.event_name == 'pull_request' }}"],
+      added: ['# A newer push cancels the older run.', '  cancel-in-progress: true'],
+    });
+    assert.deepEqual(pick(wf, { diff: concurrency }), sorted(SMOKE));
+    const steps = () => ({ removed: ['    timeout-minutes: 15'], added: ['    timeout-minutes: 20'] });
+    assert.deepEqual(pick(wf, { diff: steps }), sorted([...CORE, ...FULL_ONLY]));
+  });
+
   test('devtools.ts runs the specs that read the hook keys it changes', () => {
     const s = pick(['src/app/devtools.ts'], { diff: () => ({ removed: [], added: ['    preview,'] }) });
     assert.ok(s.includes('e2e/link-preview.spec.ts'), 'preview hook readers');
