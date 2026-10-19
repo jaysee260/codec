@@ -43,6 +43,10 @@ until it is. `node scripts/select-e2e.mjs origin/master` prints what your branch
 | `e2ee-recovery-lost-backup.spec.ts` | desktop | JC 2026-10-18, backup secret under a key nobody has: Element "change recovery key" (new backup gets every local key, Codec restores with the new key); delete backup + "Allow key storage" (plain / stale backup key); a second `resetKeyBackup` when the sessions were already backed up (the toggle alone uploads none); Element key-file import (`recovery-import`); a normal unlock never prompts; review O1 / O2b / O3; JC's fix on W, the Element device holding the backup key ("Enter recovery key": no reset, no delete, Codec restores with the current key; stale key fails safely); review R1: the backup replaced while a Codec device stays open (no key push), restoring with the new key there ends in done; `test.fixme` findings: `resetEncryption` loses the cross-signing secrets, Codec `setupRecovery({ reset })` needs the old key |
 | `link-preview.spec.ts` | desktop | Phase 6 AC-L1 .. AC-L9 (link preview cards): real Synapse round trip against `public/preview-fixtures/`, `/preview_url` stubs for errors / slowness / embeds, the no-third-party and encrypted-room request guards (helpers: `fixtures/link-preview.ts`) |
 | `mobile-link-preview.spec.ts` | mobile | Phase 6 AC-L4-5 (full-width card, 44 px targets, no horizontal scroll), AC-L3-1/2 (#vault Show preview), AC-L5-1 (hide + reload) |
+| `calls-core.spec.ts` | desktop | Phase 7 call core through `__matrixPoc.calls` (Principal): ring, accept, E2EE media, decline, missing keys |
+| `call-dm.spec.ts` | desktop | Phase 7 AC-R3-4..6, R4-1/2/4/5, R5, R6-1/2/4/5/8, R7 (DM calls through the UI; dave is the callee in the encrypted `dm-alice-dave`) |
+| `call-room.spec.ts` | desktop | Phase 7 AC-R3-1/2, R4-3/6, R6-6/7, R8 (#vault, a 7-member drop-in room, bridge ghosts) |
+| `mobile-call.spec.ts` | mobile | Phase 7 AC-R5-6, R6-4 phone, R8-3, R9-1 |
 | `receipts.spec.ts` | desktop | Read receipts AC-R1 (send status), AC-R2 (avatars, hidden events, +N, #vault/UTD), AC-R3/R4 (Seen by list and action), AC-R6 (threads), AC-R7 (private receipts setting), AC-R8, AC-R9, AC-R10-2 (helpers: `fixtures/receipts.ts`) |
 | `mobile-receipts.spec.ts` | mobile | Read receipts AC-R5 (bottom sheet, long-press Seen by, 44 px), AC-R7-1, AC-R8-2 on phone |
 | `android-build.mjs` | *(none — plain Node)* | AC-C1-1..4 and AC-C3-1/2: builds the APK and inspects it with `aapt` |
@@ -97,6 +101,7 @@ npm run test:e2e:mobile       # Phase 2 phone suites only    (= playwright test 
 npm run test:e2e:smoke        # the desktop demo script only
 npm run test:e2e:threads      # Phase 3 thread specs, both projects (threads + mobile-threads)
 npm run test:e2e:link-preview # Phase 6 link preview specs, both projects (helpers: fixtures/link-preview.ts)
+npm run test:e2e:calls        # Phase 7 call specs, desktop (calls-core, call-dm, call-room); test:e2e:calls:mobile = mobile-call
 npm run test:e2e:receipts     # read receipt specs, both projects (helpers: fixtures/receipts.ts)
 npm run test:e2e:e2ee         # Phase 5 E2EE specs, desktop (helpers: fixtures/e2ee.ts, fixtures/e2ee-api.ts)
 npm run test:e2e:fresh        # rebuild the seed snapshot, then both projects (WSL1: seed:reset instead)
@@ -311,3 +316,20 @@ AC-B4-2, AC-B6-2/AC-B6-3, AC-B6-4.
   criteria say 35 (strictly harder), "within 3 s" criteria poll for 5 s, and AC-T2-6's 200 ms local
   echo is measured into an annotation with a 1 s assertion (Playwright's own press -> locator round
   trip is ~100 ms). AC-T3-5 (Android back order) is device-only and listed in `docs/BUGS.md`.
+
+### Phase 7 additions (`fixtures/call.ts`, call specs)
+
+- **`requireRtc(test)`** reads this worker's jwt service from the homeserver's well-known `rtc_foci` and probes
+  `/healthz` once per worker; down (or `E2E_NO_RTC=1`) -> skip with a `not-available` annotation.
+- **`cleanupCalls(rooms, pages)`** runs before and after every call test: `leaveCall()` in each open page, then `{}`
+  over every live `org.matrix.msc3401.call.member` state key (`_@user:server_DEVICE_m.call`) of a seeded user, so a
+  crashed run never starts the next one inside a stale call (AC-R10-2).
+- **`ringAlice(roomId, opts)`** rings as an API caller (dave by default): a fake-device membership first (the ring
+  watcher drops a ring whose caller has no membership), then the exact Codec ring content. Plaintext on the wire.
+- **Line contents come from the page's SDK** (`callEventsInPage`): the API cannot decrypt, so it only proves a line
+  was sent encrypted (`expectSentEncrypted`).
+- **`blockMediaKeys(page)`** answers `PUT /sendToDevice/m.room.encrypted/*` with 200 `{}` (keys silently lost).
+- **The 60 s ring** uses `ringTimeoutOverride(page, ms)` when the core exposes `setRingTimeoutMs`; otherwise the
+  missed-call test runs in real time (annotated `real-time`, timeout raised).
+- Seeded `#vault` predates the call power levels: `grantCallPowerLevels()` sets them to 0 as alice before non-admins join.
+- `dm-alice-bob` is unencrypted, so the DM callee is **dave** (`dm-alice-dave`); the 3-person room test uses dave as the third context.

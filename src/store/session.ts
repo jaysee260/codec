@@ -28,6 +28,7 @@ import { clearLinkPreviewCache } from '@/lib/preview/fetch.ts';
 import { bindClient, unbindClient } from './bridge.ts';
 import { resetRooms } from './rooms.ts';
 import { bindSecurity, resetSecurity, unbindSecurity } from './security.ts';
+import { bindCalls, resetCalls, unbindCalls } from './call.ts';
 import { resetTimelines } from './timeline.ts';
 import { resetThreads } from './threads.ts';
 import { resetReceipts } from './receipts.ts';
@@ -103,6 +104,7 @@ export const useSessionStore = create<SessionState>((set, get) => {
     // tells the user why on the login form (`fail` keeps the message; `logout()` clears it).
     bindClient(client, { onSessionLoggedOut: () => void fail(new MatrixError({ errcode: 'M_UNKNOWN_TOKEN', error: 'Session expired' }), 'error') });
     bindSecurity(client);
+    bindCalls(client); // Phase 7: ring watcher + live-session tracking
     await waitForPrepared(client, (message) => set({ error: message }));
     // Profile: cheap request, avoids depending on lazy-loaded member events.
     let displayName: string | null = null;
@@ -119,6 +121,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
   async function fail(e: unknown, nextStatus: SessionStatus): Promise<void> {
     const message = describeError(e);
+    resetCalls(); // Phase 7: hang up before the client stops
+    unbindCalls();
     unbindSecurity();
     unbindClient();
     await sdkLogout(); // Phase 5: also wipes the device's crypto store (the token / device is gone)
@@ -209,6 +213,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
     },
 
     async logout() {
+      resetCalls(); // Phase 7: hang up before the client stops
+      unbindCalls();
       unbindSecurity();
       unbindClient();
       await sdkLogout(); // Phase 5: wipes the crypto store too

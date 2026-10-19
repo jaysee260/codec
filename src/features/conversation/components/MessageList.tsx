@@ -51,6 +51,7 @@ import { useConversationUi } from '../hooks/useConversationUi.ts';
 import { makeTid, type Tid } from '../tid.ts';
 import { DayDivider } from './DayDivider.tsx';
 import { MessageRow } from './MessageRow.tsx';
+import { CallLineRow, isCallLineEvent } from './CallLineRow.tsx';
 import styles from './MessageList.module.css';
 
 const NEAR_BOTTOM_PX = 40;
@@ -499,6 +500,11 @@ export function MessageList({ source, testIdPrefix }: MessageListProps) {
           {items.map((item) =>
             item.kind === 'day' ? (
               <DayDivider key={item.key} ts={item.ts} />
+            ) : isCallLineEvent(item.event) ? (
+              // Phase 7 (DEV-B-38): call lines are main-timeline only (never in a thread panel).
+              threadRootId ? null : (
+                <CallLineRow key={item.key} event={item.event} roomId={roomId} flash={flashId === item.event.getId()} />
+              )
             ) : (
               <MessageRow
                 key={item.key}

@@ -1,0 +1,29 @@
+/* DEV-A-34: live-call indicator + missed-call preview on sidebar rows. */
+.indicator {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--success);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.missed {
+  flex-shrink: 1;
+  min-width: 0;
+  color: var(--danger);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.missedBlock {
+  display: block;
+  line-height: 1.2;
+}
+
+:root[data-layout='phone'] .indicator,
+:root[data-layout='phone'] .missed {
+  font-size: var(--font-size-sm);
+}

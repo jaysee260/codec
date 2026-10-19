@@ -35,9 +35,21 @@
  *
  * DEV-A-27 (Phase 5): `channel-header-lock` (14 px lock, `title="End-to-end encrypted"`) right after the name
  * while `RoomSummary.encrypted`; absent in plain rooms. It appears live when a room turns encrypted (AC-E6-6).
+ *
+ * DEV-A-33 / DEV-A-35 (Phase 7): the right-hand cluster starts with Dev B's `<CallButton roomId/>` (`header-call`; it
+ * hides itself while a call is live, the chip replaces it), then `header-join-call[data-count]` "Join voice (n)", a
+ * green chip shown while `useRoomCallSummary(roomId)` has a live call I am not in; click -> `joinCall(roomId)`
+ * (a drop-in join, no ring). `title` lists the participants' names (AC-R8-4). Both render in channels and DMs, desktop
+ * and phone, never in the phone thread header (AC-T8-1 branch above). Phone: the chip is a 44 px tap target with a
+ * 32 px pill; the room name truncates first (AC-R8-3).
  */
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Lock, Menu, MessageSquareText, Users } from 'lucide-react';
+import { ArrowLeft, Lock, Menu, MessageSquareText, Users, Volume2 } from 'lucide-react';
+import { CallButton } from '@/features/call';
+import { useCallStore, useRoomCallSummary } from '@/store/call.ts';
+import { showToast } from '@/store/toast.ts';
+import { CallError } from '@/lib/rtc/types.ts';
+import { callNames } from '../hooks/useRoomCall.ts';
 import { useRoomSummary, useIsPhone } from '@/store/hooks.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useOpenThread, useThreadStore, useThreadUnread } from '@/store/threads.ts';
@@ -151,6 +163,9 @@ export function ChannelHeader({ roomId }: { roomId: string }) {
 
       <span className={styles.spacer} />
 
+      <CallButton roomId={roomId} />
+      <JoinCallChip roomId={roomId} />
+
       <button
         type="button"
         className={`${styles.threads} ${listOpen ? styles.threadsActive : ''}`}
@@ -195,5 +210,52 @@ function EncryptedLock() {
     <span className={styles.lock} data-testid="channel-header-lock" title="End-to-end encrypted" aria-label="End-to-end encrypted" role="img">
       <Lock size={14} aria-hidden="true" />
     </span>
+  );
+}
+
+/** Matches Dev B's CallButton wording for the one error both buttons can hit before a call exists (AC-R4-5). */
+const MIC_DENIED_TEXT = "Codec can't use your microphone. Allow it in the browser's site settings and try again";
+
+/** DEV-A-33: "Join voice (n)" while a call is live in this room and I am not in it (AC-R8-1). */
+function JoinCallChip({ roomId }: { roomId: string }) {
+  const summary = useRoomCallSummary(roomId);
+  const [joining, setJoining] = useState(false);
+  useEffect(() => setJoining(false), [roomId]);
+
+  const count = summary.userIds.length;
+  if (!summary.live || summary.joined || count === 0) return null;
+
+  const names = callNames(roomId, summary.userIds);
+  const label = `Join voice (${count})`;
+  const title = `In voice: ${names.join(', ')}`;
+  const onJoin = (): void => {
+    if (joining) return;
+    setJoining(true);
+    useCallStore
+      .getState()
+      .joinCall(roomId)
+      .catch((e: unknown) => {
+        const mic = e instanceof CallError && e.code === 'mic-denied';
+        showToast(mic ? MIC_DENIED_TEXT : e instanceof Error ? e.message : String(e), 'error');
+      })
+      .finally(() => setJoining(false));
+  };
+
+  return (
+    <button
+      type="button"
+      className={styles.joinCall}
+      data-testid="header-join-call"
+      data-count={count}
+      title={title}
+      aria-label={`${label}. ${title}`}
+      disabled={joining}
+      onClick={onJoin}
+    >
+      <span className={styles.joinPill}>
+        <Volume2 size={16} aria-hidden="true" />
+        <span className="u-truncate">{label}</span>
+      </span>
+    </button>
   );
 }

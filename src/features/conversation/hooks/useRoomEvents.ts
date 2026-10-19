@@ -23,6 +23,7 @@ import { getClientOrNull } from '@/lib/matrix/client.ts';
 import { useTimeline, type TimelineSource } from '@/store/hooks.ts';
 import { getReplyTargetId, isEditEvent, isThreadReply } from '@/lib/matrix/utils.ts';
 import { isSameDay } from '@/lib/format.ts';
+import { isCallLineEvent } from '../callEvents.ts';
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -154,6 +155,12 @@ export function buildTimelineItems(events: MatrixEvent[]): TimelineItem[] {
     if (!prev || !isSameDay(prev.getTs(), ts)) {
       items.push({ kind: 'day', key: `day-${ts}-${items.length}`, ts });
       prev = null; // the first row after a divider always starts a group
+    }
+    // Phase 7: a call line is a system row; the message after it always starts a new group.
+    if (isCallLineEvent(event)) {
+      items.push({ kind: 'message', key: event.getId() ?? `row-${items.length}`, ts, event, groupStart: true });
+      prev = null;
+      continue;
     }
     const groupStart =
       !prev ||

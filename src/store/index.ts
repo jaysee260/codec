@@ -74,6 +74,27 @@ export {
 } from './layout.ts';
 export { onRoomSelected, waitForRoom } from './rooms.ts';
 export {
+  useCallStore,
+  useActiveCall,
+  useIncomingCall,
+  useIncomingCalls,
+  useCallError,
+  useRoomCallSummary,
+  useCallHistory,
+  useCallAvailability,
+  useCallSpeaker,
+  canCall,
+  ringPolicy,
+  enableCallsInRoom,
+  bindCalls,
+  unbindCalls,
+  resetCalls,
+  type ActiveCall,
+  type CallState,
+  type LiveSession,
+  type RoomCallSummary,
+} from './call.ts';
+export {
   useReceiptStore,
   useReceiptVersion,
   useReadPoints,

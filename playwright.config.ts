@@ -32,6 +32,8 @@ import { baseUrlFor, hsUrlFor, poolSize, workerIndex } from './e2e/fixtures/pool
  * both regexes like `mobile-gif`. Both files are `mode: 'parallel'` (independent tests, unique fixture URLs).
  * `npm run test:e2e:link-preview` runs the pair.
  *
+ * Phase 7 (QA-34..37): `calls-core`, `call-dm`, `call-room` run in `desktop` with no entry (`npm run test:e2e:calls`);
+ * `mobile-call.spec.ts` is listed in both regexes like `mobile-gif`. All need the per-worker call stack (`requireRtc`).
  * Read receipts (QA-R1..R3): `receipts.spec.ts` runs in `desktop` with no entry; `mobile-receipts.spec.ts` is listed in both
  * regexes like `mobile-link-preview`. Both are `mode: 'parallel'` (every test sends its own messages; each worker has its
  * own Synapse, so the single "sent" check cannot be disturbed across workers). `npm run test:e2e:receipts` runs the pair.
@@ -97,13 +99,13 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview|mobile-receipts)\.spec\.ts$/,
+      testIgnore: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview|mobile-call|mobile-receipts)\.spec\.ts$/,
       outputDir: './e2e/results/desktop',
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile',
-      testMatch: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview|mobile-receipts)\.spec\.ts$/,
+      testMatch: /(voice|voice-compat|ogg-remux|mobile-nav|mobile-smoke|mobile-threads|mobile-gif|mobile-link-preview|mobile-call|mobile-receipts)\.spec\.ts$/,
       outputDir: './e2e/results/mobile',
       use: { ...devices['Pixel 7'], permissions: ['microphone'] },
     },

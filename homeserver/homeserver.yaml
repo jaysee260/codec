@@ -135,3 +135,23 @@ rc_room_creation:
 experimental_features:
   # Simplified Sliding Sync (MSC4186). On by default in current Synapse; the flag is a no-op there.
   msc3575_enabled: true
+  # Phase 7 (voice calls, MatrixRTC): MSC3266 room summary, MSC4140 delayed events (the server-side "leave" when a
+  # client dies), MSC4222 state_after in /sync (correct membership state), MSC4143 (the unstable /rtc/transports
+  # route; Codec falls back to the well-known below), MSC4075 (push rules for rtc.notification; 1.163+).
+  msc3266_enabled: true
+  msc4140_enabled: true
+  msc4222_enabled: true
+  msc4143_enabled: true
+  msc4075_enabled: true
+# Phase 7: delayed events (MSC4140) may live up to 24h; the SDK restarts its delayed leave every few seconds.
+max_event_delay_duration: 24h
+rc_delayed_event_mgmt:
+  per_second: 1000
+  burst_count: 1000
+# Phase 7: where Codec finds the call server (MSC4143 rtc_foci in /.well-known/matrix/client, which Synapse serves
+# on the client listener with CORS). The local stack: LiveKit auth service on 7980 (+ i per pool instance;
+# scripts/lib/hs-config.mjs rewrites the URL per instance). The homelab's well-known points at https://rtc.704.chat.
+extra_well_known_client_content:
+  org.matrix.msc4143.rtc_foci:
+    - type: livekit
+      livekit_service_url: http://localhost:7980

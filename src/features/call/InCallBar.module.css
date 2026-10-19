@@ -1,0 +1,70 @@
+/* In-call bar (DEV-B-37): a slim green strip, like Discord's "Voice Connected" panel. */
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin: 0 16px 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: var(--radius);
+  background: rgba(35, 165, 89, 0.16);
+  border: 1px solid rgba(35, 165, 89, 0.4);
+  color: var(--text-heading);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.bar:hover {
+  background: rgba(35, 165, 89, 0.24);
+}
+.bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon {
+  flex-shrink: 0;
+  color: var(--success);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.where {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.leave {
+  flex-shrink: 0;
+  width: 32px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+.leave:hover {
+  background: var(--danger-hover);
+}
+
+/* Phone: top of the conversation, full width, 44 px tap targets. */
+:root[data-layout='phone'] .bar {
+  margin: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  min-height: var(--tap-target);
+}
+:root[data-layout='phone'] .leave {
+  width: var(--tap-target);
+  height: 36px;
+}

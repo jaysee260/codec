@@ -41,7 +41,7 @@ export const INFRA = [
   /^index\.html$/,
   /^seed\//,
   /^homeserver\//,
-  /^scripts\/(hs|hs-pool)\.mjs$/,
+  /^scripts\/(hs|hs-pool|rtc|rtc-probe)\.mjs$/,
   /^scripts\/lib\//,
 ];
 
@@ -63,6 +63,8 @@ const E2EE = [
 const VOICE = ['e2e/voice.spec.ts', 'e2e/voice-compat.spec.ts', 'e2e/ogg-remux.spec.ts', 'e2e/e2ee-media.spec.ts', 'e2e/threads.spec.ts'];
 const THREADS = ['e2e/threads.spec.ts', 'e2e/mobile-threads.spec.ts', 'e2e/e2ee-core-timeline.spec.ts'];
 const LINK_PREVIEW = ['e2e/link-preview.spec.ts', 'e2e/mobile-link-preview.spec.ts'];
+// QA-35..37 add call-room.spec.ts / mobile-call.spec.ts here as they land (the unit test refuses names that do not exist yet).
+const CALLS = ['e2e/calls-core.spec.ts', 'e2e/call-dm.spec.ts', 'e2e/call-room.spec.ts', 'e2e/mobile-call.spec.ts'];
 const GIF = ['e2e/gif.spec.ts', 'e2e/mobile-gif.spec.ts'];
 const RECEIPTS = ['e2e/receipts.spec.ts', 'e2e/mobile-receipts.spec.ts'];
 const CONVERSATION = [
@@ -80,6 +82,7 @@ const CONVERSATION = [
  * deliberate (voice notes live in threads and E2EE).
  */
 export const AREAS = [
+  { name: 'calls', match: /^src\/(lib\/rtc\/|store\/call\.ts$|features\/call\/)/, specs: CALLS },
   { name: 'voice', match: /^src\/lib\/audio\/|^src\/features\/conversation\/(components\/Voice|hooks\/useVoiceRecorder)/, specs: VOICE },
   { name: 'link-preview', match: /^src\/(features\/link-preview|lib\/preview)\/|^src\/features\/conversation\/components\/LinkPreviews/, specs: LINK_PREVIEW },
   { name: 'gif', match: /^src\/(features|lib)\/gif\/|^src\/features\/conversation\/components\/Gif/, specs: GIF },

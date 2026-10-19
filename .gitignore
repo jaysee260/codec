@@ -38,3 +38,6 @@ seed/e2ee-keys.json
 
 # native Synapse venv for the test homeserver pool (scripts/lib/hs-native.mjs)
 homeserver/.venv
+
+# Phase 7: the local call stack (LiveKit binary, per-stack config/logs/state; scripts/lib/rtc-stack.mjs)
+homeserver/.rtc

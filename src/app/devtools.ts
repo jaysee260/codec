@@ -21,6 +21,10 @@ import { useSessionStore } from '@/store/session.ts';
 import { useTimelineStore, paginateBack, refreshThread, isRedactedThreadReply } from '@/store/timeline.ts';
 import { useThreadStore, getThreadSummary, getThreadModel, isThreadReady } from '@/store/threads.ts';
 import { useSecurityStore } from '@/store/security.ts';
+import { useCallStore, canCall, ringPolicy, enableCallsInRoom, activeCallStats, setRingTimeoutMs, ringTimeoutMs } from '@/store/call.ts';
+import { ringtone } from '@/lib/audio/ringtone.ts';
+import { currentSpeakerphoneImpl, overrideSpeakerphone } from '@/lib/native.ts';
+import * as rtc from '@/lib/rtc/index.ts';
 import { getClientOrNull, getCryptoError } from '@/lib/matrix/client.ts';
 import { getHsUrl } from '@/lib/matrix/config.ts';
 import * as actions from '@/lib/matrix/actions.ts';
@@ -33,7 +37,7 @@ import { analyzeAudio, encodeToOggOpus, pickRecordingMimeType } from '@/lib/audi
 import { voiceSendDebug } from '@/features/conversation/hooks/useVoiceRecorder.ts';
 import * as gif from '@/lib/gif/index.ts';
 import * as preview from '@/lib/preview/index.ts';
-import { isNativeApp, platform } from '@/lib/native.ts';
+import { isNativeApp, platform, startCallService, stopCallService, isCallServiceRunning } from '@/lib/native.ts';
 import type { MatrixEvent } from 'matrix-js-sdk';
 import * as receiptsModule from '@/lib/matrix/receipts.ts';
 import { useReceiptStore } from '@/store/receipts.ts';
@@ -91,10 +95,82 @@ export function installDevHooks(): void {
     preview,
     // Alias used by docs/PHASE6_ACCEPTANCE.md: same module plus `clearPreviewCache()`.
     previews: { ...preview, clearPreviewCache: preview.clearLinkPreviewCache },
+    // Phase 7: `__matrixPoc.calls.store` = useCallStore (`getState().startCall(roomId, { ring: true })`, `acceptCall`, ...),
+    // `canCall(roomId)`, `enableCallsInRoom(roomId)`, `stats()` (receiver bytes per remote participant of the active call),
+    // and `rtc` = the whole `@/lib/rtc` barrel (e2e/calls-core.spec.ts drives the call layer through this until the UI lands).
+    calls: callsHook,
+    // Phase 7 Wave 2 (docs/PHASE7_ACCEPTANCE.md "Shell and core"): `__matrixPoc.call` = the store (`getState()`, `subscribe`)
+    // + `canCall`, `ringPolicy`, `getCallLine`, `describeCallEvent`, `CALL_RING_MAX_MEMBERS`, `rtc` ({ isMicrophoneEnabled(),
+    // isE2EEEnabled(), setSpeakerphone (assignable: QA stubs it), room }), `ringtone` ({ canPlay(), lastPlayedAt }), `native`.
+    call: callHook,
+    rtc,
     // Read receipts (docs/RECEIPTS_ACCEPTANCE.md): QA drives the reading side through these.
     receipts: receiptsHook,
   };
 }
+
+/** `window.__matrixPoc.call` (Phase 7, Wave 2): the acceptance-doc name. */
+const callHook = Object.assign(useCallStore, {
+  store: useCallStore,
+  canCall,
+  ringPolicy,
+  getCallLine: rtc.getCallLine,
+  formatCallLine: rtc.formatCallLine,
+  describeCallEvent: rtc.describeCallEvent,
+  CALL_RING_MAX_MEMBERS: rtc.CALL_RING_MAX_MEMBERS,
+  CALL_RING_TIMEOUT_MS: rtc.RING_TIMEOUT_MS,
+  /** STATUS request #24 (dev builds only, reset on reload): shorten the 60 s ring for the e2e missed-call cases. */
+  setRingTimeoutMs: (ms: number | null) => setRingTimeoutMs(ms),
+  ringTimeoutMs: () => ringTimeoutMs() ?? rtc.RING_TIMEOUT_MS,
+  CALL_KEYS_TIMEOUT_MS: rtc.CALL_KEYS_TIMEOUT_MS,
+  startCall: (roomId: string, opts?: { ring?: boolean }) => useCallStore.getState().startCall(roomId, opts),
+  accept: (roomId: string) => useCallStore.getState().acceptCall(roomId),
+  decline: (roomId: string) => useCallStore.getState().declineCall(roomId),
+  join: (roomId: string) => useCallStore.getState().joinCall(roomId),
+  leave: () => useCallStore.getState().leaveCall(),
+  toggleMute: () => useCallStore.getState().toggleMute(),
+  setSpeaker: (mode: 'earpiece' | 'speaker') => useCallStore.getState().setSpeaker(mode),
+  state: () => {
+    const { activeCall, incoming, history, liveSessions, lastError, speaker } = useCallStore.getState();
+    return { activeCall, incoming, history, liveSessions, lastError, speaker };
+  },
+  stats: () => activeCallStats(),
+  rtc: {
+    isMicrophoneEnabled: () => !(useCallStore.getState().activeCall?.muted ?? true),
+    isE2EEEnabled: () => useCallStore.getState().activeCall?.encrypted ?? false,
+    /** Assign a function to stub the speakerphone shim (AC-R9-1); the store's `setSpeaker` goes through it. */
+    get setSpeakerphone(): (on: boolean) => Promise<void> | void {
+      return currentSpeakerphoneImpl();
+    },
+    set setSpeakerphone(fn: ((on: boolean) => Promise<void> | void) | null) {
+      overrideSpeakerphone(fn);
+    },
+    get room(): unknown {
+      return useCallStore.getState().activeCall;
+    },
+  },
+  ringtone,
+  native: { startCallService, stopCallService, isCallServiceRunning },
+});
+
+/** `window.__matrixPoc.calls` (Phase 7). */
+const callsHook = {
+  store: useCallStore,
+  canCall,
+  enableCallsInRoom,
+  startCall: (roomId: string, opts?: { ring?: boolean }) => useCallStore.getState().startCall(roomId, opts),
+  joinCall: (roomId: string) => useCallStore.getState().joinCall(roomId),
+  acceptCall: (roomId: string) => useCallStore.getState().acceptCall(roomId),
+  declineCall: (roomId: string) => useCallStore.getState().declineCall(roomId),
+  leaveCall: () => useCallStore.getState().leaveCall(),
+  setMuted: (muted: boolean) => useCallStore.getState().setMuted(muted),
+  /** Snapshot without functions (safe to `JSON.stringify` from Playwright). */
+  state: () => {
+    const { activeCall, incoming, history, liveSessions, lastError } = useCallStore.getState();
+    return { activeCall, incoming, history, liveSessions, lastError };
+  },
+  stats: () => activeCallStats(),
+};
 
 /** The rows a list renders for a source, from the store snapshot (same filter as `useTimeline(source).events`). */
 function displayedEventsOf(roomId: string, threadRootId?: string): MatrixEvent[] {

@@ -17,6 +17,7 @@ import { isEncryptedFile, type EncryptedFile } from './attachments.ts';
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { isAudioMimeType } from '../audio/mime.ts';
 import { parseGifContent } from '../gif/message.ts';
+import { describeCallEvent, isCallTimelineEvent } from '../rtc/timeline.ts';
 import type { GifMessage } from '../gif/types.ts';
 
 export { mxcToHttp } from './mxc.ts';
@@ -90,11 +91,14 @@ export function isReactionEvent(event: MatrixEvent): boolean {
  * that are still encrypted (`m.room.encrypted`: being decrypted, or undecryptable - rendered as a placeholder;
  * `getType()` becomes the clear type once decrypted, so a decrypted reaction/edit drops out of the rows then),
  * except encrypted reactions / edits (`isEncryptedRelation`: wire relation, or redacted after being one).
- * Drops: reactions, edits (aggregated onto their target), state events, everything else.
+ * Phase 7: keeps the call rows (the ring, the decline, `dev.matrixpoc.call`, and the membership state event that
+ * opened a session nobody was rung for: `isCallTimelineEvent`); none of them can be a thread root or reply.
+ * Drops: reactions, edits (aggregated onto their target), other state events, everything else.
  */
 export function isDisplayableEvent(event: MatrixEvent): boolean {
   const type = event.getType();
   if (type === EventType.Sticker) return true;
+  if (isCallTimelineEvent(event)) return !event.isRedacted() || type === 'dev.matrixpoc.call';
   if (type === EventType.RoomMessageEncrypted) return !isEncryptedRelation(event);
   if (type !== EventType.RoomMessage) return false;
   if (isEditEvent(event)) return false;
@@ -509,6 +513,12 @@ export function getDisplayBody(event: MatrixEvent): DisplayBody {
 
 /** Short preview text for a message (used by reply quotes, DM list previews). */
 export function previewText(event: MatrixEvent, max = 120): string {
+  if (isCallTimelineEvent(event)) {
+    // AC-R3-7 / AC-R7-3: "Missed call" when the missed line names me; else "Call ended" / "Call declined" / "Voice call".
+    if (event.isRedacted()) return 'Message deleted';
+    const row = describeCallEvent(event, { displayName: event.getSender() ?? '', myUserId: getClientOrNull()?.getUserId() ?? undefined });
+    return row?.previewText ?? '';
+  }
   const body = getDisplayBody(event);
   if (body.isRedacted) return 'Message deleted';
   if (body.decryption && body.decryption.status !== 'decrypted') return body.decryption.status === 'failed' ? 'Unable to decrypt' : 'Decrypting...';

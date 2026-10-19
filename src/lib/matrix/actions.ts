@@ -37,6 +37,7 @@ import { getThreadRelation, isGifEvent, isRoomEncrypted, isThreadReply, MEGOLM_A
 import { sanitizeWaveform } from '../audio/analysis.ts';
 import { containerMimeType, voiceFileName } from '../audio/mime.ts';
 import { buildGifContent } from '../gif/message.ts';
+import { CALL_POWER_LEVELS } from '../rtc/permissions.ts';
 import type { GifResult } from '../gif/types.ts';
 
 const HTML_FORMAT = 'org.matrix.custom.html';
@@ -566,6 +567,8 @@ export async function createChannel(opts: { spaceId: string; name: string; topic
           { type: EventType.SpaceParent, state_key: opts.spaceId, content: { via, canonical: true } },
           ...(encrypted ? [ENCRYPTION_INITIAL_STATE] : []),
         ],
+        // Phase 7: calls are state events; let every member start / join one (the public preset needs PL 50 otherwise).
+        power_level_content_override: { events: { ...CALL_POWER_LEVELS } },
       }),
     'Creating a channel',
   );

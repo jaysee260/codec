@@ -18,6 +18,12 @@
  *   node scripts/hs-pool.mjs probe                exit 0 when a backend is usable, else print why and exit 1 (quick;
  *                                                 e2e/fixtures/pool.ts uses it on Windows for the WSL1 fallback)
  *
+ * Phase 7 (voice calls): `up` also starts one local call stack per instance (LiveKit SFU + LiveKit auth service,
+ * scripts/lib/rtc-stack.mjs: ports 7880+i / 7980+i, pids in state.json, config + logs in hs-<i>/) and each instance's
+ * well-known `rtc_foci` points at its own auth service, so Playwright workers never share a call server. The LiveKit
+ * binary is fetched once into homeserver/.rtc/ (`node scripts/rtc.mjs fetch`; CI caches it). `E2E_NO_RTC=1` skips
+ * the call stacks (the call specs then fail; everything else runs).
+ *
  * Layout (all under homeserver/data/pool/, git-ignored):
  *   snapshot/data/        homeserver.db, media_store, localhost.signing.key, secrets/   (the seeded template)
  *   snapshot/seed/        seed-output.json, e2ee-keys.json, assets/                     (restored into seed/ by `up`)
@@ -39,6 +45,9 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR, DEFAULT_HS_PORT, ROOT, ensureSecrets, renderInstanceConfig, renderLogConfig, waitForHomeserver } from './lib/hs-config.mjs';
 import { dockerBackend } from './lib/hs-docker.mjs';
 import { native } from './lib/hs-native.mjs';
+import { ensureLivekitBinary, jwtUrlFor, rtcStackAlive, rtcStackStatus, startRtcStack, stopRtcStack } from './lib/rtc-stack.mjs';
+
+const NO_RTC = !!process.env.E2E_NO_RTC;
 
 export const POOL_DIR = path.join(DATA_DIR, 'pool');
 const SNAPSHOT_DIR = path.join(POOL_DIR, 'snapshot');
@@ -52,6 +61,8 @@ const STATE_FILE = path.join(RUN_DIR, 'state.json');
 const SEED_DIR = path.join(ROOT, 'seed');
 const BASE_PORT = Number(process.env.HS_POOL_BASE_PORT ?? DEFAULT_HS_PORT);
 const BUILD_PORT = Number(process.env.HS_POOL_BUILD_PORT ?? 8040);
+/** Phase 7: call-stack instance index of pool instance i (scripts/lib/rtc-stack.mjs port plan); offset per base port. */
+const rtcIndexOf = (i) => i + (BASE_PORT - DEFAULT_HS_PORT);
 /** Bump when the snapshot layout or the build steps change, so old caches are rebuilt. */
 const POOL_FORMAT = 1;
 
@@ -143,16 +154,16 @@ function instanceDir(i) {
   return path.join(RUN_DIR, `hs-${i}`);
 }
 
-/** Writes homeserver.yaml + log.config into `dir` for a Synapse on `port`. */
-function writeInstanceConfig(backend, dir, port) {
+/** Writes homeserver.yaml + log.config into `dir` for a Synapse on `port` (Phase 7: well-known -> instance `rtcIndex`'s auth service). */
+function writeInstanceConfig(backend, dir, port, rtcIndex = 0) {
   const configPath = path.join(dir, 'homeserver.yaml');
-  writeFileSync(configPath, renderInstanceConfig({ port, dataRoot: backend.dataRoot(dir), hsUrl: hsUrl(port), bindAddresses: backend.bindAddresses }));
+  writeFileSync(configPath, renderInstanceConfig({ port, dataRoot: backend.dataRoot(dir), hsUrl: hsUrl(port), bindAddresses: backend.bindAddresses, rtcJwtUrl: jwtUrlFor(rtcIndex) }));
   writeFileSync(path.join(dir, 'log.config'), renderLogConfig());
   return configPath;
 }
 
 async function startInstance(backend, { index, dir, port }) {
-  const configPath = writeInstanceConfig(backend, dir, port);
+  const configPath = writeInstanceConfig(backend, dir, port, typeof index === 'number' ? rtcIndexOf(index) : 0);
   const logPath = path.join(dir, 'synapse.log');
   const handle = backend.start({ dir, port, configPath, logPath });
   const inst = { index, port, url: hsUrl(port), dir, logPath, ...handle };
@@ -175,11 +186,13 @@ function readState() {
 async function stopState(backend, state, { quiet = false } = {}) {
   if (!state) return 0;
   let stopped = 0;
+  let rtcStopped = 0;
   for (const inst of state.instances) {
     if (await backend.stop(inst)) stopped++;
+    if (await stopRtcStack(inst.rtc)) rtcStopped++;
   }
   rmSync(STATE_FILE, { force: true });
-  if (!quiet) console.log(`[hs-pool] stopped ${stopped}/${state.instances.length} instance(s)`);
+  if (!quiet) console.log(`[hs-pool] stopped ${stopped}/${state.instances.length} instance(s), ${rtcStopped} call stack(s)`);
   return stopped;
 }
 
@@ -356,7 +369,7 @@ export async function up({ workers, replace = false } = {}) {
   const previous = readState();
   if (previous) {
     const prevBackend = BACKENDS[previous.backend] ?? backend;
-    const alive = previous.instances.filter((inst) => prevBackend.alive(inst));
+    const alive = previous.instances.filter((inst) => prevBackend.alive(inst) || rtcStackAlive(inst.rtc));
     if (alive.length && !replace) {
       throw new Error(
         `a pool started ${previous.startedAt} is still running on ${alive.map((i) => i.port).join(', ')} (${STATE_FILE}). It may belong to a live Playwright run: leave it, or pass --replace to stop and restart it.`,
@@ -373,6 +386,8 @@ export async function up({ workers, replace = false } = {}) {
     }
   }
   await buildSnapshot(backend);
+  // Phase 7: the call stacks need the LiveKit binary; fetch it before any instance starts (one download, cached).
+  if (!NO_RTC) await ensureLivekitBinary();
 
   const t0 = Date.now();
   const planned = Array.from({ length: n }, (_, index) => ({ index, dir: instanceDir(index), port: BASE_PORT + index }));
@@ -389,6 +404,7 @@ export async function up({ workers, replace = false } = {}) {
     const started = await Promise.all(
       planned.map(async (p) => {
         const inst = await startInstance(backend, p);
+        if (!NO_RTC) inst.rtc = await startRtcStack({ index: rtcIndexOf(p.index), dir: p.dir, hsUrl: inst.url });
         state.instances.push(inst);
         persist();
         return inst;
@@ -404,7 +420,8 @@ export async function up({ workers, replace = false } = {}) {
     throw e;
   }
   console.log(
-    `[hs-pool] ${n} homeserver(s) ready on ${state.instances.map((i) => i.port).join(', ')} (${backend.name}; restore ${fmtMs(restoreMs)}, ready ${fmtMs(state.readyMs)})`,
+    `[hs-pool] ${n} homeserver(s) ready on ${state.instances.map((i) => i.port).join(', ')} (${backend.name}; restore ${fmtMs(restoreMs)}, ready ${fmtMs(state.readyMs)})` +
+      (NO_RTC ? ' without call stacks (E2E_NO_RTC)' : `; call stacks on ${state.instances.map((i) => `${i.rtc.ports.lk}/${i.rtc.ports.jwt}`).join(', ')}`),
   );
   return state;
 }
@@ -430,6 +447,7 @@ async function status() {
   const backend = BACKENDS[state.backend] ?? native;
   for (const inst of state.instances) {
     console.log(`  hs-${inst.index}  ${inst.url}  ${inst.container ? `container ${inst.container}` : `pid ${inst.pid}`}  ${backend.alive(inst) ? 'alive' : 'DEAD'}  ${(await answering(inst.port)) ? 'answering' : 'not answering'}`);
+    console.log(`           rtc: ${inst.rtc ? (rtcStackAlive(inst.rtc) ? '' : 'DEAD: ') + (await rtcStackStatus(inst.rtc)) : 'none'}`);
   }
 }
 
