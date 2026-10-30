@@ -1,0 +1,59 @@
+# Builds the Mac app (desktop/) on a macOS runner: tests, then a universal Codec .dmg + .zip (Intel and Apple Silicon).
+#   Pull requests that touch desktop/, and manual runs: the build is a workflow artifact.
+#   A tag like desktop-v0.1.0: also published as a GitHub release, the download link for testers.
+# The app is ad-hoc signed (desktop/README.md: how testers open it, and what an Apple Developer ID would change).
+name: Mac app
+
+on:
+  pull_request:
+    branches: [master]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Mac app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # the release on desktop-v* tags
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Launch test
+        run: npm run test:launch
+      - name: Build
+        run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Codec-mac
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+          if-no-files-found: error
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
