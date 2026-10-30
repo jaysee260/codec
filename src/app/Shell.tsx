@@ -32,6 +32,7 @@ import { useRoomStore } from '@/store/rooms.ts';
 import { useLayoutStore } from '@/store/layout.ts';
 import { useThreadStore } from '@/store/threads.ts';
 import { useCallStore } from '@/store/call.ts';
+import { startDesktopIntegration } from '@/lib/desktop/index.ts';
 import { SpaceRail, ChannelSidebar, ChannelHeader, MemberPanel } from '@/features/navigation';
 import { Conversation, ThreadView } from '@/features/conversation';
 import { UserFooter } from './UserFooter.tsx';
@@ -120,6 +121,8 @@ const SWIPE_PX = 56;
 export function Shell() {
   const roomId = useRoomStore((s) => s.selectedRoomId);
   const isPhone = useLayoutStore((s) => s.isPhone);
+  // Mac app only: Dock badge, notifications, Dock bounce on a call (no-op in a browser).
+  useEffect(() => startDesktopIntegration(), []);
   return isPhone ? <PhoneShell roomId={roomId} /> : <DesktopShell roomId={roomId} />;
 }
 

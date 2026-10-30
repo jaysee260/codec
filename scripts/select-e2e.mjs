@@ -94,6 +94,8 @@ export const AREAS = [
   { name: 'conversation', match: /^src\/features\/conversation\//, specs: CONVERSATION },
   { name: 'navigation', match: /^src\/features\/navigation\//, specs: ['e2e/navigation.spec.ts', 'e2e/mobile-nav.spec.ts', 'e2e/e2ee-core-boot.spec.ts'] },
   { name: 'security', match: /^src\/features\/security\//, specs: E2EE },
+  // Mac app bridge (Dock badge, notifications): desktop/ itself has its own tests (desktop/src, desktop/test).
+  { name: 'desktop', match: /^src\/lib\/desktop\//, specs: ['e2e/desktop-bridge.spec.ts'] },
   // Login, layout and the app frame. Shared code that only the shell uses ends up here.
   { name: 'shell', match: /^src\/(app\/|main\.tsx$)/, specs: ['e2e/shell.spec.ts', 'e2e/mobile-nav.spec.ts'] },
 ];

@@ -1,0 +1,65 @@
+{
+  "name": "codec-desktop",
+  "productName": "Codec",
+  "version": "0.1.0",
+  "description": "Codec for Mac: the live Codec site in its own app, with a Dock badge, notifications and a menu bar icon.",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "start:local": "CODEC_URL=http://localhost:5173 electron .",
+    "test": "node --test \"src/**/*.test.mjs\"",
+    "dist": "electron-builder --mac --publish never",
+    "test:launch": "node --test test/launch.test.mjs"
+  },
+  "devDependencies": {
+    "electron": "45.2.0",
+    "electron-builder": "26.18.0",
+    "playwright-core": "1.63.0"
+  },
+  "build": {
+    "appId": "chat.704.codec",
+    "productName": "Codec",
+    "copyright": "Codec",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "!src/**/*.test.mjs",
+      "assets/**/*",
+      "package.json"
+    ],
+    "afterPack": "scripts/after-pack.cjs",
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Codec uses the microphone for voice notes and calls.",
+        "NSCameraUsageDescription": "Codec uses the camera for video calls."
+      }
+    },
+    "dmg": {
+      "title": "Codec"
+    },
+    "publish": null
+  }
+}

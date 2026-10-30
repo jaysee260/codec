@@ -66,6 +66,11 @@ Open the printed address in the phone's browser. Voice notes can be played this 
 recording needs the Android app, which `npm run cap:build:android:lan` builds. The full walkthrough,
 including iOS, is in `docs/MOBILE.md`.
 
+## Mac app
+
+`desktop/` is Codec for Mac: the live site in its own app, with a Dock badge, notifications and a menu bar icon.
+How to install, build and release it: `desktop/README.md`.
+
 ## Finding your way around the code
 
 - `src/lib/` and `src/store/` hold the Matrix connection and app state

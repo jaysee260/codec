@@ -66,8 +66,8 @@ export const SESSION_STORAGE_KEY = 'matrix-poc.session';
 /** localStorage key holding the last navigation selection ({ spaceId, roomId, lastRoomBySpace }). */
 export const NAV_STORAGE_KEY = 'nav.selection';
 
-/** Device name shown in the homeserver's device list. */
-export const DEVICE_DISPLAY_NAME = 'Codec (web)';
+/** Device name shown in the homeserver's device list ("Codec (Mac)" inside the Mac app, which sets `window.codecDesktop`). */
+export const DEVICE_DISPLAY_NAME = typeof window !== 'undefined' && 'codecDesktop' in window ? 'Codec (Mac)' : 'Codec (web)';
 
 /** Server name part of a user id: "@alice:localhost" -> "localhost". */
 export function serverNameOf(userId: string): string {
